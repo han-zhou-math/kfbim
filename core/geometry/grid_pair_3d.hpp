@@ -12,19 +12,23 @@ class GridPair3D {
 public:
     GridPair3D(const CartesianGrid3D& grid, const Interface3D& interface);
 
-    // index of the bulk grid node closest to interface quadrature point i
+    // interface point index → nearest bulk node
     int closest_bulk_node(int interface_pt_idx) const;
 
-    // index of the interface quadrature point closest to bulk node idx
+    // bulk node index → nearest interface point (single nearest, any component)
     int closest_interface_point(int bulk_node_idx) const;
 
-    // domain label of bulk node idx (0 = exterior, 1,2,... = interior domains)
+    // domain label: 0 = exterior, 1,2,... = interior of each component
     int domain_label(int bulk_node_idx) const;
 
     bool is_near_interface(int bulk_node_idx, double radius) const;
 
-    // all bulk node indices whose closest interface point is within radius
+    // all bulk node indices within radius of any interface point
     std::vector<int> near_interface_nodes(double radius) const;
+
+    // all interface point indices within radius of a given bulk node
+    // (may span multiple components; used by Corrector to accumulate all contributions)
+    std::vector<int> near_interface_points(int bulk_node_idx, double radius) const;
 
     const CartesianGrid3D& grid()      const { return grid_; }
     const Interface3D&     interface_() const { return interface_; }
