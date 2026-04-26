@@ -26,6 +26,9 @@ add_library(kfbim_core STATIC
 
     # Layer 2 — Bulk Solver
     solver/laplace_fft_bulk_solver_2d.cpp
+    solver/zfft_engine_2d.cpp
+    solver/laplace_zfft_bulk_solver_2d.cpp
+    solver/laplace_zfft_bulk_solver_3d.cpp
 
     # Layer 3 — KFBI Operator (add when implemented)
     # operator/laplace_kfbi_operator_2d.cpp
@@ -39,7 +42,7 @@ target_include_directories(kfbim_core PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(kfbim_core PUBLIC Eigen3::Eigen)
+target_link_libraries(kfbim_core PUBLIC Eigen3::Eigen zfft)
 
 if(CGAL_FOUND)
     target_link_libraries(kfbim_core PUBLIC CGAL::CGAL)
