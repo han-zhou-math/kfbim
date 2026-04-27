@@ -9,6 +9,9 @@ namespace kfbim {
 class GridPair2D {
 public:
     GridPair2D(const CartesianGrid2D& grid, const Interface2D& interface);
+    ~GridPair2D();
+    GridPair2D(const GridPair2D&)            = delete;
+    GridPair2D& operator=(const GridPair2D&) = delete;
 
     // interface point index → nearest bulk node
     int closest_bulk_node(int interface_pt_idx) const;
@@ -28,8 +31,8 @@ public:
     // (may span multiple components; used by Corrector to accumulate all contributions)
     std::vector<int> near_interface_points(int bulk_node_idx, double radius) const;
 
-    const CartesianGrid2D& grid()       const { return grid_; }
-    const Interface2D&     interface_() const { return interface_; }
+    const CartesianGrid2D& grid()      const { return grid_; }
+    const Interface2D&     interface() const { return interface_; }
 
 private:
     const CartesianGrid2D& grid_;

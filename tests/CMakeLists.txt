@@ -48,6 +48,9 @@ kfbim_add_test(test_grid test_grid.cpp)
 # Layer 2 bulk solver (FFT)
 kfbim_add_test(test_solver test_solver.cpp)
 
+# Layer 0 geometry (GridPair)
+kfbim_add_test(test_grid_pair test_grid_pair.cpp)
+
 # Layer 1.5 local Cauchy solver: add when LaplaceLocalSolver2D is implemented.
 # kfbim_add_test(test_local_cauchy test_local_cauchy.cpp)
 

@@ -11,6 +11,9 @@ namespace kfbim {
 class GridPair3D {
 public:
     GridPair3D(const CartesianGrid3D& grid, const Interface3D& interface);
+    ~GridPair3D();
+    GridPair3D(const GridPair3D&)            = delete;
+    GridPair3D& operator=(const GridPair3D&) = delete;
 
     // interface point index → nearest bulk node
     int closest_bulk_node(int interface_pt_idx) const;
@@ -31,7 +34,7 @@ public:
     std::vector<int> near_interface_points(int bulk_node_idx, double radius) const;
 
     const CartesianGrid3D& grid()      const { return grid_; }
-    const Interface3D&     interface_() const { return interface_; }
+    const Interface3D&     interface() const { return interface_; }
 
 private:
     const CartesianGrid3D& grid_;

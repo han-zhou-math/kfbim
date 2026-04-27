@@ -13,9 +13,13 @@ add_library(kfbim_core STATIC
     grid/mac_grid_2d.cpp
     grid/mac_grid_3d.cpp
 
-    # Layer 0 — Geometry (add when CGAL pimpl is implemented)
-    # geometry/grid_pair_2d.cpp
-    # geometry/grid_pair_3d.cpp
+    # Layer 0 — Interface
+    interface/interface_2d.cpp
+    interface/interface_3d.cpp
+
+    # Layer 0 — Geometry
+    geometry/grid_pair_2d.cpp
+    geometry/grid_pair_3d.cpp
 
     # Layer 1.5 — Local Cauchy Solver (add when implemented)
     # local_cauchy/laplace_local_solver_2d.cpp
