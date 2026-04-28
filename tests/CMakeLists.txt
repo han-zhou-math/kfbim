@@ -54,8 +54,8 @@ kfbim_add_test(test_grid_pair test_grid_pair.cpp)
 # IIM defect correction + FFT solve (Layer 0 + 2 integration)
 kfbim_add_test(test_iim_2d test_iim_2d.cpp)
 
-# Layer 1.5 local Cauchy solver: add when LaplaceLocalSolver2D is implemented.
-# kfbim_add_test(test_local_cauchy test_local_cauchy.cpp)
+# Layer 1.5 local Cauchy solver
+kfbim_add_test(test_local_cauchy test_local_cauchy.cpp)
 
 # Full pipeline (interior Dirichlet, circle domain): add when all layers exist.
 # kfbim_add_test(test_laplace_interior_2d test_laplace_interior_2d.cpp)
