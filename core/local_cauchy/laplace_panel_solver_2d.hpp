@@ -16,9 +16,12 @@ namespace kfbim {
 //
 // For each Gauss point (center), a 6×6 collocation system is assembled
 // using points sampled from the containing panel:
-//   Rows 0–2  Dirichlet : all 3 panel Gauss pts         → value [u]
+//   Rows 0–2  Dirichlet : all 3 panel Gauss pts          → value [u]
 //   Rows 3–4  Neumann   : panel pts 0 and 2              → normal-deriv [∂_n u]·h
-//   Row  5    PDE       : center − 0.5h · outward normal → (−Δ+κ)C · h²
+//   Row  5    PDE       : panel midpoint (GL node 1)      → (−Δ+κ)C · h²
+//
+// The PDE row uses the panel midpoint as a fixed bulk reference shared by
+// all 3 per-center solves on the same panel.  Lu is given exactly there.
 //
 // Monomial basis (Taylor-scaled):
 //   φ₀=1,  φ₁=dx,  φ₂=dy,  φ₃=½dx²,  φ₄=½dy²,  φ₅=dx·dy
@@ -209,23 +212,18 @@ inline PanelCauchyResult2D laplace_panel_cauchy_2d(
         };
         double bv[2] = { b[g0], b[g2] };
 
+        // PDE collocation: panel midpoint (GL node 1), shared by all 3 solves
+        double bulk[2] = { iface.points()(g1, 0), iface.points()(g1, 1) };
+        double Lu_bulk  = Lu_iface[g1];
+
         // Solve for each of the 3 Gauss points as the local center
         const int gidx[3] = { g0, g1, g2 };
         for (int i = 0; i < 3; ++i) {
             const int gi = gidx[i];
 
             double center[2] = { iface.points()(gi, 0), iface.points()(gi, 1) };
-            double nx_i = iface.normals()(gi, 0);
-            double ny_i = iface.normals()(gi, 1);
 
-            // Interior bulk point: shift half a panel arc-length inward
-            double bulk[2] = {
-                center[0] - 0.5 * h * nx_i,
-                center[1] - 0.5 * h * ny_i
-            };
-
-            // Constant approximation of Lu at bulk point (O(h) error)
-            double Lu = Lu_iface[gi];
+            double Lu = Lu_bulk;
 
             double c[6];
             solve_local_6x6_2d(bdry1, av,
