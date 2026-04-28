@@ -137,34 +137,73 @@ GridPair3D::GridPair3D(const CartesianGrid3D& grid, const Interface3D& iface)
     }
 
     // ------------------------------------------------------------------
-    // 3. domain_label_vec[n]: ray-casting in +z direction through the
-    //    triangle mesh.  Count intersections per component; odd → inside.
+    // 3. domain_label_vec[n]: narrow-band ray-cast + BFS flood-fill.
+    //
+    // (a) Band nodes (min_iface_dist < band_radius): ray-cast exactly.
+    // (b) Remaining nodes: BFS from labeled band — safe because no
+    //     interface edge can connect two non-band nodes when
+    //     band_radius >= h_max.
     // ------------------------------------------------------------------
-    impl_->domain_label_vec.resize(N, 0);
+    const double h_max = std::max({grid.spacing()[0], grid.spacing()[1], grid.spacing()[2]});
 
-    for (int n = 0; n < N; ++n) {
-        auto   c  = grid.coord(n);
-        double px = c[0], py = c[1], pz = c[2];
-
-        std::vector<int> hits(Nc, 0);
-        for (int p = 0; p < Np; ++p) {
-            int va = iface.panels()(p, 0);
-            int vb = iface.panels()(p, 1);
-            int vc = iface.panels()(p, 2);
-            if (ray_tri_hit(px, py, pz,
-                            iface.vertices()(va, 0), iface.vertices()(va, 1), iface.vertices()(va, 2),
-                            iface.vertices()(vb, 0), iface.vertices()(vb, 1), iface.vertices()(vb, 2),
-                            iface.vertices()(vc, 0), iface.vertices()(vc, 1), iface.vertices()(vc, 2)))
-                hits[iface.panel_components()(p)]++;
+    // Max distance from any quadrature point to a vertex of its panel.
+    // Accounts for coarse meshes where centroids can be far from corners.
+    double max_panel_radius = 0.0;
+    for (int p = 0; p < Np; ++p) {
+        for (int vi = 0; vi < 3; ++vi) {
+            int vidx = iface.panels()(p, vi);
+            double dx = iface.points()(p,0) - iface.vertices()(vidx,0);
+            double dy = iface.points()(p,1) - iface.vertices()(vidx,1);
+            double dz = iface.points()(p,2) - iface.vertices()(vidx,2);
+            max_panel_radius = std::max(max_panel_radius, std::sqrt(dx*dx+dy*dy+dz*dz));
         }
+    }
+    const double band_radius = 2.0 * h_max + max_panel_radius;
 
-        for (int comp = 0; comp < Nc; ++comp) {
-            if (hits[comp] % 2 == 1) {
-                impl_->domain_label_vec[n] = comp + 1;
-                break;
+    constexpr int UNLABELED = -1;
+    impl_->domain_label_vec.resize(N, UNLABELED);
+
+    std::queue<int> bfs;
+    for (int n = 0; n < N; ++n) {
+        if (impl_->min_iface_dist[n] < band_radius) {
+            auto   c  = grid.coord(n);
+            double px = c[0], py = c[1], pz = c[2];
+
+            std::vector<int> hits(Nc, 0);
+            for (int p = 0; p < Np; ++p) {
+                int va = iface.panels()(p, 0);
+                int vb = iface.panels()(p, 1);
+                int vc = iface.panels()(p, 2);
+                if (ray_tri_hit(px, py, pz,
+                                iface.vertices()(va, 0), iface.vertices()(va, 1), iface.vertices()(va, 2),
+                                iface.vertices()(vb, 0), iface.vertices()(vb, 1), iface.vertices()(vb, 2),
+                                iface.vertices()(vc, 0), iface.vertices()(vc, 1), iface.vertices()(vc, 2)))
+                    hits[iface.panel_components()(p)]++;
+            }
+
+            int lbl = 0;
+            for (int comp = 0; comp < Nc; ++comp) {
+                if (hits[comp] % 2 == 1) { lbl = comp + 1; break; }
+            }
+            impl_->domain_label_vec[n] = lbl;
+            bfs.push(n);
+        }
+    }
+
+    while (!bfs.empty()) {
+        int n = bfs.front(); bfs.pop();
+        int lbl = impl_->domain_label_vec[n];
+        for (int nb : grid.neighbors(n)) {
+            if (nb >= 0 && impl_->domain_label_vec[nb] == UNLABELED) {
+                impl_->domain_label_vec[nb] = lbl;
+                bfs.push(nb);
             }
         }
     }
+
+    for (int n = 0; n < N; ++n)
+        if (impl_->domain_label_vec[n] == UNLABELED)
+            impl_->domain_label_vec[n] = 0;
 }
 
 GridPair3D::~GridPair3D() = default;

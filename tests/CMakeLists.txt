@@ -51,6 +51,9 @@ kfbim_add_test(test_solver test_solver.cpp)
 # Layer 0 geometry (GridPair)
 kfbim_add_test(test_grid_pair test_grid_pair.cpp)
 
+# IIM defect correction + FFT solve (Layer 0 + 2 integration)
+kfbim_add_test(test_iim_2d test_iim_2d.cpp)
+
 # Layer 1.5 local Cauchy solver: add when LaplaceLocalSolver2D is implemented.
 # kfbim_add_test(test_local_cauchy test_local_cauchy.cpp)
 

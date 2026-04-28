@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 #include <cmath>
+#include <unordered_set>
 
 static constexpr double kPi = 3.14159265358979323846;
 
@@ -1231,4 +1232,198 @@ TEST_CASE("GridPair3D domain labeling — torus (genus-1, hole is exterior)",
         if (gp.domain_label(n) == 1) n_interior++;
     REQUIRE(n_interior > 200);   // loose lower bound
     REQUIRE(n_interior < 4000);  // loose upper bound
+}
+
+// ============================================================================
+// BFS-specific tests — verify the narrow-band + flood-fill algorithm directly
+// ============================================================================
+
+// Helper: build a flat set of "in-band" node indices for quick lookup.
+static std::unordered_set<int> band_set(const GridPair2D& gp,
+                                        const CartesianGrid2D& grid, double radius) {
+    auto nodes = gp.near_interface_nodes(radius);
+    return {nodes.begin(), nodes.end()};
+}
+
+static std::unordered_set<int> band_set_3d(const GridPair3D& gp,
+                                           const CartesianGrid3D& grid, double radius) {
+    auto nodes = gp.near_interface_nodes(radius);
+    return {nodes.begin(), nodes.end()};
+}
+
+// ─── 2D: no label boundary outside the narrow band ───────────────────────────
+//
+// BFS correctness property: once the band is labeled by the geometry test, BFS
+// flood-fills from it — so NO label boundary can exist between two nodes that
+// are both outside the band.  Any adjacent non-band pair must share the same label.
+TEST_CASE("GridPair2D BFS: no label boundary outside narrow band — circle",
+          "[gridpair][2d][bfs]")
+{
+    const double h  = 1.0 / 32;
+    const double r  = 0.30, cx = 0.50, cy = 0.50;
+    CartesianGrid2D grid({0.0, 0.0}, {h, h}, {32, 32}, DofLayout2D::Node);
+    auto iface = make_circle(cx, cy, r, 512);
+    GridPair2D gp(grid, iface);
+
+    // Use 4h as "definitely outside band": the internal band is ~2h for this mesh.
+    const double threshold = 4.0 * h;
+    auto in_band = band_set(gp, grid, threshold);
+
+    int violations = 0;
+    for (int n = 0; n < grid.num_dofs(); ++n) {
+        if (in_band.count(n)) continue;
+        for (int nb : grid.neighbors(n)) {
+            if (nb < 0 || in_band.count(nb)) continue;
+            if (gp.domain_label(n) != gp.domain_label(nb)) ++violations;
+        }
+    }
+    REQUIRE(violations == 0);
+}
+
+// ─── 2D: far-field BFS accuracy on large grid with small interface ────────────
+//
+// The grid is much larger than the interface, so the overwhelming majority of
+// labels are assigned by BFS (not the geometry test).  Verify they match the
+// analytical ground truth.
+TEST_CASE("GridPair2D BFS: far-field accuracy — small circle on large grid",
+          "[gridpair][2d][bfs]")
+{
+    // [-1, 1]^2 with h=0.05; circle of radius 0.15 centred at origin.
+    // Band ~ 2h = 0.10 wide; ~97% of the 41×41 nodes are BFS-labeled.
+    const int    n_cells = 40;
+    const double half    = 1.0;
+    const double h       = 2.0 * half / n_cells;
+    CartesianGrid2D grid({-half, -half}, {h, h}, {n_cells, n_cells}, DofLayout2D::Node);
+
+    const double r = 0.15;
+    auto iface = make_circle(0.0, 0.0, r, 256);
+    GridPair2D gp(grid, iface);
+
+    const double margin = 3.0 * h;
+    int n_wrong = 0;
+    for (int n = 0; n < grid.num_dofs(); ++n) {
+        auto c = grid.coord(n);
+        double dist = std::sqrt(c[0]*c[0] + c[1]*c[1]);
+        int label = gp.domain_label(n);
+        if (dist < r - margin && label != 1) ++n_wrong;
+        if (dist > r + margin && label != 0) ++n_wrong;
+    }
+    REQUIRE(n_wrong == 0);
+}
+
+// ─── 2D: BFS propagates correct label deep into interior of non-convex shape ─
+//
+// For the star polygon, the narrow band covers only the non-convex tips and
+// the concave valleys.  All nodes far from the boundary rely on BFS.
+// Verify labels match the analytical star_contains test everywhere.
+TEST_CASE("GridPair2D BFS: far-field accuracy — star polygon (non-convex)",
+          "[gridpair][2d][bfs]")
+{
+    const double h  = 1.0 / 64;
+    const double cx = 0.5, cy = 0.5, R = 0.28, A = 0.40;
+    const int    k  = 5;
+    CartesianGrid2D grid({0.0, 0.0}, {h, h}, {64, 64}, DofLayout2D::Node);
+    auto iface = make_star(cx, cy, R, A, k, 512);
+    GridPair2D gp(grid, iface);
+
+    auto d  = grid.dof_dims();
+    int  nx = d[0];
+    const double margin = 3.0 * h;
+    int n_wrong = 0;
+
+    for (int jj = 0; jj < d[1]; ++jj) {
+        for (int ii = 0; ii < nx; ++ii) {
+            double x = ii * h, y = jj * h;
+            double rho = std::sqrt((x-cx)*(x-cx) + (y-cy)*(y-cy));
+            double th  = std::atan2(y-cy, x-cx);
+            double r_bnd = R * (1.0 + A * std::cos(k * th));
+            // Nodes clearly inside or outside: dist to boundary > margin
+            if (std::fabs(rho - r_bnd) > margin) {
+                bool expected_inside = star_contains(cx, cy, R, A, k, x, y);
+                int label = gp.domain_label(jj * nx + ii);
+                if (expected_inside && label != 1) ++n_wrong;
+                if (!expected_inside && label != 0) ++n_wrong;
+            }
+        }
+    }
+    REQUIRE(n_wrong == 0);
+}
+
+// ─── 3D: no label boundary outside the narrow band — UV sphere ───────────────
+TEST_CASE("GridPair3D BFS: no label boundary outside narrow band — sphere",
+          "[gridpair][3d][bfs]")
+{
+    const double R = 0.25;
+    auto  iface = make_sphere_uv(0.0, 0.0, 0.0, R, 10, 20);
+    auto  grid  = make_bbox_grid_3d(0.5, 20);
+    double h    = grid.spacing()[0];
+    GridPair3D gp(grid, iface);
+
+    const double threshold = 4.0 * h;
+    auto in_band = band_set_3d(gp, grid, threshold);
+
+    int violations = 0;
+    for (int n = 0; n < grid.num_dofs(); ++n) {
+        if (in_band.count(n)) continue;
+        for (int nb : grid.neighbors(n)) {
+            if (nb < 0 || in_band.count(nb)) continue;
+            if (gp.domain_label(n) != gp.domain_label(nb)) ++violations;
+        }
+    }
+    REQUIRE(violations == 0);
+}
+
+// ─── 3D: exhaustive far-field check — every non-band node matches the sphere ──
+//
+// Fine UV sphere mesh; every node clearly inside or outside is checked against
+// the analytical condition r < R (interior) / r > R (exterior).
+TEST_CASE("GridPair3D BFS: exhaustive far-field check — UV sphere",
+          "[gridpair][3d][bfs]")
+{
+    const double R = 0.28;
+    auto iface = make_sphere_uv(0.0, 0.0, 0.0, R, 12, 24);
+    auto grid  = make_bbox_grid_3d(0.5, 24);
+    double h   = grid.spacing()[0];
+    GridPair3D gp(grid, iface);
+
+    const double margin = 3.0 * h;
+    int n_wrong = 0;
+    for (int n = 0; n < grid.num_dofs(); ++n) {
+        auto   c    = grid.coord(n);
+        double dist = std::sqrt(c[0]*c[0] + c[1]*c[1] + c[2]*c[2]);
+        int    label = gp.domain_label(n);
+        if (dist < R - margin && label != 1) ++n_wrong;
+        if (dist > R + margin && label != 0) ++n_wrong;
+    }
+    REQUIRE(n_wrong == 0);
+}
+
+// ─── 3D: far-field BFS accuracy — small sphere on a large grid ───────────────
+//
+// Grid much larger than sphere: >90% of nodes labeled by BFS, not ray casting.
+TEST_CASE("GridPair3D BFS: far-field accuracy — small sphere on large grid",
+          "[gridpair][3d][bfs]")
+{
+    // [-2, 2]^3, h=0.2, sphere r=0.3 at origin.
+    // Band ~ 2h = 0.4; sphere surface-to-corner distance >> band.
+    const int    n_cells = 20;
+    const double half    = 2.0;
+    const double h       = 2.0 * half / n_cells;
+    CartesianGrid3D grid({-half,-half,-half}, {h,h,h}, {n_cells,n_cells,n_cells},
+                         DofLayout3D::Node);
+
+    const double R = 0.30;
+    auto iface = make_sphere_uv(0.0, 0.0, 0.0, R, 8, 16);
+    GridPair3D gp(grid, iface);
+
+    const double margin = 3.0 * h;
+    int n_wrong = 0;
+    for (int n = 0; n < grid.num_dofs(); ++n) {
+        auto   c    = grid.coord(n);
+        double dist = std::sqrt(c[0]*c[0] + c[1]*c[1] + c[2]*c[2]);
+        int    label = gp.domain_label(n);
+        if (dist < R - margin && label != 1) ++n_wrong;
+        if (dist > R + margin && label != 0) ++n_wrong;
+    }
+    REQUIRE(n_wrong == 0);
 }
