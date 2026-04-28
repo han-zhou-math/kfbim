@@ -25,8 +25,8 @@ add_library(kfbim_core STATIC
     # local_cauchy/laplace_local_solver_2d.cpp
 
     # Layer 1 — Transfer Operators (add when implemented)
-    # transfer/laplace_spread_2d.cpp
-    # transfer/laplace_restrict_2d.cpp
+    transfer/laplace_spread_2d.cpp
+    transfer/laplace_restrict_2d.cpp
 
     # Layer 2 — Bulk Solver
     solver/laplace_fft_bulk_solver_2d.cpp
