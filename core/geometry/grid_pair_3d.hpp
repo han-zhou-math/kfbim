@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <vector>
 #include "../grid/cartesian_grid_3d.hpp"
 #include "../interface/interface_3d.hpp"

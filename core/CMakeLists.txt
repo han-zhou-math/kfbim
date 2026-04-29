@@ -34,11 +34,11 @@ add_library(kfbim_core STATIC
     solver/laplace_zfft_bulk_solver_2d.cpp
     solver/laplace_zfft_bulk_solver_3d.cpp
 
-    # Layer 3 — KFBI Operator (add when implemented)
-    # operator/laplace_kfbi_operator_2d.cpp
+    # Layer 3 — KFBI Operator
+    operator/laplace_kfbi_operator.cpp
 
-    # Layer 4 — Outer Solver (add when implemented)
-    # gmres/gmres.cpp
+    # Layer 4 — Outer Solver
+    gmres/gmres.cpp
 )
 
 target_include_directories(kfbim_core PUBLIC

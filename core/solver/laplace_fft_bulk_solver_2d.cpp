@@ -38,7 +38,7 @@ LaplaceFftBulkSolver2D::LaplaceFftBulkSolver2D(
 }
 
 void LaplaceFftBulkSolver2D::solve(const Eigen::VectorXd& rhs,
-                                    Eigen::VectorXd&       solution)
+                                    Eigen::VectorXd&       solution) const
 {
     auto d  = grid_.dof_dims();
     int  nx = d[0];

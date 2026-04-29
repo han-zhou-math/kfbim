@@ -22,7 +22,12 @@ namespace kfbim {
 // GridPair (Interface::normals().row(i)).
 // ---------------------------------------------------------------------------
 
-enum class LaplaceKFBIMode { Dirichlet, Neumann };
+enum class LaplaceKFBIMode {
+    Dirichlet,              // Unknown [∂u/∂n]=σ, [u]=0 (Single Layer), out trace u-
+    Neumann,                // Unknown [u]=μ, [∂u/∂n]=0 (Double Layer), out flux (∂u/∂n)-
+    DirichletDouble,        // Unknown [u]=φ, [∂u/∂n]=0 (Double Layer), out trace u-  (K - 1/2 I)
+    ExteriorDirichletDouble // Unknown [u]=φ, [∂u/∂n]=0 (Double Layer), out trace u+  (K + 1/2 I)
+};
 
 // ---------------------------------------------------------------------------
 // Concrete Laplace KFBIM operators (Layer 3)
@@ -57,7 +62,11 @@ public:
                            std::vector<Eigen::VectorXd> rhs_derivs,
                            LaplaceKFBIMode              mode);
 
+    // Linear part: y = A * x  (ignores base_rhs_ and rhs_derivs_)
     void apply(const Eigen::VectorXd& x, Eigen::VectorXd& y) const override;
+
+    // Full affine map: y = A * x + b (includes base_rhs_ and rhs_derivs_)
+    void apply_full(const Eigen::VectorXd& x, Eigen::VectorXd& y) const;
 
     // = Interface2D::num_points()
     int problem_size() const override;
@@ -82,7 +91,12 @@ public:
                            std::vector<Eigen::VectorXd> rhs_derivs,
                            LaplaceKFBIMode              mode);
 
+    // Linear part
     void apply(const Eigen::VectorXd& x, Eigen::VectorXd& y) const override;
+
+    // Full affine map
+    void apply_full(const Eigen::VectorXd& x, Eigen::VectorXd& y) const;
+
     int  problem_size() const override;
     LaplaceKFBIMode mode() const { return mode_; }
 

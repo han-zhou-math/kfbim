@@ -33,7 +33,7 @@ public:
                             std::unique_ptr<IFFTEngine2D> engine);
 
     void solve(const Eigen::VectorXd& rhs,
-               Eigen::VectorXd&       solution) override;
+               Eigen::VectorXd&       solution) const override;
 
     const ICartesianGrid2D& grid() const override { return grid_; }
 
@@ -41,7 +41,7 @@ private:
     CartesianGrid2D                   grid_;
     std::unique_ptr<IFFTEngine2D>     engine_;
     std::vector<double>               eigenvalues_;   // size ny*(nx/2+1), index [ky*(nx/2+1)+kx]
-    std::vector<std::complex<double>> buf_c_;         // spectral work buffer, same size
+    mutable std::vector<std::complex<double>> buf_c_; // spectral work buffer, same size
 };
 
 } // namespace kfbim

@@ -28,7 +28,7 @@ public:
 
     // rhs and solution are indexed by grid().num_dofs()
     virtual void solve(const Eigen::VectorXd& rhs,
-                       Eigen::VectorXd&       solution) = 0;
+                       Eigen::VectorXd&       solution) const = 0;
 
     virtual const ICartesianGrid2D& grid() const = 0;
 };
@@ -38,7 +38,7 @@ public:
     virtual ~ILaplaceBulkSolver3D() = default;
 
     virtual void solve(const Eigen::VectorXd& rhs,
-                       Eigen::VectorXd&       solution) = 0;
+                       Eigen::VectorXd&       solution) const = 0;
 
     virtual const ICartesianGrid3D& grid() const = 0;
 };

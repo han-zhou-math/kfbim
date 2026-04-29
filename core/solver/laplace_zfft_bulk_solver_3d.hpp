@@ -36,7 +36,7 @@ public:
                                 int             order = 2);
 
     void solve(const Eigen::VectorXd& rhs,
-               Eigen::VectorXd&       solution) override;
+               Eigen::VectorXd&       solution) const override;
 
     const ICartesianGrid3D& grid() const override { return grid_; }
 

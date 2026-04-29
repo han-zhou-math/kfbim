@@ -53,7 +53,7 @@ LaplaceFftBulkSolverZfft3D::LaplaceFftBulkSolverZfft3D(
 // Neumann   — same layout as Dirichlet; all nodes filled.
 // ---------------------------------------------------------------------------
 void LaplaceFftBulkSolverZfft3D::solve(const Eigen::VectorXd& rhs,
-                                        Eigen::VectorXd&       solution)
+                                        Eigen::VectorXd&       solution) const
 {
     auto d   = grid_.dof_dims();
     int  nx  = d[0], ny = d[1], nz = d[2];
