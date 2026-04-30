@@ -18,6 +18,7 @@
 #include "core/grid/cartesian_grid_2d.hpp"
 #include "core/solver/laplace_zfft_bulk_solver_2d.hpp"
 #include "core/solver/zfft_bc_type.hpp"
+#include "core/solver/iim_laplace_2d.hpp"
 #include "core/local_cauchy/jump_data.hpp"
 #include "core/transfer/laplace_spread_2d.hpp"
 
@@ -163,6 +164,186 @@ TEST_CASE("Laplace interface problem: end-to-end convergence — panel Cauchy + 
 
     for (int l = 1; l < n_levels; ++l) {
         double rate = std::log2(errors[l-1] / errors[l]);
+        REQUIRE(rate > 1.5);
+    }
+}
+
+// ── Helpers for the harmonic-jump test ───────────────────────────────────────
+
+// Exact C derivatives for C = exp(x)sin(y)
+static double C_exp(double x, double y)   { return std::exp(x)*std::sin(y); }
+static double Cx_exp(double x, double y)  { return std::exp(x)*std::sin(y); }
+static double Cy_exp(double x, double y)  { return std::exp(x)*std::cos(y); }
+static double Cxx_exp(double x, double y) { return std::exp(x)*std::sin(y); }
+static double Cxy_exp(double x, double y) { return std::exp(x)*std::cos(y); }
+static double Cyy_exp(double x, double y) { return -std::exp(x)*std::sin(y); }
+
+// Baseline: fixed 1024-pt interface for all N (eliminates label-flipping between
+// refinement levels), exact C derivatives → iim_correct_rhs_taylor.
+static Eigen::VectorXd solve_harmonic_jump_exact(int N,
+                                                  const Interface2D& iface_fixed)
+{
+    const double h = 1.0 / N;
+    CartesianGrid2D grid({0.0, 0.0}, {h, h}, {N, N}, DofLayout2D::Node);
+    auto d = grid.dof_dims(); int nx = d[0], ny = d[1];
+
+    GridPair2D gp(grid, iface_fixed);
+
+    std::vector<int> labels(nx * ny);
+    for (int n = 0; n < nx * ny; ++n) labels[n] = gp.domain_label(n);
+
+    int Nq = iface_fixed.num_points();
+    Eigen::VectorXd C_q(Nq), Cx_q(Nq), Cy_q(Nq), Cxx_q(Nq), Cxy_q(Nq), Cyy_q(Nq);
+    for (int q = 0; q < Nq; ++q) {
+        double x = iface_fixed.points()(q, 0), y = iface_fixed.points()(q, 1);
+        C_q[q]   = C_exp(x, y);   Cx_q[q]  = Cx_exp(x, y);
+        Cy_q[q]  = Cy_exp(x, y);  Cxx_q[q] = Cxx_exp(x, y);
+        Cxy_q[q] = Cxy_exp(x, y); Cyy_q[q] = Cyy_exp(x, y);
+    }
+
+    Eigen::VectorXd f = Eigen::VectorXd::Zero(nx * ny);
+    Eigen::VectorXd F = iim_correct_rhs_taylor(grid, gp, iface_fixed, f,
+                                                C_q, Cx_q, Cy_q,
+                                                Cxx_q, Cxy_q, Cyy_q, labels);
+    LaplaceFftBulkSolverZfft2D solver(grid, ZfftBcType::Dirichlet);
+    Eigen::VectorXd u_h;
+    solver.solve(-F, u_h);
+    return u_h;
+}
+
+// ── Test: -Δu=0, [u]=exp(x)sin(y), 3-fold star ───────────────────────────────
+//
+// C = exp(x)sin(y) is harmonic (ΔC=0), so f=0 on both sides.
+// No exact solution is available; convergence is verified by Richardson
+// self-refinement with a FIXED 768-pt interface for all N (avoids domain-label
+// flips at shared nodes that arise when the interface is refined with the grid).
+
+static Eigen::VectorXd solve_harmonic_jump(int N, const Interface2D& iface_fixed)
+{
+    const double h = 1.0 / N;
+    CartesianGrid2D grid({0.0, 0.0}, {h, h}, {N, N}, DofLayout2D::Node);
+    auto d  = grid.dof_dims();
+    int  nx = d[0], ny = d[1];
+
+    GridPair2D gp(grid, iface_fixed);
+
+    std::vector<int> labels(nx * ny);
+    for (int n = 0; n < nx * ny; ++n) labels[n] = gp.domain_label(n);
+
+    const int Nq = iface_fixed.num_points();
+    std::vector<LaplaceJumpData2D> jumps(Nq);
+    for (int q = 0; q < Nq; ++q) {
+        double x   = iface_fixed.points()(q, 0),  y   = iface_fixed.points()(q, 1);
+        double nxq = iface_fixed.normals()(q, 0), nyq = iface_fixed.normals()(q, 1);
+        double ex  = std::exp(x);
+        jumps[q].u_jump     = ex * std::sin(y);
+        jumps[q].un_jump    = ex * std::sin(y) * nxq + ex * std::cos(y) * nyq;
+        jumps[q].rhs_derivs = Eigen::VectorXd::Zero(1);  // f⁺ − f⁻ = 0
+    }
+
+    LaplacePanelSpread2D spread(gp);
+    Eigen::VectorXd rhs_correction = Eigen::VectorXd::Zero(nx * ny);
+    spread.apply(jumps, rhs_correction);
+
+    LaplaceFftBulkSolverZfft2D solver(grid, ZfftBcType::Dirichlet);
+    Eigen::VectorXd u_h;
+    solver.solve(-rhs_correction, u_h);
+    return u_h;
+}
+
+// Fixed interface used by all Richardson levels (avoids label-flip between N values)
+static Interface2D make_fixed_iface_3fold()
+{
+    // 256 panels × 3 GL pts = 768 quadrature points; panel arc-length << h for all N
+    return make_star_panels(0.5, 0.5, 0.28, 0.40, 3, 256);
+}
+
+TEST_CASE("Laplace: -Δu=0, [u]=exp(x)sin(y), 3-fold star — Richardson self-convergence",
+          "[laplace][iface][convergence][2d]")
+{
+    const int Ns[]     = {32, 64, 128, 256};
+    const int n_levels = 4;
+    const int n_diffs  = n_levels - 1;
+
+    auto iface_fixed = make_fixed_iface_3fold();
+    std::vector<Eigen::VectorXd> sols(n_levels);
+    for (int l = 0; l < n_levels; ++l)
+        sols[l] = solve_harmonic_jump(Ns[l], iface_fixed);
+
+    // diff[l] = max |u_{Ns[l]} − u_{Ns[l+1]}|_∞ at shared interior nodes
+    double diffs[n_diffs];
+    for (int l = 0; l < n_diffs; ++l) {
+        const int nx_c = Ns[l]   + 1;
+        const int nx_f = Ns[l+1] + 1;
+        double d = 0.0;
+        for (int j = 1; j < nx_c - 1; ++j)
+            for (int i = 1; i < nx_c - 1; ++i)
+                d = std::max(d, std::abs(sols[l  ][ j      * nx_c +  i     ]
+                                        - sols[l+1][(2*j) * nx_f + (2*i)]));
+        diffs[l] = d;
+    }
+
+    std::printf("\n  -Δu=0, [u]=exp(x)sin(y), [∂_n u]=n·∇(exp(x)sin(y)), 3-fold star\n");
+    std::printf("  (fixed 768-pt interface for all N; panel Cauchy + IIM + FFT)\n");
+    std::printf("  Richardson self-convergence  (|u_N − u_{2N}|_∞ at shared nodes)\n");
+    std::printf("  %6s  %14s  %8s\n", "N", "|u_N - u_2N|", "rate");
+    std::printf("  %6d  %14.4e  %8s\n", Ns[0], diffs[0], "—");
+    for (int l = 1; l < n_diffs; ++l) {
+        double rate = std::log2(diffs[l-1] / diffs[l]);
+        std::printf("  %6d  %14.4e  %8.3f\n", Ns[l], diffs[l], rate);
+    }
+
+    // Rate at 32→64 is pre-asymptotic (~1.3); asymptotic rate is ~2 at finer N.
+    // Require all diffs decrease (rate > 0) and that the asymptotic rate (64→128)
+    // exceeds 1.5.
+    REQUIRE(diffs[1] < diffs[0]);
+    REQUIRE(diffs[2] < diffs[1]);
+    {
+        double rate = std::log2(diffs[1] / diffs[2]);
+        REQUIRE(rate > 1.5);
+    }
+}
+
+// ── Exact-C baseline ──────────────────────────────────────────────────────────
+// Same problem but C derivatives supplied analytically → bypasses panel Cauchy.
+// Rates should be similar, confirming that panel Cauchy does not degrade accuracy.
+
+TEST_CASE("Laplace: -Δu=0, [u]=exp(x)sin(y), 3-fold star — exact-C baseline",
+          "[laplace][iface][convergence][2d]")
+{
+    const int Ns[]     = {32, 64, 128, 256};
+    const int n_levels = 4;
+    const int n_diffs  = n_levels - 1;
+
+    auto iface_fixed = make_fixed_iface_3fold();
+    std::vector<Eigen::VectorXd> sols(n_levels);
+    for (int l = 0; l < n_levels; ++l)
+        sols[l] = solve_harmonic_jump_exact(Ns[l], iface_fixed);
+
+    double diffs[n_diffs];
+    for (int l = 0; l < n_diffs; ++l) {
+        const int nx_c = Ns[l]   + 1;
+        const int nx_f = Ns[l+1] + 1;
+        double d = 0.0;
+        for (int j = 1; j < nx_c - 1; ++j)
+            for (int i = 1; i < nx_c - 1; ++i)
+                d = std::max(d, std::abs(sols[l  ][ j      * nx_c +  i     ]
+                                        - sols[l+1][(2*j) * nx_f + (2*i)]));
+        diffs[l] = d;
+    }
+
+    std::printf("\n  Exact-C baseline (iim_correct_rhs_taylor with exact derivatives)\n");
+    std::printf("  %6s  %14s  %8s\n", "N", "|u_N - u_2N|", "rate");
+    std::printf("  %6d  %14.4e  %8s\n", Ns[0], diffs[0], "—");
+    for (int l = 1; l < n_diffs; ++l) {
+        double rate = std::log2(diffs[l-1] / diffs[l]);
+        std::printf("  %6d  %14.4e  %8.3f\n", Ns[l], diffs[l], rate);
+    }
+
+    REQUIRE(diffs[1] < diffs[0]);
+    REQUIRE(diffs[2] < diffs[1]);
+    {
+        double rate = std::log2(diffs[1] / diffs[2]);
         REQUIRE(rate > 1.5);
     }
 }
