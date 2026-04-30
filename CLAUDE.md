@@ -4,6 +4,12 @@
 Reconstruct problem-dependent KFBIM codes into a clean, reusable C++ library with a public API.
 Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
 
+## Current Status
+- Branch `main` is synced with `origin/main` at commit `f79f6fb` (`Add harmonic jump convergence tests`).
+- Working tree is clean as of 2026-04-30.
+- Latest pushed change adds harmonic-jump Richardson self-convergence tests for the 2D Laplace interface pipeline, including a panel-Cauchy path and an exact-C baseline.
+- Verification: `build/tests/test_laplace_iface_2d` passes.
+
 ## Core Algorithm
 Kernel-free boundary integral method for elliptic PDEs on complex interfaces/boundaries in 2D and 3D.
 
