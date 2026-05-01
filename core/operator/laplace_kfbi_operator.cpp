@@ -55,10 +55,10 @@ void LaplaceKFBIOperator2D::apply(const Eigen::VectorXd& x,
 
     // 5. Pack y
     y.resize(Nq);
-    if (mode_ == LaplaceKFBIMode::Dirichlet || mode_ == LaplaceKFBIMode::DirichletDouble) {
+    if (mode_ == LaplaceKFBIMode::Dirichlet || mode_ == LaplaceKFBIMode::ExteriorDirichletDouble) {
         for (int i = 0; i < Nq; ++i)
             y[i] = solution_polys[i].coeffs[0];
-    } else if (mode_ == LaplaceKFBIMode::ExteriorDirichletDouble) {
+    } else if (mode_ == LaplaceKFBIMode::InteriorDirichletDouble) {
         for (int i = 0; i < Nq; ++i)
             y[i] = solution_polys[i].coeffs[0] + jumps[i].u_jump;
     } else {
@@ -96,10 +96,10 @@ void LaplaceKFBIOperator2D::apply_full(const Eigen::VectorXd& x,
     auto solution_polys = restrict_op_.apply(u_bulk, correction_polys);
 
     y.resize(Nq);
-    if (mode_ == LaplaceKFBIMode::Dirichlet || mode_ == LaplaceKFBIMode::DirichletDouble) {
+    if (mode_ == LaplaceKFBIMode::Dirichlet || mode_ == LaplaceKFBIMode::ExteriorDirichletDouble) {
         for (int i = 0; i < Nq; ++i)
             y[i] = solution_polys[i].coeffs[0];
-    } else if (mode_ == LaplaceKFBIMode::ExteriorDirichletDouble) {
+    } else if (mode_ == LaplaceKFBIMode::InteriorDirichletDouble) {
         for (int i = 0; i < Nq; ++i)
             y[i] = solution_polys[i].coeffs[0] + jumps[i].u_jump;
     } else {
@@ -161,10 +161,10 @@ void LaplaceKFBIOperator3D::apply(const Eigen::VectorXd& x,
     auto solution_polys = restrict_op_.apply(u_bulk, correction_polys);
 
     y.resize(Nq);
-    if (mode_ == LaplaceKFBIMode::Dirichlet || mode_ == LaplaceKFBIMode::DirichletDouble) {
+    if (mode_ == LaplaceKFBIMode::Dirichlet || mode_ == LaplaceKFBIMode::ExteriorDirichletDouble) {
         for (int i = 0; i < Nq; ++i)
             y[i] = solution_polys[i].coeffs[0];
-    } else if (mode_ == LaplaceKFBIMode::ExteriorDirichletDouble) {
+    } else if (mode_ == LaplaceKFBIMode::InteriorDirichletDouble) {
         for (int i = 0; i < Nq; ++i)
             y[i] = solution_polys[i].coeffs[0] + jumps[i].u_jump;
     } else {
@@ -203,10 +203,10 @@ void LaplaceKFBIOperator3D::apply_full(const Eigen::VectorXd& x,
     auto solution_polys = restrict_op_.apply(u_bulk, correction_polys);
 
     y.resize(Nq);
-    if (mode_ == LaplaceKFBIMode::Dirichlet || mode_ == LaplaceKFBIMode::DirichletDouble) {
+    if (mode_ == LaplaceKFBIMode::Dirichlet || mode_ == LaplaceKFBIMode::ExteriorDirichletDouble) {
         for (int i = 0; i < Nq; ++i)
             y[i] = solution_polys[i].coeffs[0];
-    } else if (mode_ == LaplaceKFBIMode::ExteriorDirichletDouble) {
+    } else if (mode_ == LaplaceKFBIMode::InteriorDirichletDouble) {
         for (int i = 0; i < Nq; ++i)
             y[i] = solution_polys[i].coeffs[0] + jumps[i].u_jump;
     } else {

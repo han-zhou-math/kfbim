@@ -13,12 +13,28 @@
 | 1 | `LaplaceQuadraticRestrict2D` — quadratic fit + jump correction | ✓ done |
 | 3 | `LaplaceKFBIOperator2D/3D` — linear and affine modes | ✓ done |
 | 4 | `GMRES` (restarted, Givens) | ✓ done |
+| 3 | `LaplacePotentialEval2D` — modular D, S, N potential operators (K, H, K', ∂ₙN) | ✓ done |
+| — | IIM defect correction (2D, exact C and Taylor path) | ✓ done |
+| — | Convention: u⁺ = interior, u⁻ = exterior, [u] = u⁺ − u⁻; labels 0 = Ω⁻, 1 = Ω⁺ | ✓ settled |
 
 ### Verified Formulations (Laplace 2D)
 
 - **Interface Problem**: $-\Delta u = f, [u]=a, [\partial_n u]=b$. $O(h^2)$ convergence. ✓
-- **Dirichlet BVP ($1^{st}$-kind BIE)**: Single-layer unknown $[\partial_n u]=\sigma$. (Slow convergence). ✓
 - **Dirichlet BVP ($2^{nd}$-kind BIE)**: Double-layer unknown $[u]=\phi$. $O(h^2)$ convergence, 15-20 iters for star domain. ✓
+
+### Modular Potential Operators (`core/operator/laplace_potential.hpp`)
+
+`LaplacePotentialEval2D` provides reusable evaluation of boundary integral potentials
+via the KFBI pipeline (Spread → BulkSolve → Restrict):
+
+| Potential | Input | Jumps | Output operators |
+|-----------|-------|-------|------------------|
+| $D[\phi]$ | $\phi$ | $[u]=\phi, [\partial_n u]=0, f=0$ | $K[\phi]$ (p.v. trace), $H[\phi]$ (normal deriv) |
+| $S[\psi]$ | $\psi$ | $[u]=0, [\partial_n u]=\psi, f=0$ | $S[\psi]$ (trace), $K'[\psi]$ (adjoint normal deriv) |
+| $N[q]$ | $q$ | $[u]=0, [\partial_n u]=0, f=q$ | $N[q]$ (trace), $\partial_n N[q]$ (normal deriv) |
+
+These are the building blocks for future GMRES-based BIE solvers (BIEs can be
+assembled via linear combinations of K, H, S, K', N, ∂ₙN + identity terms).
 
 ---
 
@@ -67,11 +83,22 @@ Verify the 3D implementation of `LaplaceKFBIOperator3D` on a smooth surface (e.g
 
 ---
 
+## Task 4 — GMRES-based BIE Solvers using Modular Potentials
+
+Use `LaplacePotentialEval2D` to implement GMRES solves for boundary value problems.
+Examples:
+- Interior Dirichlet: $(K + \tfrac{1}{2}I)\phi = g$ (indirect double-layer)
+- Exterior Dirichlet: $(K - \tfrac{1}{2}I)\phi = g$
+- Neumann BVPs via single-layer: $(\pm K' + \tfrac{1}{2}I)\psi = h$
+
+No new pipeline code needed — just linear combinations of the modular operators.
+
 ## Recommended order
 
 1. **Task 1** (discontinuous $\beta$) — localized changes to Spread and Cauchy.
 2. **Task 3** (3D Laplace) — verify existing 3D code paths.
 3. **Task 2** (Stokes) — significant new implementation.
+4. **Task 4** (GMRES BIE solvers) — modular operators already done, needs GMRES wiring + tests.
 
 ## File targets
 
@@ -80,3 +107,4 @@ Verify the 3D implementation of `LaplaceKFBIOperator3D` on a smooth surface (e.g
 | 1 | extend `laplace_panel_solver_2d.hpp`, `laplace_spread_2d.cpp`, new test |
 | 2 | `core/operator/stokes_kfbi_operator.cpp`, `tests/test_kfbi_stokes_2d.cpp` |
 | 3 | `tests/test_kfbi_laplace_3d.cpp` |
+| 4 | new `tests/test_laplace_potential_gmres.cpp` (or similar) |

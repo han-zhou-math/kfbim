@@ -36,6 +36,7 @@ add_library(kfbim_core STATIC
 
     # Layer 3 — KFBI Operator
     operator/laplace_kfbi_operator.cpp
+    operator/laplace_potential.cpp
 
     # Layer 4 — Outer Solver
     gmres/gmres.cpp

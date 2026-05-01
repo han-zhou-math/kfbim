@@ -20,7 +20,7 @@ public:
     // bulk node index → nearest interface point (single nearest, any component)
     int closest_interface_point(int bulk_node_idx) const;
 
-    // domain label: 0 = exterior, 1,2,... = interior of each component
+    // domain label: 0 = Ω⁻ (exterior), 1,2,... = Ω⁺ (interior) of each component
     int domain_label(int bulk_node_idx) const;
 
     bool is_near_interface(int bulk_node_idx, double radius) const;

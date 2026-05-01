@@ -12,21 +12,24 @@ namespace kfbim {
 // ---------------------------------------------------------------------------
 // BIE mode for Laplace BVPs
 //
+// Convention: u⁺ = interior limit, u⁻ = exterior limit, [u] = u⁺ − u⁻.
+// Domain labels: 0 = Ω⁻ (exterior), 1 = Ω⁺ (interior).
+//
 //   Dirichlet  GMRES iterates on [∂u/∂n] = σ; comparison quantity = trace
-//              y[i] = poly.coeffs[0]  (u|_Γ)
+//              y[i] = poly.coeffs[0]  (u⁻|_Γ, exterior trace)
 //
 //   Neumann    GMRES iterates on [u] = μ; comparison quantity = normal flux
-//              y[i] = poly.coeffs[1]*n_x + poly.coeffs[2]*n_y  (∂u/∂n|_Γ)
+//              y[i] = poly.coeffs[1]*n_x + poly.coeffs[2]*n_y  (∂u⁻/∂n|_Γ, exterior flux)
 //
 // The normals n are taken from the Interface stored inside the Restrict's
 // GridPair (Interface::normals().row(i)).
 // ---------------------------------------------------------------------------
 
 enum class LaplaceKFBIMode {
-    Dirichlet,              // Unknown [∂u/∂n]=σ, [u]=0 (Single Layer), out trace u-
-    Neumann,                // Unknown [u]=μ, [∂u/∂n]=0 (Double Layer), out flux (∂u/∂n)-
-    DirichletDouble,        // Unknown [u]=φ, [∂u/∂n]=0 (Double Layer), out trace u-  (K - 1/2 I)
-    ExteriorDirichletDouble // Unknown [u]=φ, [∂u/∂n]=0 (Double Layer), out trace u+  (K + 1/2 I)
+    Dirichlet,                  // Unknown [∂u/∂n]=σ, [u]=0 (Single Layer), out trace u⁻
+    Neumann,                    // Unknown [u]=μ, [∂u/∂n]=0 (Double Layer), out flux ∂u⁻/∂n
+    ExteriorDirichletDouble,    // Unknown [u]=φ, [∂u/∂n]=0, out trace u⁻  (K − ½I)φ
+    InteriorDirichletDouble     // Unknown [u]=φ, [∂u/∂n]=0, out trace u⁺  (K + ½I)φ
 };
 
 // ---------------------------------------------------------------------------

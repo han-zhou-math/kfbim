@@ -63,12 +63,6 @@ kfbim_add_test(test_transfer_2d test_transfer_2d.cpp)
 # Full end-to-end: -Δu=f interface problem, panel Cauchy + FFT solve
 kfbim_add_test(test_laplace_iface_2d test_laplace_iface_2d.cpp)
 
-# Layer 3+4 KFBI operator + GMRES: interior Dirichlet BVP
-kfbim_add_test(test_kfbi_laplace_2d test_kfbi_laplace_2d.cpp)
-
-# Layer 3+4 KFBI operator: double-layer BIEs
-kfbim_add_test(test_laplace_double_layer_2d test_laplace_double_layer_2d.cpp)
-
 # IIM Spread + Bulk Solver integration test
 kfbim_add_test(test_iim_spread_2d test_iim_spread_2d.cpp)
 

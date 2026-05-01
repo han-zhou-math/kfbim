@@ -10,7 +10,8 @@ $$
 [\partial_n u]_\Gamma = \partial_n u^+ - \partial_n u^-
 $$
 
-The solution is $u = u^-$ inside $\Gamma$ and $u = u^+$ outside.
+The solution is $u = u^+$ inside $\Gamma$ and $u = u^-$ outside ($u^+$ denotes
+the interior branch, $u^-$ the exterior branch).
 
 ## Grid and Stencil
 
@@ -65,8 +66,8 @@ Let the discrete Heaviside/indicator be
 $$
 H_n =
 \begin{cases}
-1, & \mathbf{x}_n \in \Omega^-,\\
-0, & \mathbf{x}_n \in \Omega^+.
+1, & \mathbf{x}_n \in \Omega^+,\\
+0, & \mathbf{x}_n \in \Omega^-.
 \end{cases}
 $$
 
@@ -85,33 +86,33 @@ $$
 f_n = H_n f^-_n + (1-H_n)f^+_n.
 $$
 
-### Case 1: $n \in \Omega^-$, neighbor $n_b \in \Omega^+$
+### Case 1: $n \in \Omega^+$ (interior), neighbor $n_b \in \Omega^-$ (exterior)
 
-The actual value $u(\mathbf{x}_{n_b}) = u^+(\mathbf{x}_{n_b}) = u^-(\mathbf{x}_{n_b}) + C(\mathbf{x}_{n_b})$.
+The actual value $u(\mathbf{x}_{n_b}) = u^-(\mathbf{x}_{n_b}) = u^+(\mathbf{x}_{n_b}) - C(\mathbf{x}_{n_b})$.
 
 Applying $L_h$ at node $n$, the stencil uses the true (piecewise) $u$:
 
 $$
 L_h[u]_n
-  = L_h[u^-]_n - \frac{C(\mathbf{x}_{n_b})}{h^2}
-  = f^-_n + O(h^2) - \frac{C(\mathbf{x}_{n_b})}{h^2}
+  = L_h[u^+]_n - \frac{C(\mathbf{x}_{n_b})}{h^2}
+  = f^+_n + O(h^2) - \frac{C(\mathbf{x}_{n_b})}{h^2}
 $$
 
 The $O(1/h^2)$ term is the defect.
 
-### Case 2: $n \in \Omega^+$, neighbor $n_b \in \Omega^-$
+### Case 2: $n \in \Omega^-$ (exterior), neighbor $n_b \in \Omega^+$ (interior)
 
-The actual value $u(\mathbf{x}_{n_b}) = u^-(\mathbf{x}_{n_b}) = u^+(\mathbf{x}_{n_b}) - C(\mathbf{x}_{n_b})$.
+The actual value $u(\mathbf{x}_{n_b}) = u^+(\mathbf{x}_{n_b}) = u^-(\mathbf{x}_{n_b}) + C(\mathbf{x}_{n_b})$.
 
 $$
 L_h[u]_n
-  = L_h[u^+]_n + \frac{C(\mathbf{x}_{n_b})}{h^2}
-  = f^+_n + O(h^2) + \frac{C(\mathbf{x}_{n_b})}{h^2}
+  = L_h[u^-]_n + \frac{C(\mathbf{x}_{n_b})}{h^2}
+  = f^-_n + O(h^2) + \frac{C(\mathbf{x}_{n_b})}{h^2}
 $$
 
 ### Unified Formula
 
-Using domain labels $\ell_n \in \{0,1\}$ (0 = outside, 1 = inside):
+Using domain labels $\ell_n \in \{0,1\}$ (0 = $\Omega^-$, exterior; 1 = $\Omega^+$, interior):
 
 $$
 \boxed{
@@ -122,8 +123,8 @@ $$
 
 where the sum is over all four face-adjacent interior neighbors that cross the interface.
 
-- $n \in \Omega^-,\; n_b \in \Omega^+$: $\ell_{n_b}-\ell_n = -1$, correction $= -C_{n_b}/h^2$
-- $n \in \Omega^+,\; n_b \in \Omega^-$: $\ell_{n_b}-\ell_n = +1$, correction $= +C_{n_b}/h^2$
+- $n \in \Omega^+$ (interior), $n_b \in \Omega^-$ (exterior): $\ell_{n_b}-\ell_n = -1$, correction $= -C_{n_b}/h^2$
+- $n \in \Omega^-$ (exterior), $n_b \in \Omega^+$ (interior): $\ell_{n_b}-\ell_n = +1$, correction $= +C_{n_b}/h^2$
 
 At regular nodes no neighbors cross, so $F_n = f_n$.
 
@@ -147,11 +148,11 @@ $H_{n_b}-H_n=0$ for same-side neighbors. The two possible signs are
 
 $$
 \begin{aligned}
-H_n=1,\ H_{n_b}=0
+H_n=1\ (\Omega^+),\ H_{n_b}=0\ (\Omega^-)
 &\Rightarrow
 \left(H_{n_b}-H_n\right)C_{n_b}
   = -C_{n_b},\\
-H_n=0,\ H_{n_b}=1
+H_n=0\ (\Omega^-),\ H_{n_b}=1\ (\Omega^+)
 &\Rightarrow
 \left(H_{n_b}-H_n\right)C_{n_b}
   = +C_{n_b}.
@@ -170,8 +171,8 @@ For an interior grid node $(i,j)$, define
 $$
 H_{i,j} =
 \begin{cases}
-1, & (x_i,y_j)\in\Omega^-,\\
-0, & (x_i,y_j)\in\Omega^+,
+1, & (x_i,y_j)\in\Omega^+,\\
+0, & (x_i,y_j)\in\Omega^-,
 \end{cases}
 \qquad
 C_{i,j}=u^+(x_i,y_j)-u^-(x_i,y_j).
@@ -248,10 +249,10 @@ for each face neighbor (p,q) of (i,j):
 or, using the two cases explicitly,
 
 ```text
-if node (i,j) is inside and neighbor (p,q) is outside:
+if node (i,j) is inside (Ω⁺) and neighbor (p,q) is outside (Ω⁻):
     F[i,j] -= (u_plus(p,q) - u_minus(p,q)) / h^2
 
-if node (i,j) is outside and neighbor (p,q) is inside:
+if node (i,j) is outside (Ω⁻) and neighbor (p,q) is inside (Ω⁺):
     F[i,j] += (u_plus(p,q) - u_minus(p,q)) / h^2
 ```
 
@@ -295,10 +296,10 @@ Box $[0,1]^2$, star interface $r(\theta) = 0.28(1 + 0.40\cos 5\theta)$ centered 
 
 | Region  | Exact solution | $-\Delta u$ |
 |---------|---------------|-------------|
-| $\Omega^+$ (outside) | $u^+ = \sin(\pi x)\sin(\pi y)$ | $f^+ = 2\pi^2 u^+$ |
-| $\Omega^-$ (inside)  | $u^- = \sin(2\pi x)\sin(2\pi y)$ | $f^- = 8\pi^2 u^-$ |
+| $\Omega^+$ (interior) | $u^+ = \sin(2\pi x)\sin(2\pi y)$ | $f^+ = 8\pi^2 u^+$ |
+| $\Omega^-$ (exterior) | $u^- = \sin(\pi x)\sin(\pi y)$ | $f^- = 2\pi^2 u^-$ |
 
-Correction function: $C = u^+ - u^- = \sin(\pi x)\sin(\pi y) - \sin(2\pi x)\sin(2\pi y)$
+Correction function: $C = u^+ - u^- = \sin(2\pi x)\sin(2\pi y) - \sin(\pi x)\sin(\pi y)$
 
 Both $u^\pm$ vanish on $\partial\Omega$, so homogeneous Dirichlet BC is satisfied exactly.
 

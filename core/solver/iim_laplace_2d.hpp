@@ -14,25 +14,25 @@ namespace kfbim {
 // Problem: −Δu = f on a box domain with homogeneous Dirichlet BC,
 //          interface Γ inside the domain with jump conditions [u]=a, [∂_n u]=b.
 //
-// Define u± as the smooth extensions of u into each half-domain, and the
-// correction function C(x) = u⁺(x) − u⁻(x), which is smooth everywhere.
+// Convention: u⁺ = interior limit, u⁻ = exterior limit, [u] = u⁺ − u⁻.
+// Define the correction function C(x) = u⁺(x) − u⁻(x) = [u](x), which is
+// smooth everywhere (it is the smooth extension of the jump).
 //
 // Domain labels (from GridPair2D):
-//   label = 0  →  Ω⁺ (exterior region)
-//   label = 1  →  Ω⁻ (interior region)
+//   label = 0  →  Ω⁻ (exterior region)
+//   label = 1  →  Ω⁺ (interior region)
 //
-// At an interior irregular node n with cross-interface interior neighbor nb,
-// the 5-point stencil applied to the piecewise solution u picks up the wrong
-// branch at nb.  The defect is (label[nb] − label[n]) · C[nb] / h², so the
-// corrected RHS is:
+// At an irregular node n with a cross-interface neighbor nb, the 5-point
+// stencil applied to the piecewise solution u picks up the wrong branch at nb.
+// The defect is (label[nb] − label[n]) · C[nb] / h², so the corrected RHS is:
 //
 //   F[n] = f[n]  +  Σ_{nb: cross-interface} (label[nb] − label[n]) · C[nb] / h²
 //
 // Sign derivation:
-//   n ∈ Ω⁻ (label=1), nb ∈ Ω⁺ (label=0):
+//   n ∈ Ω⁺ (label=1, interior), nb ∈ Ω⁻ (label=0, exterior):
 //     u[nb] = u⁻[nb] + C[nb]  → stencil picks up an extra +C[nb]/h²
 //     → must subtract it from RHS: correction = (0−1)·C[nb]/h² = −C[nb]/h² ✓
-//   n ∈ Ω⁺ (label=0), nb ∈ Ω⁻ (label=1):
+//   n ∈ Ω⁻ (label=0, exterior), nb ∈ Ω⁺ (label=1, interior):
 //     u[nb] = u⁺[nb] − C[nb]  → stencil is short by C[nb]/h²
 //     → must add it to RHS: correction = (1−0)·C[nb]/h² = +C[nb]/h² ✓
 // ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ inline std::vector<int> iim_irregular_nodes(
 //   grid          — Node-layout grid (dof_dims includes boundary nodes).
 //   f             — Piecewise RHS evaluated at every grid node (0 at boundary).
 //   C             — Correction function C(x) = u⁺(x) − u⁻(x) at every node.
-//   domain_labels — Per-node label (0 = Ω⁺, 1 = Ω⁻), e.g. from GridPair2D.
+//   domain_labels — Per-node label (0 = Ω⁻, 1 = Ω⁺), e.g. from GridPair2D.
 //
 // Returns F, the corrected physical RHS for −Δ_h u = F.
 // Solver convention: LaplaceFftBulkSolverZfft2D solves Δ_h u = rhs, so pass
@@ -107,7 +107,7 @@ inline Eigen::VectorXd iim_correct_rhs(
 // IIM correction using a degree-2 Taylor expansion of C from the nearest
 // interface quadrature point.
 //
-// Instead of the global correction function C(x) = u⁺(x) − u⁻(x), the
+// Instead of the global correction function C(x) = u⁺(x) − u⁻(x) = [u](x), the
 // caller supplies C and its first/second partial derivatives evaluated at
 // each interface quadrature point.  For each cross-interface interior
 // neighbor nb, we locate the nearest quadrature point q and approximate:
