@@ -13,14 +13,16 @@
 | 1 | `LaplaceQuadraticRestrict2D` — quadratic fit + jump correction | ✓ done |
 | 3 | `LaplaceKFBIOperator2D/3D` — linear and affine modes | ✓ done |
 | 4 | `GMRES` (restarted, Givens) | ✓ done |
-| 3 | `LaplacePotentialEval2D` — modular D, S, N potential operators (K, H, K', ∂ₙN) | ✓ done |
+| 3 | `LaplacePotentialEval2D` — modular D, S, N potential operators (K, H, K', ∂ₙN) | ⏳ pending |
 | — | IIM defect correction (2D, exact C and Taylor path) | ✓ done |
-| — | Convention: u⁺ = interior, u⁻ = exterior, [u] = u⁺ − u⁻; labels 0 = Ω⁻, 1 = Ω⁺ | ✓ settled |
+| — | Convention: u⁺ = interior, u⁻ = exterior, [u] = u_int − u_ext; labels 0 = Ω⁻, 1 = Ω⁺ | ✓ settled |
+| — | Interface Solver Output: Returns averaged trace and normal derivative | ✓ settled |
 
 ### Verified Formulations (Laplace 2D)
 
-- **Interface Problem**: $-\Delta u = f, [u]=a, [\partial_n u]=b$. $O(h^2)$ convergence. ✓
-- **Dirichlet BVP ($2^{nd}$-kind BIE)**: Double-layer unknown $[u]=\phi$. $O(h^2)$ convergence, 15-20 iters for star domain. ✓
+- **Interface Problem**: Tests archived (`tests/archive/`) to focus on component testing.
+- **Dirichlet BVP ($2^{nd}$-kind BIE)**: Double-layer unknown $[u]=\phi$. Operator mode aligned. Tests archived.
+- **Neumann BVP ($2^{nd}$-kind BIE)**: Single-layer unknown $[\partial_n u]=\phi$. Operator mode aligned. Tests archived.
 
 ### Modular Potential Operators (`core/operator/laplace_potential.hpp`)
 
