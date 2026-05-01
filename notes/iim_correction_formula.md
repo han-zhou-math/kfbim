@@ -3,26 +3,21 @@
 ## Problem Statement
 
 Solve $-\Delta u = f$ on $\Omega = [0,1]^2$ with homogeneous Dirichlet BC, where
-$u$ and $f$ are piecewise smooth across an interface $\Gamma$:
+$u$ and $f$ are piecewise smooth across an interface $\Gamma$.
 
+### Jump Convention
+
+Define the jump as **interior minus exterior**:
 $$
-[u]_\Gamma = u^+ - u^-\ , \qquad
-[\partial_n u]_\Gamma = \partial_n u^+ - \partial_n u^-
+\boxed{ [u]_\Gamma = u_{int} - u_{ext} }
+$$
+where $u_{int}$ is the smooth branch on the interior (label 1) and $u_{ext}$ is the
+smooth branch on the exterior (label 0). Similarly,
+$$
+[\partial_n u]_\Gamma = \partial_n u_{int} - \partial_n u_{ext}
 $$
 
-The solution is $u = u^+$ inside $\Gamma$ and $u = u^-$ outside ($u^+$ denotes
-the interior branch, $u^-$ the exterior branch).
-
-## Grid and Stencil
-
-Uniform grid with spacing $h$, node $(i,j)$ at $(x_i, y_j) = (ih, jh)$.
-Standard 5-point stencil:
-
-$$
-L_h[u]_{i,j}
-  = \frac{4u_{i,j} - u_{i-1,j} - u_{i+1,j} - u_{i,j-1} - u_{i,j+1}}{h^2}
-  \approx -\Delta u_{i,j} + O(h^2)
-$$
+The solution is $u = u_{int}$ inside $\Gamma$ and $u = u_{ext}$ outside.
 
 ## Regular vs Irregular Nodes
 
@@ -37,277 +32,60 @@ $$
 Define the **correction function** (smooth everywhere):
 
 $$
-C(\mathbf{x}) = u^+(\mathbf{x}) - u^-(\mathbf{x})
+C(\mathbf{x}) = u_{int}(\mathbf{x}) - u_{ext}(\mathbf{x})
 $$
 
 At every grid node, regardless of which side contains the node,
 
 $$
 C_n = C(\mathbf{x}_n)
-    = u^+(\mathbf{x}_n) - u^-(\mathbf{x}_n).
-$$
-
-Thus $C_n$ is not the physical jump in the computed piecewise solution at node
-$n$; it is the value of the smooth extension difference $u^+ - u^-$ evaluated
-at that node.
-
-For the manufactured solution below,
-
-$$
-C_{i,j}
-  = \sin(\pi x_i)\sin(\pi y_j)
-    - \sin(2\pi x_i)\sin(2\pi y_j).
+    = u_{int}(\mathbf{x}_n) - u_{ext}(\mathbf{x}_n).
 $$
 
 ## Defect Correction Derivation
 
-Let the discrete Heaviside/indicator be
+Let the domain labels be $\ell_n \in \{0,1\}$ (0 = exterior, 1 = interior).
 
-$$
-H_n =
-\begin{cases}
-1, & \mathbf{x}_n \in \Omega^+,\\
-0, & \mathbf{x}_n \in \Omega^-.
-\end{cases}
-$$
-
-Equivalently, if a level set $\phi$ is negative inside, then
-$H_n = \mathcal{H}(-\phi_n)$ with the nodal Heaviside
-$\mathcal{H}(z)=1$ for $z>0$ and $\mathcal{H}(z)=0$ for $z<0$.
-
-The piecewise solution and source may be written as
-
-$$
-u_n = H_n u^-_n + (1-H_n)u^+_n
-    = u^+_n - H_n C_n,
-$$
-
-$$
-f_n = H_n f^-_n + (1-H_n)f^+_n.
-$$
-
-### Case 1: $n \in \Omega^+$ (interior), neighbor $n_b \in \Omega^-$ (exterior)
-
-The actual value $u(\mathbf{x}_{n_b}) = u^-(\mathbf{x}_{n_b}) = u^+(\mathbf{x}_{n_b}) - C(\mathbf{x}_{n_b})$.
-
-Applying $L_h$ at node $n$, the stencil uses the true (piecewise) $u$:
-
-$$
-L_h[u]_n
-  = L_h[u^+]_n - \frac{C(\mathbf{x}_{n_b})}{h^2}
-  = f^+_n + O(h^2) - \frac{C(\mathbf{x}_{n_b})}{h^2}
-$$
-
-The $O(1/h^2)$ term is the defect.
-
-### Case 2: $n \in \Omega^-$ (exterior), neighbor $n_b \in \Omega^+$ (interior)
-
-The actual value $u(\mathbf{x}_{n_b}) = u^+(\mathbf{x}_{n_b}) = u^-(\mathbf{x}_{n_b}) + C(\mathbf{x}_{n_b})$.
-
-$$
-L_h[u]_n
-  = L_h[u^-]_n + \frac{C(\mathbf{x}_{n_b})}{h^2}
-  = f^-_n + O(h^2) + \frac{C(\mathbf{x}_{n_b})}{h^2}
-$$
-
-### Unified Formula
-
-Using domain labels $\ell_n \in \{0,1\}$ (0 = $\Omega^-$, exterior; 1 = $\Omega^+$, interior):
+The corrected right-hand side $F_n$ for $-\Delta_h u = F_n$ is:
 
 $$
 \boxed{
-  F_n = f_n + \sum_{\substack{n_b \sim n,\; n_b \in \mathrm{int} \\ \ell_{n_b} \neq \ell_n}}
-        \frac{\ell_{n_b} - \ell_n}{h^2}\, C(\mathbf{x}_{n_b})
+  F_n = f_n + \sum_{\substack{n_b \sim n \\ \ell_{n_b} \neq \ell_n}}
+        \frac{\ell_n - \ell_{n_b}}{h^2}\, C(\mathbf{x}_{n_b})
 }
 $$
 
-where the sum is over all four face-adjacent interior neighbors that cross the interface.
+### Sign Verification
 
-- $n \in \Omega^+$ (interior), $n_b \in \Omega^-$ (exterior): $\ell_{n_b}-\ell_n = -1$, correction $= -C_{n_b}/h^2$
-- $n \in \Omega^-$ (exterior), $n_b \in \Omega^+$ (interior): $\ell_{n_b}-\ell_n = +1$, correction $= +C_{n_b}/h^2$
+1.  **Node $n$ is exterior ($\ell_n=0$), neighbor $n_b$ is interior ($\ell_{n_b}=1$):**
+    *   Stencil at $n$ needs $u_{ext}(x_{n_b})$.
+    *   Actual value is $u(x_{n_b}) = u_{int}(x_{n_b}) = u_{ext}(x_{n_b}) + C(x_{n_b})$.
+    *   The stencil picks up an extra $+C(x_{n_b})/h^2$ term (note the $-1/h^2$ weight for neighbors in the Laplacian).
+    *   To correct $-\Delta u = f$, we must subtract $C/h^2$ from the RHS.
+    *   Formula gives: $(\ell_n - \ell_{n_b}) = (0 - 1) = -1 \Rightarrow -C/h^2$. Correct.
 
-At regular nodes no neighbors cross, so $F_n = f_n$.
+2.  **Node $n$ is interior ($\ell_n=1$), neighbor $n_b$ is exterior ($\ell_{n_b}=0$):**
+    *   Stencil at $n$ needs $u_{int}(x_{n_b})$.
+    *   Actual value is $u(x_{n_b}) = u_{ext}(x_{n_b}) = u_{int}(x_{n_b}) - C(x_{n_b})$.
+    *   The stencil is short by $C(x_{n_b})/h^2$.
+    *   To correct, we must add $C/h^2$ to the RHS.
+    *   Formula gives: $(\ell_n - \ell_{n_b}) = (1 - 0) = +1 \Rightarrow +C/h^2$. Correct.
 
-### Heaviside Form
+## Restrict (Interpolation)
 
-With $H_n=\ell_n$, the same correction can be written without an explicit
-case split:
-
-$$
-\boxed{
-F_n
-  = f_n
-    + \frac{1}{h^2}
-      \sum_{\substack{n_b \sim n,\; n_b \in \mathrm{int}}}
-      \left(H_{n_b}-H_n\right) C_{n_b}
-}
-$$
-
-Only edges whose endpoints lie on opposite sides contribute, because
-$H_{n_b}-H_n=0$ for same-side neighbors. The two possible signs are
-
-$$
-\begin{aligned}
-H_n=1\ (\Omega^+),\ H_{n_b}=0\ (\Omega^-)
-&\Rightarrow
-\left(H_{n_b}-H_n\right)C_{n_b}
-  = -C_{n_b},\\
-H_n=0\ (\Omega^-),\ H_{n_b}=1\ (\Omega^+)
-&\Rightarrow
-\left(H_{n_b}-H_n\right)C_{n_b}
-  = +C_{n_b}.
-\end{aligned}
-$$
-
-This sign comes directly from the neighbor coefficient $-1/h^2$ in the
-5-point stencil: if a neighbor value has to be replaced by the other smooth
-branch, the resulting defect enters with the negative of the neighbor-value
-difference.
-
-## Nodewise Finite Difference Scheme
-
-For an interior grid node $(i,j)$, define
-
-$$
-H_{i,j} =
-\begin{cases}
-1, & (x_i,y_j)\in\Omega^+,\\
-0, & (x_i,y_j)\in\Omega^-,
-\end{cases}
-\qquad
-C_{i,j}=u^+(x_i,y_j)-u^-(x_i,y_j).
-$$
-
-The corrected right-hand side is
-
-$$
-\boxed{
-\begin{aligned}
-F_{i,j}
-  = f_{i,j}
-    + \frac{1}{h^2}\Big[
-      &(H_{i-1,j}-H_{i,j})C_{i-1,j}
-       +(H_{i+1,j}-H_{i,j})C_{i+1,j}\\
-      &+(H_{i,j-1}-H_{i,j})C_{i,j-1}
-       +(H_{i,j+1}-H_{i,j})C_{i,j+1}
-    \Big],
-\end{aligned}
-}
-$$
-
-where terms corresponding to non-interior Dirichlet boundary nodes are omitted
-or moved into the usual boundary contribution.
-
-Then the finite difference equation is
-
-$$
-\boxed{
-\frac{
-4u_{i,j}
--u_{i-1,j}
--u_{i+1,j}
--u_{i,j-1}
--u_{i,j+1}
-}{h^2}
-= F_{i,j}
-}
-$$
-
-for all interior nodes. In implementation form:
-
-```text
-F[i,j] = f[i,j]
-for each face neighbor (p,q) of (i,j):
-    if (p,q) is an interior node:
-        F[i,j] += (H[p,q] - H[i,j]) * C[p,q] / h^2
-```
-
-## Easier Implementation When Branch Values Are Available
-
-For a manufactured solution, or for any problem where both smooth extensions
-$u^+$ and $u^-$ can be evaluated at grid nodes, do not form $C$ from the
-interface jump data $[u]$ and $[\partial_n u]$. Instead, evaluate
-
-$$
-C_{i,j}=u^+(x_i,y_j)-u^-(x_i,y_j)
-$$
-
-directly at grid nodes and use the finite difference formula above. This is
-the simplest and least error-prone implementation.
-
-Equivalently, the correction can be computed edge by edge without storing a
-separate $C$ array:
-
-```text
-F[i,j] = f[i,j]
-for each face neighbor (p,q) of (i,j):
-    if (p,q) is an interior node and H[p,q] != H[i,j]:
-        Cpq = u_plus(x[p], y[q]) - u_minus(x[p], y[q])
-        F[i,j] += (H[p,q] - H[i,j]) * Cpq / h^2
-```
-
-or, using the two cases explicitly,
-
-```text
-if node (i,j) is inside (Ω⁺) and neighbor (p,q) is outside (Ω⁻):
-    F[i,j] -= (u_plus(p,q) - u_minus(p,q)) / h^2
-
-if node (i,j) is outside (Ω⁻) and neighbor (p,q) is inside (Ω⁺):
-    F[i,j] += (u_plus(p,q) - u_minus(p,q)) / h^2
-```
-
-This avoids closest-point projection, curvature, tangential derivatives, and
-Taylor expansion of the jump data.
-
-For a general interface problem where only $[u]$ and $[\partial_n u]$ are
-prescribed on $\Gamma$, one cannot avoid approximating the off-interface value
-$C_{p,q}$ in some form. The correction needs the difference between the two
-smooth branches at the neighboring grid node, not only the jump at the closest
-interface point. In that setting the usual IIM step is a local Taylor extension
-from the interface data, for example
-
-$$
-C(\mathbf{x}_{p,q})
-  \approx [u](\mathbf{x}_\Gamma)
-        + d\, [\partial_n u](\mathbf{x}_\Gamma)
-$$
-
-where $\mathbf{x}_\Gamma$ is the closest interface point and $d$ is the signed
-normal distance from $\mathbf{x}_\Gamma$ to $\mathbf{x}_{p,q}$. Higher-order
-versions add tangential and second-normal terms. Thus the easy branch-value
-method is preferred when $u^\pm$ are known; otherwise the Taylor reconstruction
-of $C$ is the information needed to make the correction.
-
-## Modified System
-
-The corrected system $L_h[\mathbf{u}] = \mathbf{F}$ is solved by FFT (DST-I for homogeneous Dirichlet BC). Note the solver convention: `LaplaceFftBulkSolverZfft2D` solves $\Delta_h u = \text{rhs}$, so pass **$-F$**:
-
-```
-solver.solve(-F, u)
-```
-
-## Local Truncation Error After Correction
-
-After substituting the corrected RHS, the modified equation is satisfied with $O(h^2)$ residual at every interior node (regular and irregular), giving **global 2nd order convergence** in the $\ell^\infty$ norm.
+To recover the interior trace $u_{int}$ at an interface point $x_q$ from bulk values $u$:
+*   If a stencil node $x_{n}$ is interior ($\ell_n=1$), use $u(x_n)$ directly.
+*   If a stencil node $x_{n}$ is exterior ($\ell_n=0$), use $u_{int}(x_n) = u(x_n) + C(x_n)$.
+*   Then fit the polynomial to these "un-jumped" values.
 
 ## Manufactured Solution (Test Case)
 
-Box $[0,1]^2$, star interface $r(\theta) = 0.28(1 + 0.40\cos 5\theta)$ centered at $(0.5,0.5)$.
+Box $[0,1]^2$, star interface.
 
 | Region  | Exact solution | $-\Delta u$ |
 |---------|---------------|-------------|
-| $\Omega^+$ (interior) | $u^+ = \sin(2\pi x)\sin(2\pi y)$ | $f^+ = 8\pi^2 u^+$ |
-| $\Omega^-$ (exterior) | $u^- = \sin(\pi x)\sin(\pi y)$ | $f^- = 2\pi^2 u^-$ |
+| Interior (label 1) | $u_{int} = \sin(2\pi x)\sin(2\pi y)$ | $f_{int} = 8\pi^2 u_{int}$ |
+| Exterior (label 0) | $u_{ext} = \sin(\pi x)\sin(\pi y)$ | $f_{ext} = 2\pi^2 u_{ext}$ |
 
-Correction function: $C = u^+ - u^- = \sin(2\pi x)\sin(2\pi y) - \sin(\pi x)\sin(\pi y)$
-
-Both $u^\pm$ vanish on $\partial\Omega$, so homogeneous Dirichlet BC is satisfied exactly.
-
-## Observed Convergence
-
-| $N$ | $\|e\|_\infty$ | Rate |
-|-----|---------------|------|
-| 32  | 1.64 × 10⁻³  | —    |
-| 64  | 4.00 × 10⁻⁴  | 2.03 |
-| 128 | 9.95 × 10⁻⁵  | 2.01 |
-| 256 | 2.49 × 10⁻⁵  | 2.00 |
+Jump: $[u] = u_{int} - u_{ext} = \sin(2\pi x)\sin(2\pi y) - \sin(\pi x)\sin(\pi y)$.
+Note: the exterior branch vanishes on the box boundary.

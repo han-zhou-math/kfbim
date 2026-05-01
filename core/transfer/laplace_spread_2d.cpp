@@ -100,7 +100,7 @@ std::vector<LocalPoly2D> LaplacePanelSpread2D::apply(
 
             const int q = grid_pair_.closest_interface_point(nb);
             const double correction = evaluate_taylor_poly_2d(polys[q], node_coord(grid, nb));
-            rhs_correction[n] += static_cast<double>(side_nb - side_n)
+            rhs_correction[n] += static_cast<double>(side_n - side_nb)
                                  * correction
                                  * stencil_weight_for_neighbor(grid, slot);
         }

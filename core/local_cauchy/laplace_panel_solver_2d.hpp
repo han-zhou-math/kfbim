@@ -10,9 +10,9 @@ namespace kfbim {
 // Panel-based collocation Cauchy solver for the 2D Laplace equation.
 //
 // Solves the local Cauchy problem at each interface Gauss point q:
-//   −ΔC = f⁺ − f⁻   (in a small neighbourhood of the interface)
-//   C    = a          (Dirichlet jump on the interface)
-//   ∂_n C = b         (Neumann jump on the interface)
+//   −ΔC = f_int − f_ext   (in a small neighbourhood of the interface)
+//   C    = a          (Dirichlet jump [u] = u_int − u_ext on the interface)
+//   ∂_n C = b         (Neumann jump [∂_n u] = ∂_n u_int − ∂_n u_ext on Γ)
 //
 // For each Gauss point (center), a 6×6 collocation system is assembled
 // using points sampled from the containing panel:
@@ -43,7 +43,7 @@ namespace kfbim {
 // bdry2_nml[2][2] : outward normals at bdry2 pts
 // b[2]            : [∂_n u] at bdry2 pts
 // bulk[2]         : coord of 1 interior PDE collocation pt
-// Lu              : (f⁺ − f⁻) at bulk pt
+// Lu              : (f_int − f_ext) at bulk pt
 // center[2]       : expansion origin (the target interface point)
 // kappa           : coefficient of u in PDE (0 for pure Laplace)
 // h               : scaling parameter (panel arc-length)
@@ -150,17 +150,20 @@ struct PanelCauchyResult2D {
 // ---------------------------------------------------------------------------
 // laplace_panel_cauchy_2d
 //
-// Solves the local Cauchy problem at every Gauss point of the interface.
+// Solves the local Cauchy problem at every Gauss point of the interface Γ.
 // Requires iface.points_per_panel() == 3.
 //
 // Inputs:
 //   iface      — Interface2D with 3 Gauss points per panel
-//   a          — [u]     at each Gauss point (length Nq)
-//   b          — [∂_n u] at each Gauss point (length Nq)
-//   Lu_iface   — f⁺−f⁻  at each Gauss point (length Nq);
+//   a          — [u] = u_int − u_ext   at each Gauss point (length Nq)
+//   b          — [∂_n u] = ∂_n u_int − ∂_n u_ext   at each Gauss point
+//   Lu_iface   — f_int − f_ext  at each Gauss point (length Nq);
 //                used as a constant approximation of Lu at the interior bulk
 //                point (O(h) error, consistent with order-2 accuracy)
 //   kappa      — coefficient of u in the PDE (0 for pure Laplace)
+//
+// Conventions: u_int is the interior smooth branch (label 1), u_ext is
+//              the exterior smooth branch (label 0).
 //
 // Returns PanelCauchyResult2D with C, Cx, Cy, Cxx, Cyy, Cxy at every node.
 // ---------------------------------------------------------------------------

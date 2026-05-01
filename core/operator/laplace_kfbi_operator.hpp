@@ -3,33 +3,25 @@
 #include <vector>
 #include <Eigen/Dense>
 #include "i_kfbi_operator.hpp"
-#include "../transfer/i_spread.hpp"
-#include "../transfer/i_restrict.hpp"
-#include "../solver/i_bulk_solver.hpp"
+#include "../problems/laplace_interface_solver_2d.hpp"
 
 namespace kfbim {
 
 // ---------------------------------------------------------------------------
 // BIE mode for Laplace BVPs
 //
-// Convention: u⁺ = interior limit, u⁻ = exterior limit, [u] = u⁺ − u⁻.
-// Domain labels: 0 = Ω⁻ (exterior), 1 = Ω⁺ (interior).
+//   Dirichlet  Interior Dirichlet BVP via 2nd-kind BIE:
+//              Ansatz u = D[phi], solve (1/2 I - K) phi = g.
+//              jumps: [u]=phi, [un]=0. Returns u_int.
 //
-//   Dirichlet  GMRES iterates on [∂u/∂n] = σ; comparison quantity = trace
-//              y[i] = poly.coeffs[0]  (u⁻|_Γ, exterior trace)
-//
-//   Neumann    GMRES iterates on [u] = μ; comparison quantity = normal flux
-//              y[i] = poly.coeffs[1]*n_x + poly.coeffs[2]*n_y  (∂u⁻/∂n|_Γ, exterior flux)
-//
-// The normals n are taken from the Interface stored inside the Restrict's
-// GridPair (Interface::normals().row(i)).
+//   Neumann    Interior Neumann BVP via 2nd-kind BIE:
+//              Ansatz u = S[phi], solve (1/2 I + K') phi = g.
+//              jumps: [u]=0, [un]=phi. Returns un_int.
 // ---------------------------------------------------------------------------
 
 enum class LaplaceKFBIMode {
-    Dirichlet,                  // Unknown [∂u/∂n]=σ, [u]=0 (Single Layer), out trace u⁻
-    Neumann,                    // Unknown [u]=μ, [∂u/∂n]=0 (Double Layer), out flux ∂u⁻/∂n
-    ExteriorDirichletDouble,    // Unknown [u]=φ, [∂u/∂n]=0, out trace u⁻  (K − ½I)φ
-    InteriorDirichletDouble     // Unknown [u]=φ, [∂u/∂n]=0, out trace u⁺  (K + ½I)φ
+    Dirichlet,          // Double Layer [u]=phi, [un]=0 -> returns u_int
+    Neumann             // Single Layer [u]=0, [un]=phi -> returns un_int
 };
 
 // ---------------------------------------------------------------------------
@@ -77,9 +69,7 @@ public:
     LaplaceKFBIMode mode() const { return mode_; }
 
 private:
-    const ILaplaceSpread2D&     spread_;
-    const ILaplaceBulkSolver2D& bulk_solver_;
-    const ILaplaceRestrict2D&   restrict_op_;
+    LaplaceInterfaceSolver2D    solver_;
     Eigen::VectorXd              base_rhs_;
     std::vector<Eigen::VectorXd> rhs_derivs_;
     LaplaceKFBIMode              mode_;

@@ -27,7 +27,8 @@ public:
 
 private:
     LocalPoly2D fit_at_interface_point(const Eigen::VectorXd& bulk_solution,
-                                       int                    q) const;
+                                       int                    q,
+                                       const LocalPoly2D&     corr) const;
 
     const GridPair2D& grid_pair_;
     int               stencil_radius_;

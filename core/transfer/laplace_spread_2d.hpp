@@ -7,8 +7,9 @@ namespace kfbim {
 // ---------------------------------------------------------------------------
 // Concrete 2D Laplace spread using the panel Cauchy solver.
 //
-// The Cauchy solve recovers a degree-2 Taylor correction polynomial C = u⁺ − u⁻ = [u]
-// at each interface quadrature point. Spread then applies the 5-point IIM
+// The Cauchy solve recovers a degree-2 Taylor correction polynomial C = u+ - u-
+// at each interface quadrature point, where u+ is the interior (label 1) and
+// u- is the exterior (label 0). The jump is defined as [u] = u_int - u_ext.
 // stencil defect at irregular grid nodes:
 //
 //   rhs[n] += side(nb)-side(n) * C(x_nb) / h_axis^2

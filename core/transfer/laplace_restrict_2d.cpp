@@ -42,17 +42,7 @@ std::vector<LocalPoly2D> LaplaceQuadraticRestrict2D::apply(
 
     std::vector<LocalPoly2D> result(n_iface);
     for (int q = 0; q < n_iface; ++q) {
-        result[q] = fit_at_interface_point(bulk_solution, q);
-
-        const auto& corr = correction_polys[q];
-        if (corr.coeffs.size() == 0)
-            continue;
-        if (corr.coeffs.size() != result[q].coeffs.size())
-            throw std::invalid_argument("LaplaceQuadraticRestrict2D correction polynomial degree mismatch");
-        if ((corr.center - result[q].center).norm() > 1e-12)
-            throw std::invalid_argument("LaplaceQuadraticRestrict2D correction polynomial center mismatch");
-
-        result[q].coeffs -= corr.coeffs;
+        result[q] = fit_at_interface_point(bulk_solution, q, correction_polys[q]);
     }
 
     return result;
@@ -60,7 +50,8 @@ std::vector<LocalPoly2D> LaplaceQuadraticRestrict2D::apply(
 
 LocalPoly2D LaplaceQuadraticRestrict2D::fit_at_interface_point(
     const Eigen::VectorXd& bulk_solution,
-    int                    q) const
+    int                    q,
+    const LocalPoly2D&     corr) const
 {
     const auto& grid = grid_pair_.grid();
     const auto& iface = grid_pair_.interface();
@@ -106,7 +97,8 @@ LocalPoly2D LaplaceQuadraticRestrict2D::fit_at_interface_point(
     Eigen::MatrixXd A(n_rows, 6);
     Eigen::VectorXd rhs(n_rows);
     for (int r = 0; r < n_rows; ++r) {
-        const Eigen::Vector2d pt = grid_point(grid, samples[r].idx);
+        const int idx = samples[r].idx;
+        const Eigen::Vector2d pt = grid_point(grid, idx);
         const double dx = pt[0] - center[0];
         const double dy = pt[1] - center[1];
         A(r, 0) = 1.0;
@@ -115,7 +107,15 @@ LocalPoly2D LaplaceQuadraticRestrict2D::fit_at_interface_point(
         A(r, 3) = 0.5 * dx * dx;
         A(r, 4) = dx * dy;
         A(r, 5) = 0.5 * dy * dy;
-        rhs[r] = bulk_solution[samples[r].idx];
+
+        // Jump correction: if node is exterior (label 0), add C to recover the interior u+ branch.
+        // Jump [u] = u_int - u_ext = u+ - u- = C.
+        // Thus u+ = u- + C.
+        double val = bulk_solution[idx];
+        if (grid_pair_.domain_label(idx) == 0 && corr.coeffs.size() > 0) {
+            val += evaluate_taylor_poly_2d(corr, pt);
+        }
+        rhs[r] = val;
     }
 
     LocalPoly2D poly;

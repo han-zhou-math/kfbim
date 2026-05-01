@@ -15,9 +15,7 @@ LaplaceKFBIOperator2D::LaplaceKFBIOperator2D(
     Eigen::VectorXd              base_rhs,
     std::vector<Eigen::VectorXd> rhs_derivs,
     LaplaceKFBIMode              mode)
-    : spread_(spread)
-    , bulk_solver_(bulk_solver)
-    , restrict_op_(restrict_op)
+    : solver_(spread, bulk_solver, restrict_op)
     , base_rhs_(std::move(base_rhs))
     , rhs_derivs_(std::move(rhs_derivs))
     , mode_(mode)
@@ -26,58 +24,48 @@ LaplaceKFBIOperator2D::LaplaceKFBIOperator2D(
 void LaplaceKFBIOperator2D::apply(const Eigen::VectorXd& x,
                                    Eigen::VectorXd&       y) const
 {
-    const auto& iface = spread_.grid_pair().interface();
-    const int   Nq    = iface.num_points();
+    const int Nq = solver_.num_points();
 
-    // 1. Unpack x → LaplaceJumpData (Linear part: ignore RHS derivatives)
+    // 1. Unpack x → LaplaceJumpData
     std::vector<LaplaceJumpData2D> jumps(Nq);
     for (int i = 0; i < Nq; ++i) {
-        if (mode_ == LaplaceKFBIMode::Dirichlet) {
+        if (mode_ == LaplaceKFBIMode::Neumann) {
+            // Single-layer: [u]=0, [un]=phi
             jumps[i].u_jump  = 0.0;
             jumps[i].un_jump = x[i];
         } else {
+            // Double-layer: [u]=phi, [un]=0
             jumps[i].u_jump  = x[i];
             jumps[i].un_jump = 0.0;
         }
         jumps[i].rhs_derivs = Eigen::VectorXd::Zero(rhs_derivs_[i].size());
     }
 
-    // 2. rhs = Spread correction (Linear part: ignore base_rhs_)
+    // 2. Run full pipeline via solver
     Eigen::VectorXd rhs = Eigen::VectorXd::Zero(base_rhs_.size());
-    auto correction_polys = spread_.apply(jumps, rhs);
+    auto res = solver_.solve(jumps, rhs);
 
-    // 3. Bulk solve: (−Δ_h) u = rhs
-    Eigen::VectorXd u_bulk;
-    bulk_solver_.solve(-rhs, u_bulk);
-
-    // 4. Restrict
-    auto solution_polys = restrict_op_.apply(u_bulk, correction_polys);
-
-    // 5. Pack y
+    // 3. Pack y from the appropriate trace
     y.resize(Nq);
-    if (mode_ == LaplaceKFBIMode::Dirichlet || mode_ == LaplaceKFBIMode::ExteriorDirichletDouble) {
+    if (mode_ == LaplaceKFBIMode::Dirichlet) {
+        // Interior trace: u_int = u_avg + [u]/2
         for (int i = 0; i < Nq; ++i)
-            y[i] = solution_polys[i].coeffs[0];
-    } else if (mode_ == LaplaceKFBIMode::InteriorDirichletDouble) {
-        for (int i = 0; i < Nq; ++i)
-            y[i] = solution_polys[i].coeffs[0] + jumps[i].u_jump;
+            y[i] = res.u_avg[i] + 0.5 * jumps[i].u_jump;
     } else {
-        const auto& normals = iface.normals();
+        // Interior normal derivative: un_int = un_avg + [un]/2
         for (int i = 0; i < Nq; ++i)
-            y[i] = solution_polys[i].coeffs[1] * normals(i, 0)
-                 + solution_polys[i].coeffs[2] * normals(i, 1);
+            y[i] = res.un_avg[i] + 0.5 * jumps[i].un_jump;
     }
 }
 
 void LaplaceKFBIOperator2D::apply_full(const Eigen::VectorXd& x,
                                         Eigen::VectorXd&       y) const
 {
-    const auto& iface = spread_.grid_pair().interface();
-    const int   Nq    = iface.num_points();
+    const int Nq = solver_.num_points();
 
     std::vector<LaplaceJumpData2D> jumps(Nq);
     for (int i = 0; i < Nq; ++i) {
-        if (mode_ == LaplaceKFBIMode::Dirichlet) {
+        if (mode_ == LaplaceKFBIMode::Neumann) {
             jumps[i].u_jump  = 0.0;
             jumps[i].un_jump = x[i];
         } else {
@@ -87,32 +75,21 @@ void LaplaceKFBIOperator2D::apply_full(const Eigen::VectorXd& x,
         jumps[i].rhs_derivs = rhs_derivs_[i];
     }
 
-    Eigen::VectorXd rhs = base_rhs_;
-    auto correction_polys = spread_.apply(jumps, rhs);
-
-    Eigen::VectorXd u_bulk;
-    bulk_solver_.solve(-rhs, u_bulk);
-
-    auto solution_polys = restrict_op_.apply(u_bulk, correction_polys);
+    auto res = solver_.solve(jumps, base_rhs_);
 
     y.resize(Nq);
-    if (mode_ == LaplaceKFBIMode::Dirichlet || mode_ == LaplaceKFBIMode::ExteriorDirichletDouble) {
+    if (mode_ == LaplaceKFBIMode::Dirichlet) {
         for (int i = 0; i < Nq; ++i)
-            y[i] = solution_polys[i].coeffs[0];
-    } else if (mode_ == LaplaceKFBIMode::InteriorDirichletDouble) {
-        for (int i = 0; i < Nq; ++i)
-            y[i] = solution_polys[i].coeffs[0] + jumps[i].u_jump;
+            y[i] = res.u_avg[i] + 0.5 * jumps[i].u_jump;
     } else {
-        const auto& normals = iface.normals();
         for (int i = 0; i < Nq; ++i)
-            y[i] = solution_polys[i].coeffs[1] * normals(i, 0)
-                 + solution_polys[i].coeffs[2] * normals(i, 1);
+            y[i] = res.un_avg[i] + 0.5 * jumps[i].un_jump;
     }
 }
 
 int LaplaceKFBIOperator2D::problem_size() const
 {
-    return spread_.grid_pair().interface().num_points();
+    return solver_.num_points();
 }
 
 // ---------------------------------------------------------------------------
@@ -142,7 +119,7 @@ void LaplaceKFBIOperator3D::apply(const Eigen::VectorXd& x,
 
     std::vector<LaplaceJumpData3D> jumps(Nq);
     for (int i = 0; i < Nq; ++i) {
-        if (mode_ == LaplaceKFBIMode::Dirichlet) {
+        if (mode_ == LaplaceKFBIMode::Neumann) {
             jumps[i].u_jump  = 0.0;
             jumps[i].un_jump = x[i];
         } else {
@@ -161,12 +138,9 @@ void LaplaceKFBIOperator3D::apply(const Eigen::VectorXd& x,
     auto solution_polys = restrict_op_.apply(u_bulk, correction_polys);
 
     y.resize(Nq);
-    if (mode_ == LaplaceKFBIMode::Dirichlet || mode_ == LaplaceKFBIMode::ExteriorDirichletDouble) {
+    if (mode_ == LaplaceKFBIMode::Dirichlet) {
         for (int i = 0; i < Nq; ++i)
             y[i] = solution_polys[i].coeffs[0];
-    } else if (mode_ == LaplaceKFBIMode::InteriorDirichletDouble) {
-        for (int i = 0; i < Nq; ++i)
-            y[i] = solution_polys[i].coeffs[0] + jumps[i].u_jump;
     } else {
         const auto& normals = iface.normals();
         for (int i = 0; i < Nq; ++i)
@@ -184,7 +158,7 @@ void LaplaceKFBIOperator3D::apply_full(const Eigen::VectorXd& x,
 
     std::vector<LaplaceJumpData3D> jumps(Nq);
     for (int i = 0; i < Nq; ++i) {
-        if (mode_ == LaplaceKFBIMode::Dirichlet) {
+        if (mode_ == LaplaceKFBIMode::Neumann) {
             jumps[i].u_jump  = 0.0;
             jumps[i].un_jump = x[i];
         } else {
@@ -203,12 +177,9 @@ void LaplaceKFBIOperator3D::apply_full(const Eigen::VectorXd& x,
     auto solution_polys = restrict_op_.apply(u_bulk, correction_polys);
 
     y.resize(Nq);
-    if (mode_ == LaplaceKFBIMode::Dirichlet || mode_ == LaplaceKFBIMode::ExteriorDirichletDouble) {
+    if (mode_ == LaplaceKFBIMode::Dirichlet) {
         for (int i = 0; i < Nq; ++i)
             y[i] = solution_polys[i].coeffs[0];
-    } else if (mode_ == LaplaceKFBIMode::InteriorDirichletDouble) {
-        for (int i = 0; i < Nq; ++i)
-            y[i] = solution_polys[i].coeffs[0] + jumps[i].u_jump;
     } else {
         const auto& normals = iface.normals();
         for (int i = 0; i < Nq; ++i)

@@ -49,66 +49,65 @@ static Interface2D make_star(double cx, double cy, double R, double A, int k, in
 //
 // Box: [0,1]²   Star interface: centre (0.5,0.5), R=0.28, A=0.40, k=5.
 //
-//   u⁺(x,y) = sin(πx) sin(πy)           (outside star; vanishes on box boundary)
-//   u⁻(x,y) = sin(2πx) sin(2πy)         (inside star)
+//   u_ext(x,y) = sin(πx) sin(πy)           (outside star; vanishes on box boundary)
+//   u_int(x,y) = sin(2πx) sin(2πy)         (inside star)
 //
-//   f⁺ = −Δu⁺ = 2π² sin(πx) sin(πy)
-//   f⁻ = −Δu⁻ = 8π² sin(2πx) sin(2πy)
+//   f_ext = −Δu_ext = 2π² sin(πx) sin(πy)
+//   f_int = −Δu_int = 8π² sin(2πx) sin(2πy)
 //
-//   C(x,y)  = u⁺ − u⁻  = sin(πx)sin(πy) − sin(2πx)sin(2πy)
+//   C(x,y)  = u_int − u_ext  = sin(2πx)sin(2πy) − sin(πx)sin(πy)
 // ============================================================================
 
-static double u_plus(double x, double y)
+static double sol_u_ext(double x, double y)
 {
     return std::sin(kPi*x) * std::sin(kPi*y);
 }
 
-static double u_minus(double x, double y)
+static double sol_u_int(double x, double y)
 {
     return std::sin(2*kPi*x) * std::sin(2*kPi*y);
 }
 
-static double f_plus(double x, double y)
+static double sol_f_ext(double x, double y)
 {
     return 2.0 * kPi*kPi * std::sin(kPi*x) * std::sin(kPi*y);
 }
 
-static double f_minus(double x, double y)
+static double sol_f_int(double x, double y)
 {
     return 8.0 * kPi*kPi * std::sin(2*kPi*x) * std::sin(2*kPi*y);
 }
 
 static double correction_fn(double x, double y)
 {
-    return u_plus(x, y) - u_minus(x, y);
+    return sol_u_int(x, y) - sol_u_ext(x, y);
 }
 
-// Partial derivatives of C = u⁺ − u⁻
+// Partial derivatives of C = u_int − u_ext
 static double Cx_fn(double x, double y)
 {
-    return  kPi*std::cos(kPi*x)*std::sin(kPi*y)
-          - 2*kPi*std::cos(2*kPi*x)*std::sin(2*kPi*y);
+    return  2*kPi*std::cos(2*kPi*x)*std::sin(2*kPi*y)
+          - kPi*std::cos(kPi*x)*std::sin(kPi*y);
 }
 static double Cy_fn(double x, double y)
 {
-    return  kPi*std::sin(kPi*x)*std::cos(kPi*y)
-          - 2*kPi*std::sin(2*kPi*x)*std::cos(2*kPi*y);
+    return  2*kPi*std::sin(2*kPi*x)*std::cos(2*kPi*y)
+          - kPi*std::sin(kPi*x)*std::cos(kPi*y);
 }
 static double Cxx_fn(double x, double y)
 {
-    return -kPi*kPi*std::sin(kPi*x)*std::sin(kPi*y)
-           + 4*kPi*kPi*std::sin(2*kPi*x)*std::sin(2*kPi*y);
+    return -4*kPi*kPi*std::sin(2*kPi*x)*std::sin(2*kPi*y)
+           + kPi*kPi*std::sin(kPi*x)*std::sin(kPi*y);
 }
 static double Cxy_fn(double x, double y)
 {
-    return  kPi*kPi*std::cos(kPi*x)*std::cos(kPi*y)
-          - 4*kPi*kPi*std::cos(2*kPi*x)*std::cos(2*kPi*y);
+    return  4*kPi*kPi*std::cos(2*kPi*x)*std::cos(2*kPi*y)
+          - kPi*kPi*std::cos(kPi*x)*std::cos(kPi*y);
 }
 static double Cyy_fn(double x, double y)
 {
-    // equals Cxx for our manufactured solution
-    return -kPi*kPi*std::sin(kPi*x)*std::sin(kPi*y)
-           + 4*kPi*kPi*std::sin(2*kPi*x)*std::sin(2*kPi*y);
+    return -4*kPi*kPi*std::sin(2*kPi*x)*std::sin(2*kPi*y)
+           + kPi*kPi*std::sin(kPi*x)*std::sin(kPi*y);
 }
 
 // ============================================================================
@@ -142,10 +141,10 @@ static double iim_error(int N)
         auto   c = grid.coord(n);
         double x = c[0], y = c[1];
         int    lbl = labels[n];
-        u_exact[n]  = (lbl == 1) ? u_minus(x, y) : u_plus(x, y);
+        u_exact[n]  = (lbl == 1) ? sol_u_int(x, y) : sol_u_ext(x, y);
         C[n]        = correction_fn(x, y);
         bool bdy = (n % nx == 0 || n % nx == nx-1 || n / nx == 0 || n / nx == ny-1);
-        f[n] = bdy ? 0.0 : ((lbl == 1) ? f_minus(x, y) : f_plus(x, y));
+        f[n] = bdy ? 0.0 : ((lbl == 1) ? sol_f_int(x, y) : sol_f_ext(x, y));
     }
 
     // Apply IIM defect correction.
@@ -298,9 +297,10 @@ TEST_CASE("IIM 2D: correction term sign and magnitude",
             int lnb = labels[nb];
             if (lnb != ln) {
                 ++n_cross;
-                expected_corr += (lnb - ln) * C[nb] / (h * h);
+                expected_corr += (ln - lnb) * C[nb] / (h * h);
             }
         }
+
         if (n_cross == 1) {
             REQUIRE_THAT(F[n], WithinAbs(f[n] + expected_corr, 1e-12));
             found_test_node = true;
@@ -369,9 +369,9 @@ static double iim_error_taylor(int N)
         auto c = grid.coord(n);
         double x = c[0], y = c[1];
         int lbl  = labels[n];
-        u_exact[n] = (lbl == 1) ? u_minus(x, y) : u_plus(x, y);
+        u_exact[n] = (lbl == 1) ? sol_u_int(x, y) : sol_u_ext(x, y);
         bool bdy = (n % nx == 0 || n % nx == nx-1 || n / nx == 0 || n / nx == ny-1);
-        f[n] = bdy ? 0.0 : ((lbl == 1) ? f_minus(x, y) : f_plus(x, y));
+        f[n] = bdy ? 0.0 : ((lbl == 1) ? sol_f_int(x, y) : sol_f_ext(x, y));
     }
 
     // Build C and its derivatives at each interface quadrature point.
@@ -427,9 +427,9 @@ TEST_CASE("IIM 2D: uncorrected solve has O(1) error at irregular nodes",
         auto c   = grid.coord(n);
         double x = c[0], y = c[1];
         int   lbl = labels[n];
-        u_exact[n] = (lbl == 1) ? u_minus(x, y) : u_plus(x, y);
+        u_exact[n] = (lbl == 1) ? sol_u_int(x, y) : sol_u_ext(x, y);
         bool  bdy  = (n % nx == 0 || n % nx == nx-1 || n / nx == 0 || n / nx == ny-1);
-        f[n] = bdy ? 0.0 : ((lbl == 1) ? f_minus(x, y) : f_plus(x, y));
+        f[n] = bdy ? 0.0 : ((lbl == 1) ? sol_f_int(x, y) : sol_f_ext(x, y));
     }
 
     // Solve WITHOUT correction (still need to negate: solver solves Δu = rhs).

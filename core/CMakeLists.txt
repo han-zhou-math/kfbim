@@ -38,6 +38,9 @@ add_library(kfbim_core STATIC
     operator/laplace_kfbi_operator.cpp
     operator/laplace_potential.cpp
 
+    # Layer 3 utility — Interface solver pipeline
+    problems/laplace_interface_solver_2d.cpp
+
     # Layer 4 — Outer Solver
     gmres/gmres.cpp
 )

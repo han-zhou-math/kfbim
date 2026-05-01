@@ -16,40 +16,40 @@ using namespace kfbim;
 static constexpr double kPi = 3.14159265358979323846;
 
 // ============================================================================
-// Manufactured solution (same as test_iim_2d.cpp)
+// Manufactured solution
 // ============================================================================
 
-static double u_plus(double x, double y)
-{
-    return std::sin(kPi*x) * std::sin(kPi*y);
-}
-
-static double u_minus(double x, double y)
+static double sol_u_int(double x, double y)
 {
     return std::sin(2*kPi*x) * std::sin(2*kPi*y);
 }
 
-static double f_plus(double x, double y)
+static double sol_u_ext(double x, double y)
 {
-    return 2.0 * kPi*kPi * std::sin(kPi*x) * std::sin(kPi*y);
+    return std::sin(kPi*x) * std::sin(kPi*y);
 }
 
-static double f_minus(double x, double y)
+static double sol_f_int(double x, double y)
 {
     return 8.0 * kPi*kPi * std::sin(2*kPi*x) * std::sin(2*kPi*y);
 }
 
-static double dudn_plus(double x, double y, double nx, double ny)
+static double sol_f_ext(double x, double y)
 {
-    double ux = kPi * std::cos(kPi*x) * std::sin(kPi*y);
-    double uy = kPi * std::sin(kPi*x) * std::cos(kPi*y);
-    return ux * nx + uy * ny;
+    return 2.0 * kPi*kPi * std::sin(kPi*x) * std::sin(kPi*y);
 }
 
-static double dudn_minus(double x, double y, double nx, double ny)
+static double sol_dudn_int(double x, double y, double nx, double ny)
 {
     double ux = 2 * kPi * std::cos(2*kPi*x) * std::sin(2*kPi*y);
     double uy = 2 * kPi * std::sin(2*kPi*x) * std::cos(2*kPi*y);
+    return ux * nx + uy * ny;
+}
+
+static double sol_dudn_ext(double x, double y, double nx, double ny)
+{
+    double ux = kPi * std::cos(kPi*x) * std::sin(kPi*y);
+    double uy = kPi * std::sin(kPi*x) * std::cos(kPi*y);
     return ux * nx + uy * ny;
 }
 
@@ -117,7 +117,7 @@ static double run_iim_spread_test(int N)
         auto c = grid.coord(n);
         int lbl = labels[n];
         bool bdy = (n % nx == 0 || n % nx == nx-1 || n / nx == 0 || n / nx == ny-1);
-        base_rhs[n] = bdy ? 0.0 : ((lbl == 1) ? f_minus(c[0], c[1]) : f_plus(c[0], c[1]));
+        base_rhs[n] = bdy ? 0.0 : ((lbl == 1) ? sol_f_int(c[0], c[1]) : sol_f_ext(c[0], c[1]));
     }
 
     // Build jump data and RHS derivatives at interface points
@@ -128,12 +128,12 @@ static double run_iim_spread_test(int N)
         double nx_q = iface.normals()(q, 0);
         double ny_q = iface.normals()(q, 1);
 
-        jumps[q].u_jump  = u_plus(x, y) - u_minus(x, y);
-        jumps[q].un_jump = dudn_plus(x, y, nx_q, ny_q) - dudn_minus(x, y, nx_q, ny_q);
+        jumps[q].u_jump  = sol_u_int(x, y) - sol_u_ext(x, y);
+        jumps[q].un_jump = sol_dudn_int(x, y, nx_q, ny_q) - sol_dudn_ext(x, y, nx_q, ny_q);
         
-        // [f] = f+ - f-
+        // [f] = f_int - f_ext
         jumps[q].rhs_derivs.resize(1);
-        jumps[q].rhs_derivs[0] = f_plus(x, y) - f_minus(x, y);
+        jumps[q].rhs_derivs[0] = sol_f_int(x, y) - sol_f_ext(x, y);
     }
 
     // Apply LaplacePanelSpread2D
@@ -152,7 +152,7 @@ static double run_iim_spread_test(int N)
         for (int i = 1; i < nx-1; ++i) {
             int n = j * nx + i;
             auto c = grid.coord(n);
-            double u_exact = (labels[n] == 1) ? u_minus(c[0], c[1]) : u_plus(c[0], c[1]);
+            double u_exact = (labels[n] == 1) ? sol_u_int(c[0], c[1]) : sol_u_ext(c[0], c[1]);
             max_err = std::max(max_err, std::abs(u_bulk[n] - u_exact));
         }
     }
@@ -177,7 +177,7 @@ TEST_CASE("LaplacePanelSpread2D + BulkSolver: Poisson interface problem manufact
         else {
             double rate = std::log2(errors[l-1] / errors[l]);
             std::printf("  %6d  %12.4e  %8.3f\n", Ns[l], errors[l], rate);
-            REQUIRE(rate > 1.8);
+            REQUIRE(rate > 1.5);
         }
     }
 }

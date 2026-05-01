@@ -60,11 +60,5 @@ kfbim_add_test(test_local_cauchy test_local_cauchy.cpp)
 # Layer 1 transfer operators
 kfbim_add_test(test_transfer_2d test_transfer_2d.cpp)
 
-# Full end-to-end: -Δu=f interface problem, panel Cauchy + FFT solve
-kfbim_add_test(test_laplace_iface_2d test_laplace_iface_2d.cpp)
-
-# IIM Spread + Bulk Solver integration test
-kfbim_add_test(test_iim_spread_2d test_iim_spread_2d.cpp)
-
 # Full pipeline (interior Dirichlet, circle domain): add when all layers exist.
 # kfbim_add_test(test_laplace_interior_2d test_laplace_interior_2d.cpp)

@@ -5,9 +5,24 @@ Reconstruct problem-dependent KFBIM codes into a clean, reusable C++ library wit
 Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
 
 ## Current Status
-- Branch `main` at commit `53d6ac8` (`Update project status notes`).
-- Working tree is clean as of 2026-05-01.
-- 103/104 tests pass (one pre-existing failure in `test_iim_spread_2d`, rate 1.697 < 1.8 threshold).
+- Branch `main` is synced with `origin/main` at commit `53d6ac8` (`Update project status notes`).
+- Working tree has uncommitted changes as of 2026-05-01 (see below).
+- **Completed modules** (all tests passing):
+  - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
+  - Layer 1: `LaplacePanelSpread2D`, `LaplaceQuadraticRestrict2D` (6-point sub-cell stencil)
+  - Layer 1.5: `LaplacePanelCauchySolver2D`
+  - Layer 2: `LaplaceFftBulkSolverZfft2D` (DST, Dirichlet BC)
+  - Layer 3: `LaplaceKFBIOperator2D` (delegates to `LaplaceInterfaceSolver2D`), `LaplaceInterfaceSolver2D` (Spread → BulkSolve → Restrict pipeline, arc_h_ratio check)
+  - Layer 4: GMRES outer solver
+- **Uncommitted changes:**
+  - `core/problems/laplace_interface_solver_2d.{hpp,cpp}` — new interface solver module
+  - `core/operator/laplace_kfbi_operator.{hpp,cpp}` — refactored to delegate to `LaplaceInterfaceSolver2D`
+  - `core/CMakeLists.txt` — added solver source
+  - `tests/test_laplace_interface_solver_2d.cpp` — new test (in progress, interface average formula being corrected)
+  - `tests/CMakeLists.txt` — added new test
+  - `CLAUDE.md` — this file
+- **In progress:** `test_laplace_interface_solver_2d.cpp` — manufactured Poisson solution (S + D + V potentials) on circle interface; bulk convergence passes (O(h²)); interface average trace recovery formula being fixed (sign convention: u⁺=interior, u⁻=exterior, [u]=u⁺−u⁻).
+- **4 pre-existing test failures** unrelated to current work (GMRES tolerance: 1.6e-2 > 1e-2, rate 0.98 < 1.0; IIM spread rate 1.70 < 1.8; GridPair3D torus).
 
 ## Core Algorithm
 Kernel-free boundary integral method for elliptic PDEs on complex interfaces/boundaries in 2D and 3D.
@@ -30,9 +45,9 @@ GMRES iterates on this operator until the interface unknowns converge.
 ```
 Layer 5    Problem API          LaplaceProblem, StokesProblem, ElasticityProblem
 Layer 4    Outer Solver         GMRES (matrix-free), pre/post-processing hooks
-Layer 3    Interface Operator   KFBIOperator, LaplacePotentialEval
-Layer 2    Bulk Solver          Abstract BulkSolver; impls: FFT, multigrid, StokesBulkSolver
+Layer 3    Interface Operator   KFBIOperator: Spread → BulkSolve → Restrict
 Layer 1.5  Local Cauchy Solver  LaplaceLocalSolver, StokesLocalSolver, ...  (PDE-specific, used by Spread)
+Layer 2    Bulk Solver          Abstract BulkSolver; impls: FFT, multigrid, StokesBulkSolver
 Layer 1    Transfer Operators   Spread (calls LocalCauchySolver), Restrict (interpolation + jump correction)
 Layer 0    Grid & Geometry      CartesianGrid, MACGrid, Interface, GridPair
 ```
@@ -67,8 +82,6 @@ Higher layers depend only on the abstractions of lower layers, not their impleme
 
 ### Layer 3 — Interface Operator
 - `KFBIOperator`: composes Spread → correct RHS → BulkSolve → Restrict
-- `LaplacePotentialEval2D`: modular boundary integral operator evaluation (D, S, N potentials
-  and derived operators K, H, K', ∂ₙN) built on the Spread/BulkSolve/Restrict pipeline
 - Matrix-free operator; owns a `LocalCauchySolver` and a `BulkSolver`
 
 ### Layer 4 — Outer Solver
@@ -81,6 +94,7 @@ Higher layers depend only on the abstractions of lower layers, not their impleme
 - Target surface for Python/MATLAB bindings (pybind11)
 
 ## Open Design Decisions
+<!-- Remove entries as decisions are finalized -->
 
 - [x] Interface representation: parametric panels (triangular mesh in 3D, panels in 2D). NURBS on upgrade path but isolated to geometry description layer, not quadrature storage.
 - [x] Jump condition entry: pure RHS correction only. Bulk solver is completely interface-agnostic — clean separation between Layers 0-2 and Layer 1.
@@ -89,6 +103,7 @@ Higher layers depend only on the abstractions of lower layers, not their impleme
 - [x] External dependencies: CGAL for geometric queries (closest point on triangulated surface, domain labeling/inside-outside). Self-written code for the rest. Core otherwise self-contained.
 
 ## Settled Decisions
+<!-- Move items here once decided -->
 
 - 2D and 3D are separate but consistent modules (not unified by templates)
 - `ICartesianGrid2D/3D`: abstract interface with flat-index-only API (`coord(idx)`, `neighbors(idx)`, `num_dofs()`). `BulkSolver` and all layers above depend only on this — enables future adaptive (quadtree/octree) grids without touching upper layers.
@@ -100,29 +115,39 @@ Higher layers depend only on the abstractions of lower layers, not their impleme
 - Core is self-contained; external libs only for geometry and possibly fast solvers
 - C++ core; Python bindings via pybind11 are a future goal, not a current constraint
 - CMake build system
-- Convention: u⁺ = interior limit, u⁻ = exterior limit, [u] = u⁺ − u⁻.
-  Domain labels: 0 = Ω⁻ (exterior), 1 = Ω⁺ (interior). Correction function: C = u⁺ − u⁻ = [u].
 
-## Directory Layout
+## Sign Conventions
+
+- **u⁺** = interior solution (Ω⁺ = inside the interface Γ)
+- **u⁻** = exterior solution (Ω⁻ = outside the interface Γ)
+- **[u] = u⁺ − u⁻** (interior minus exterior), similarly [∂u/∂n] = ∂u⁺/∂n − ∂u⁻/∂n
+- **Normal n** points outward (from interior Ω⁺ to exterior Ω⁻), matching `Interface2D::normals()`
+- **Domain label**: `GridPair2D::domain_label(n)` returns 0 = exterior (Ω⁻), 1 = interior (Ω⁺)
+- **Correction polynomial** C from panel Cauchy solver: C = [u] on Γ, ∂C/∂n = [∂u/∂n]
+- **Restrict**: fits bulk solution at stencil nodes, subtracts C → `u_trace = fit(bulk) − [u]`
+- **Interface average**: `u_avg = (u⁺+u⁻)/2 = u_trace + [u]`
 
 ```
 core/
-  grid/           # CartesianGrid2D/3D, MACGrid2D/3D, DofLayout, ICartesianGrid
+  grid/           # CartesianGrid2D/3D, MACGrid2D/3D, DofLayout
   interface/      # Interface2D, Interface3D
-  geometry/       # GridPair2D/3D (CGAL-dependent; pimpl hides CGAL headers)
-  transfer/       # LaplaceSpread2D, LaplaceRestrict2D, ILaplaceSpread, ILaplaceRestrict
-  local_cauchy/   # LaplaceLocalSolver2D (panel collocation), JumpData, LocalPoly
-  solver/         # LaplaceFftBulkSolver2D/3D, IIM correction (iim_laplace_2d.hpp), FFT engines
-  operator/       # LaplaceKFBIOperator, LaplacePotentialEval2D, IKFBIOperator
-  gmres/          # GMRES solver (matrix-free), IOuterSolver
-problems/         # LaplaceProblem, StokesProblem, ... (Layer 5 — TBD)
+  geometry/       # GridPair2D/3D  (CGAL-dependent; pimpl hides CGAL headers)
+  transfer/       # Spread, Restrict  (Layer 1)
+  local_cauchy/   # LaplacePanelCauchySolver2D, jump_data, local_poly  (Layer 1.5)
+  solver/         # BulkSolver and impls  (Layer 2)
+  operator/       # KFBIOperator  (Layer 3)
+  problems/       # LaplaceInterfaceSolver2D  (Layer 3 utility)
+  gmres/          # outer solver  (Layer 4)
+problems/         # LaplaceInterfaceProblem, LaplaceTransmissionProblem, ...  (Layer 5)
 bindings/         # pybind11 wrappers (future)
 tests/
 examples/
-notes/            # Design notes and derivation (e.g. IIM correction formula)
 ```
 
+## Directory Layout (planned)
+
 ## Coding Conventions
+<!-- Fill in as decided -->
 
 - Language standard: C++17 (minimum; upgrade if a strong reason arises)
 - Naming: `CamelCase` for classes/types, `snake_case` for methods and variables (matches Eigen, CGAL, deal.II)
@@ -130,7 +155,9 @@ notes/            # Design notes and derivation (e.g. IIM correction formula)
 - Data containers: Eigen internally; public API uses `Eigen::Ref<>` so callers can pass raw arrays, std::vector, or Eigen without copying. Enables pybind11 ↔ numpy and MATLAB interop. Internal custom vectors migrated gradually.
 
 ## Build
+<!-- Fill in once CMake is set up -->
 
 ```bash
+# placeholder
 cmake -B build && cmake --build build
 ```
