@@ -9,7 +9,7 @@
 //   f = 0 everywhere
 //   g = u|Γ
 //
-// Computational domain: [-1.8, 1.8]²
+// Computational domain: [-2, 2]²
 //
 // Note: center is (0, 0.1) rather than origin to prevent grid nodes from
 // landing exactly on the interface.  For a circle centered at the origin on
@@ -18,10 +18,6 @@
 // node–interface coincidence makes the IIM correction stencil degenerate,
 // producing erratic convergence rates.  The y-offset 0.1 eliminates the
 // alignment for N ∈ {32,64,128,256,512}.
-//
-// Using [-1.8,1.8]² (instead of [-2,2]²) also tightens the box around the
-// circle, reducing the phantom-exterior magnitude and restoring clean O(h²)
-// rates at fine grid levels.
 // ---------------------------------------------------------------------------
 
 #include <catch2/catch_test_macros.hpp>
@@ -70,14 +66,14 @@ struct ConvergenceData {
 
 static ConvergenceData solve_and_measure(int N)
 {
-    const double L = 3.6;               // domain [-1.8,1.8]²
+    const double L = 4.0;               // domain [-2,2]²
     const double h = L / N;
-    CartesianGrid2D grid({-1.8, -1.8}, {h, h}, {N, N}, DofLayout2D::Node);
+    CartesianGrid2D grid({-2.0, -2.0}, {h, h}, {N, N}, DofLayout2D::Node);
     auto d = grid.dof_dims();
     int nx = d[0], ny = d[1];
 
     CircleCurve2D circle;
-    auto iface = CurveResampler2D::discretize(circle, h, 4.0);
+    auto iface = CurveResampler2D::discretize_legacy_gauss(circle, h, 4.0);
     const int Nq = iface.num_points();
 
     // 1. Setup boundary condition g
@@ -107,7 +103,8 @@ static ConvergenceData solve_and_measure(int N)
         Eigen::VectorXd::Constant(1, 0.0));
 
     // 3. Solve using the high-level API
-    LaplaceInteriorDirichlet2D problem(grid, iface, g, f_bulk, rhs_derivs);
+    LaplaceInteriorDirichlet2D problem(grid, iface, g, f_bulk, rhs_derivs,
+                                       LaplaceInteriorPanelMethod2D::LegacyGaussPanel);
     auto res = problem.solve();
 
     REQUIRE(res.converged);
@@ -120,8 +117,10 @@ static ConvergenceData solve_and_measure(int N)
         }
     }
 
-    if (N == 128) {
-        FILE* fp = std::fopen("laplace_interior_circle_2d_N128.csv", "w");
+    {
+        char fname[64];
+        std::snprintf(fname, sizeof(fname), "laplace_interior_circle_2d_N%d.csv", N);
+        FILE* fp = std::fopen(fname, "w");
         if (fp) {
             std::fprintf(fp, "x,y,u_bulk,u_exact,label\n");
             for (int n = 0; n < nx * ny; ++n) {
@@ -141,13 +140,13 @@ static ConvergenceData solve_and_measure(int N)
 TEST_CASE("LaplaceInteriorDirichlet2D: circle (center (0,0.1)) O(h²) convergence",
           "[laplace][bvp][interior][dirichlet][2d][circle]")
 {
-    const int Ns[]     = {32, 64, 128, 256, 512};
-    const int n_levels = 5;
+    const int Ns[]     = {32, 64, 128, 256, 512, 1024};
+    const int n_levels = 6;
     ConvergenceData data[n_levels];
 
     std::printf("\n  LaplaceInteriorDirichlet2D: circle BVP convergence\n");
     std::printf("  Manufactured: u=exp(x)sin(y), harmonic (f=0), circle center (0,%.1f)\n", kCy);
-    std::printf("  Domain: [-1.8,1.8]^2\n");
+    std::printf("  Domain: [-2,2]^2\n");
     std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "rate", "iters");
 
     for (int l = 0; l < n_levels; ++l) {

@@ -36,6 +36,41 @@ static Interface2D make_circle(double cx, double cy, double r, int N)
     return {pts, nml, wts, 1, comp};
 }
 
+// Circle represented by 3-point Gauss-Legendre panel geometry.
+static Interface2D make_circle_gauss_panels(double cx, double cy, double r, int N_panels)
+{
+    constexpr double gl_s[3] = {
+        -0.7745966692414834,
+         0.0,
+         0.7745966692414834
+    };
+    constexpr double gl_w[3] = {5.0 / 9.0, 8.0 / 9.0, 5.0 / 9.0};
+
+    const int Nq = 3 * N_panels;
+    Eigen::MatrixX2d pts(Nq, 2), nml(Nq, 2);
+    Eigen::VectorXd  wts(Nq);
+    Eigen::VectorXi  comp = Eigen::VectorXi::Zero(N_panels);
+    const double dtheta = 2.0 * kPi / N_panels;
+
+    int q = 0;
+    for (int p = 0; p < N_panels; ++p) {
+        const double theta_mid = (p + 0.5) * dtheta;
+        const double half_dtheta = 0.5 * dtheta;
+        for (int i = 0; i < 3; ++i) {
+            const double th = theta_mid + half_dtheta * gl_s[i];
+            const double ct = std::cos(th), st = std::sin(th);
+            pts(q, 0) = cx + r * ct;
+            pts(q, 1) = cy + r * st;
+            nml(q, 0) = ct;
+            nml(q, 1) = st;
+            wts(q) = gl_w[i] * half_dtheta * r;
+            ++q;
+        }
+    }
+
+    return {pts, nml, wts, 3, comp};
+}
+
 // Multi-circle interface: arbitrary number of circles, each its own component.
 struct CircleCfg { double cx, cy, r; };
 
@@ -220,6 +255,22 @@ TEST_CASE("GridPair2D domain labeling — circle", "[gridpair][2d]")
     }
     REQUIRE(n_interior_wrong == 0);
     REQUIRE(n_exterior_wrong == 0);
+}
+
+TEST_CASE("GridPair2D domain labeling uses oversampled quadratic panels",
+          "[gridpair][2d][domain]")
+{
+    auto iface = make_circle_gauss_panels(0.0, 0.0, 1.0, 4);
+    CartesianGrid2D grid({-0.99, -0.99}, {0.99, 0.99}, {2, 2}, DofLayout2D::Node);
+    GridPair2D gp(grid, iface);
+
+    // These nodes sit just inside the true circle at quadratic panel boundaries.
+    // A polygon through only the stored Gauss points cuts across those boundaries.
+    REQUIRE(gp.domain_label(grid.index(2, 1)) == 1);
+    REQUIRE(gp.domain_label(grid.index(1, 2)) == 1);
+    REQUIRE(gp.domain_label(grid.index(0, 1)) == 1);
+    REQUIRE(gp.domain_label(grid.index(1, 0)) == 1);
+    REQUIRE(gp.domain_label(grid.index(1, 1)) == 1);
 }
 
 TEST_CASE("GridPair2D two-component labeling", "[gridpair][2d]")

@@ -22,6 +22,8 @@ static const double kGL_s[3] = {
     +0.7745966692414834
 };
 static const double kGL_w[3] = {5.0 / 9.0, 8.0 / 9.0, 5.0 / 9.0};
+static const double kLobatto_s[3] = {-1.0, 0.0, 1.0};
+static const double kLobatto_w[3] = {1.0 / 3.0, 4.0 / 3.0, 1.0 / 3.0};
 
 static Interface2D make_star_panels(double cx, double cy,
                                     double R, double A, int K,
@@ -55,6 +57,40 @@ static Interface2D make_star_panels(double cx, double cy,
     }
 
     return {pts, nml, wts, 3, comp};
+}
+
+static Interface2D make_star_lobatto_panels(double cx, double cy,
+                                            double R, double A, int K,
+                                            int N_panels)
+{
+    const int Nq = 3 * N_panels;
+    Eigen::MatrixX2d pts(Nq, 2), nml(Nq, 2);
+    Eigen::VectorXd wts(Nq);
+    Eigen::VectorXi comp = Eigen::VectorXi::Zero(N_panels);
+    const double dth = 2.0 * kPi / N_panels;
+
+    int q = 0;
+    for (int p = 0; p < N_panels; ++p) {
+        const double th_mid = (p + 0.5) * dth;
+        const double half_dth = 0.5 * dth;
+        for (int i = 0; i < 3; ++i) {
+            const double th = th_mid + half_dth * kLobatto_s[i];
+            const double r = R * (1.0 + A * std::cos(K * th));
+            const double drdt = -R * A * K * std::sin(K * th);
+            pts(q, 0) = cx + r * std::cos(th);
+            pts(q, 1) = cy + r * std::sin(th);
+
+            const double tx = drdt * std::cos(th) - r * std::sin(th);
+            const double ty = drdt * std::sin(th) + r * std::cos(th);
+            const double tlen = std::sqrt(tx * tx + ty * ty);
+            nml(q, 0) = ty / tlen;
+            nml(q, 1) = -tx / tlen;
+            wts[q] = kLobatto_w[i] * half_dth * tlen;
+            ++q;
+        }
+    }
+
+    return {pts, nml, wts, 3, comp, PanelNodeLayout2D::ChebyshevLobatto};
 }
 
 static double sol_u_int(double x, double y) {
@@ -114,6 +150,31 @@ static LocalPoly2D quad_poly_at(const Quad2D& q, Eigen::Vector2d center) {
     return poly;
 }
 
+static Eigen::Vector2d lobatto_panel_point(const Interface2D& iface, int panel, double s) {
+    const double l0 = 0.5 * s * (s - 1.0);
+    const double l1 = 1.0 - s * s;
+    const double l2 = 0.5 * s * (s + 1.0);
+    const int q0 = iface.point_index(panel, 0);
+    const int q1 = iface.point_index(panel, 1);
+    const int q2 = iface.point_index(panel, 2);
+    return l0 * iface.points().row(q0).transpose()
+         + l1 * iface.points().row(q1).transpose()
+         + l2 * iface.points().row(q2).transpose();
+}
+
+static std::vector<LocalPoly2D> lobatto_center_polys_for_quad(const Interface2D& iface,
+                                                              const Quad2D&      q)
+{
+    constexpr double center_s[4] = {-0.75, -0.25, 0.25, 0.75};
+    std::vector<LocalPoly2D> polys;
+    polys.reserve(4 * iface.num_panels());
+    for (int p = 0; p < iface.num_panels(); ++p) {
+        for (double s : center_s)
+            polys.push_back(quad_poly_at(q, lobatto_panel_point(iface, p, s)));
+    }
+    return polys;
+}
+
 TEST_CASE("LaplacePanelSpread2D matches Taylor IIM RHS correction",
           "[transfer][spread][2d]")
 {
@@ -164,6 +225,67 @@ TEST_CASE("LaplacePanelSpread2D matches Taylor IIM RHS correction",
         REQUIRE_THAT(rhs_correction[n], WithinAbs(expected[n], 1e-10));
 }
 
+TEST_CASE("LaplaceLobattoCenterSpread2D tracks quadratic Taylor RHS correction",
+          "[transfer][spread][lobatto][2d]")
+{
+    const int N = 32;
+    const double h = 1.0 / N;
+    CartesianGrid2D grid({0.0, 0.0}, {h, h}, {N, N}, DofLayout2D::Node);
+    auto iface = make_star_lobatto_panels(0.5, 0.5, 0.24, 0.15, 3, 16);
+    GridPair2D gp(grid, iface);
+
+    const Quad2D correction{-0.4, 0.8, 0.2, 0.25, -0.3, 0.1};
+    const double neg_laplacian = -(correction.cxx + correction.cyy);
+
+    const int Nq = iface.num_points();
+    std::vector<LaplaceJumpData2D> jumps(Nq);
+    Eigen::VectorXd C_q(Nq), Cx_q(Nq), Cy_q(Nq), Cxx_q(Nq), Cxy_q(Nq), Cyy_q(Nq);
+    for (int q = 0; q < Nq; ++q) {
+        const double x = iface.points()(q, 0);
+        const double y = iface.points()(q, 1);
+        const double nx = iface.normals()(q, 0);
+        const double ny = iface.normals()(q, 1);
+        const double Cx = correction.cx + correction.cxx * x + correction.cxy * y;
+        const double Cy = correction.cy + correction.cxy * x + correction.cyy * y;
+
+        jumps[q].u_jump = quad_value(correction, x, y);
+        jumps[q].un_jump = Cx * nx + Cy * ny;
+        jumps[q].rhs_derivs = Eigen::VectorXd::Constant(1, neg_laplacian);
+
+        C_q[q] = jumps[q].u_jump;
+        Cx_q[q] = Cx;
+        Cy_q[q] = Cy;
+        Cxx_q[q] = correction.cxx;
+        Cxy_q[q] = correction.cxy;
+        Cyy_q[q] = correction.cyy;
+    }
+
+    LaplaceLobattoCenterSpread2D spread(gp);
+    Eigen::VectorXd rhs_correction = Eigen::VectorXd::Zero(grid.num_dofs());
+    const auto polys = spread.apply(jumps, rhs_correction);
+
+    std::vector<int> labels(grid.num_dofs());
+    for (int n = 0; n < grid.num_dofs(); ++n)
+        labels[n] = gp.domain_label(n);
+    const Eigen::VectorXd zero_rhs = Eigen::VectorXd::Zero(grid.num_dofs());
+    const Eigen::VectorXd expected =
+        iim_correct_rhs_taylor(grid, gp, iface, zero_rhs,
+                               C_q, Cx_q, Cy_q,
+                               Cxx_q, Cxy_q, Cyy_q,
+                               labels);
+
+    REQUIRE(polys.size() == static_cast<size_t>(4 * iface.num_panels()));
+    for (const auto& poly : polys)
+        REQUIRE(poly.coeffs.size() == 6);
+    double max_diff = 0.0;
+    double max_expected = 0.0;
+    for (int n = 0; n < grid.num_dofs(); ++n) {
+        max_diff = std::max(max_diff, std::abs(rhs_correction[n] - expected[n]));
+        max_expected = std::max(max_expected, std::abs(expected[n]));
+    }
+    REQUIRE(max_diff < 1e-2 * std::max(1.0, max_expected));
+}
+
 TEST_CASE("LaplaceQuadraticRestrict2D fits bulk polynomial and subtracts correction",
           "[transfer][restrict][2d]")
 {
@@ -199,6 +321,39 @@ TEST_CASE("LaplaceQuadraticRestrict2D fits bulk polynomial and subtracts correct
     REQUIRE(result.size() == static_cast<size_t>(iface.num_points()));
     for (int q = 0; q < iface.num_points(); ++q) {
         Eigen::Vector2d center = iface.points().row(q).transpose();
+        const LocalPoly2D expected = quad_poly_at(physical, center);
+        for (int k = 0; k < 6; ++k)
+            REQUIRE_THAT(result[q].coeffs[k], WithinAbs(expected.coeffs[k], 1e-9));
+    }
+}
+
+TEST_CASE("LaplaceLobattoCenterRestrict2D uses expansion-center corrections",
+          "[transfer][restrict][lobatto][2d]")
+{
+    const int N = 32;
+    const double h = 1.0 / N;
+    CartesianGrid2D grid({0.0, 0.0}, {h, h}, {N, N}, DofLayout2D::Node);
+    auto iface = make_star_lobatto_panels(0.5, 0.5, 0.24, 0.15, 3, 12);
+    GridPair2D gp(grid, iface);
+
+    const Quad2D physical{1.2, -0.7, 2.3, 0.5, -1.1, 0.8};
+    const Quad2D correction{-0.4, 0.8, 0.2, 0.25, -0.3, 0.1};
+
+    Eigen::VectorXd bulk(grid.num_dofs());
+    for (int n = 0; n < grid.num_dofs(); ++n) {
+        const auto c = grid.coord(n);
+        bulk[n] = quad_value(physical, c[0], c[1]);
+        if (gp.domain_label(n) == 0)
+            bulk[n] -= quad_value(correction, c[0], c[1]);
+    }
+
+    const auto correction_polys = lobatto_center_polys_for_quad(iface, correction);
+    LaplaceLobattoCenterRestrict2D restrict_op(gp);
+    const auto result = restrict_op.apply(bulk, correction_polys);
+
+    REQUIRE(result.size() == static_cast<size_t>(iface.num_points()));
+    for (int q = 0; q < iface.num_points(); ++q) {
+        const Eigen::Vector2d center = iface.points().row(q).transpose();
         const LocalPoly2D expected = quad_poly_at(physical, center);
         for (int k = 0; k < 6; ++k)
             REQUIRE_THAT(result[q].coeffs[k], WithinAbs(expected.coeffs[k], 1e-9));

@@ -9,16 +9,24 @@ namespace kfbim {
 // ---------------------------------------------------------------------------
 // CurveResampler2D
 //
-// Resamples a parametric curve into a set of quasi-uniform panels based on
-// arc length. This guarantees that the distance between Gauss points is roughly
-// proportional to the panel length, preventing ill-conditioning in local solves.
+// Resamples a parametric curve into a set of quasi-uniform panels based on arc
+// length. The default discretization is the Chebyshev-Lobatto panel layout used
+// by the current 2D KFBIM correction path; the Gauss-point layout remains
+// available as an explicit legacy option.
 // ---------------------------------------------------------------------------
 class CurveResampler2D {
 public:
-    // Discretize the curve into Interface2D panels.
+    // Discretize the curve into Chebyshev-Lobatto Interface2D panels.
     // target_L_h_ratio determines the target panel arc length L relative to h.
-    // It defaults to 4.0 to securely guarantee that arc_h_ratio > 0.8.
-    static Interface2D discretize(const ICurve2D& curve, double h, double target_L_h_ratio = 4.0);
+    static Interface2D discretize(const ICurve2D& curve, double h, double target_L_h_ratio = 2.0);
+    static Interface2D discretize_chebyshev_lobatto(const ICurve2D& curve,
+                                                    double h,
+                                                    double target_L_h_ratio = 2.0);
+
+    // Legacy 3-point Gauss-Legendre panel discretization.
+    static Interface2D discretize_legacy_gauss(const ICurve2D& curve,
+                                               double h,
+                                               double target_L_h_ratio = 4.0);
 
 private:
     struct ArcLengthMap {

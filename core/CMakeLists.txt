@@ -3,7 +3,7 @@
 #
 # Add new .cpp files here as each layer is implemented.
 # Eigen is PUBLIC (types appear in public headers).
-# CGAL is PUBLIC for now; switch to PRIVATE once GridPair pimpl is in place.
+# CGAL is PRIVATE: all CGAL types are confined to grid_pair_2d/3d.cpp via pimpl.
 # ---------------------------------------------------------------------------
 
 add_library(kfbim_core STATIC
@@ -55,7 +55,7 @@ target_include_directories(kfbim_core PUBLIC
 target_link_libraries(kfbim_core PUBLIC Eigen3::Eigen zfft)
 
 if(CGAL_FOUND)
-    target_link_libraries(kfbim_core PUBLIC CGAL::CGAL)
+    target_link_libraries(kfbim_core PRIVATE CGAL::CGAL)
     target_compile_definitions(kfbim_core PUBLIC KFBIM_HAS_CGAL)
 endif()
 

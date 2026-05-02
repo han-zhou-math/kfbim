@@ -4,11 +4,21 @@
 
 namespace kfbim {
 
+enum class PanelNodeLayout2D {
+    LegacyGaussLegendre,
+    ChebyshevLobatto,
+    Raw,
+
+    // Backward-compatible alias for older call sites.
+    GaussLegendre = LegacyGaussLegendre
+};
+
 // Isoparametric piecewise-polynomial curve interface in 2D.
 //
 // The interface is divided into Np panels. Each panel has k = points_per_panel
-// Gauss or uniform points that serve as both the geometric nodes (defining a
-// degree k-1 polynomial curve segment) and the DOF/quadrature locations.
+// Chebyshev-Lobatto, legacy Gauss-Legendre, or raw points that serve as both
+// the geometric nodes (defining a degree k-1 polynomial curve segment) and the
+// DOF/quadrature locations.
 //
 // Points are stored panel-major: panel p occupies global indices [p*k, (p+1)*k).
 // point_index(p, q) = p * points_per_panel + q.
@@ -26,7 +36,8 @@ public:
                 Eigen::MatrixX2d normals,
                 Eigen::VectorXd  weights,
                 int              points_per_panel,
-                Eigen::VectorXi  panel_components);
+                Eigen::VectorXi  panel_components,
+                PanelNodeLayout2D panel_node_layout = PanelNodeLayout2D::LegacyGaussLegendre);
 
     int num_points()       const { return static_cast<int>(points_.rows()); }
     int points_per_panel() const { return points_per_panel_; }
@@ -42,6 +53,7 @@ public:
     const Eigen::MatrixX2d& normals()          const { return normals_; }
     const Eigen::VectorXd&  weights()          const { return weights_; }
     const Eigen::VectorXi&  panel_components() const { return panel_components_; }
+    PanelNodeLayout2D       panel_node_layout() const { return panel_node_layout_; }
 
 private:
     Eigen::MatrixX2d points_;
@@ -49,6 +61,7 @@ private:
     Eigen::VectorXd  weights_;
     int              points_per_panel_;
     Eigen::VectorXi  panel_components_;
+    PanelNodeLayout2D panel_node_layout_;
 };
 
 } // namespace kfbim

@@ -5,10 +5,11 @@
 //           u = g on Γ
 //
 // Manufactured solution:
-//   u_int = sin(πx) sin(πy) inside an elliptical interface.
-//   f_int = 2π² sin(πx) sin(πy)
+//   u_int = exp(x) cos(y) inside a 5-fold star-shaped curve.
+//   f_int = 0 because u_int is harmonic
 //   g = u_int|Γ
 //
+// Domain: [-1.8,1.8]².
 // The exterior forcing is set to zero (zero-extended f).
 // ---------------------------------------------------------------------------
 
@@ -27,30 +28,45 @@
 using namespace kfbim;
 
 static constexpr double kPi = 3.14159265358979323846;
+static constexpr double kBoxHalfWidth = 1.8;
+static constexpr double kTargetInterfaceSpacingOverH = 1.0;
+static constexpr double kTargetPanelLengthOverH = 4.436491673103709; // min GL-point spacing ≈ h
 
 // ── Manufactured solution ────────────────────────────────────────────────────
 
-static double sol_u_int (double x, double y) { return std::sin(kPi*x)*std::sin(kPi*y); }
-static double sol_f_int (double x, double y) { return 2.0*kPi*kPi*std::sin(kPi*x)*std::sin(kPi*y); }
+static double sol_u_int(double x, double y) { return std::exp(x) * std::cos(y); }
+static double sol_f_int(double, double) { return 0.0; }
 
-// ── Ellipse interface ────────────────────────────────────────────────────────
+// ── 5-fold star interface ────────────────────────────────────────────────────
 
-class EllipseCurve2D : public ICurve2D {
+static constexpr double kStarCx = 0.07;
+static constexpr double kStarCy = -0.04;
+static constexpr double kStarRadius = 0.75;
+static constexpr double kStarAmplitude = 0.25;
+static constexpr int    kStarFolds = 5;
+
+class StarCurve2D : public ICurve2D {
 public:
-    EllipseCurve2D(double cx, double cy, double A, double B)
-        : cx_(cx), cy_(cy), A_(A), B_(B) {}
-
     Eigen::Vector2d eval(double t) const override {
-        return {cx_ + A_ * std::cos(t), cy_ + B_ * std::sin(t)};
+        const double r = radius(t);
+        return {kStarCx + r * std::cos(t), kStarCy + r * std::sin(t)};
     }
+
     Eigen::Vector2d deriv(double t) const override {
-        return {-A_ * std::sin(t), B_ * std::cos(t)};
+        const double r = radius(t);
+        const double drdt = -kStarRadius * kStarAmplitude * kStarFolds
+                            * std::sin(kStarFolds * t);
+        return {drdt * std::cos(t) - r * std::sin(t),
+                drdt * std::sin(t) + r * std::cos(t)};
     }
+
     double t_min() const override { return 0.0; }
     double t_max() const override { return 2.0 * kPi; }
 
 private:
-    double cx_, cy_, A_, B_;
+    static double radius(double t) {
+        return kStarRadius * (1.0 + kStarAmplitude * std::cos(kStarFolds * t));
+    }
 };
 
 // ── Solve and Measure ────────────────────────────────────────────────────────
@@ -60,15 +76,19 @@ struct ConvergenceData {
     int    iterations;
 };
 
-static ConvergenceData solve_and_measure(int N)
+static ConvergenceData solve_and_measure(int N, LaplaceInteriorPanelMethod2D panel_method)
 {
-    const double h = 1.0 / N;
-    CartesianGrid2D grid({0.0, 0.0}, {h, h}, {N, N}, DofLayout2D::Node);
+    const double L = 2.0 * kBoxHalfWidth;
+    const double h = L / N;
+    CartesianGrid2D grid({-kBoxHalfWidth, -kBoxHalfWidth}, {h, h}, {N, N}, DofLayout2D::Node);
     auto d = grid.dof_dims();
     int nx = d[0], ny = d[1];
 
-    EllipseCurve2D ellipse(0.5, 0.5, 0.4, 0.2);
-    auto iface = CurveResampler2D::discretize(ellipse, h, 4.0);
+    StarCurve2D star;
+    Interface2D iface =
+        (panel_method == LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter)
+        ? CurveResampler2D::discretize(star, h, kTargetPanelLengthOverH)
+        : CurveResampler2D::discretize_legacy_gauss(star, h, kTargetPanelLengthOverH);
     const int Nq = iface.num_points();
 
     // 1. Setup boundary condition g
@@ -103,7 +123,7 @@ static ConvergenceData solve_and_measure(int N)
     }
 
     // 3. Solve using the high-level API
-    LaplaceInteriorDirichlet2D problem(grid, iface, g, f_bulk, rhs_derivs);
+    LaplaceInteriorDirichlet2D problem(grid, iface, g, f_bulk, rhs_derivs, panel_method);
     auto res = problem.solve();
 
     REQUIRE(res.converged);
@@ -117,7 +137,7 @@ static ConvergenceData solve_and_measure(int N)
     }
 
     if (N == 128) {
-        FILE* fp = std::fopen("laplace_interior_2d_N128.csv", "w");
+        FILE* fp = std::fopen("laplace_interior_2d_star5_N128.csv", "w");
         if (fp) {
             std::fprintf(fp, "x,y,u_bulk,u_exact,label\n");
             for (int n = 0; n < nx * ny; ++n) {
@@ -131,27 +151,111 @@ static ConvergenceData solve_and_measure(int N)
     return {bulk_err, res.iterations};
 }
 
+static ConvergenceData solve_gauss_and_measure(int N)
+{
+    return solve_and_measure(N, LaplaceInteriorPanelMethod2D::LegacyGaussPanel);
+}
+
+static ConvergenceData solve_lobatto_and_measure(int N)
+{
+    return solve_and_measure(N, LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter);
+}
+
+TEST_CASE("LaplaceInteriorDirichlet2D: Lobatto-center KFBIM path runs on 5-fold star",
+          "[laplace][bvp][interior][dirichlet][lobatto][2d]")
+{
+    const int N = 64;
+    const double L = 2.0 * kBoxHalfWidth;
+    const double h = L / N;
+    CartesianGrid2D grid({-kBoxHalfWidth, -kBoxHalfWidth}, {h, h}, {N, N}, DofLayout2D::Node);
+    auto d = grid.dof_dims();
+    const int nx = d[0];
+    const int ny = d[1];
+
+    StarCurve2D star;
+    auto iface = CurveResampler2D::discretize(star, h, kTargetPanelLengthOverH);
+    const int Nq = iface.num_points();
+
+    Eigen::VectorXd g(Nq);
+    std::vector<Eigen::VectorXd> rhs_derivs(Nq);
+    for (int q = 0; q < Nq; ++q) {
+        const double x = iface.points()(q, 0);
+        const double y = iface.points()(q, 1);
+        g[q] = sol_u_int(x, y);
+        rhs_derivs[q] = Eigen::VectorXd::Constant(1, sol_f_int(x, y));
+    }
+
+    GridPair2D gp(grid, iface);
+    Eigen::VectorXd f_bulk = Eigen::VectorXd::Zero(nx * ny);
+    Eigen::VectorXd u_exact = Eigen::VectorXd::Zero(nx * ny);
+    for (int n = 0; n < nx * ny; ++n) {
+        auto c = grid.coord(n);
+        if (gp.domain_label(n) == 1)
+            u_exact[n] = sol_u_int(c[0], c[1]);
+    }
+
+    LaplaceInteriorDirichlet2D problem(grid, iface, g, f_bulk, rhs_derivs);
+    auto res = problem.solve();
+
+    REQUIRE(res.converged);
+
+    double bulk_err = 0.0;
+    for (int n = 0; n < nx * ny; ++n) {
+        if (gp.domain_label(n) == 1)
+            bulk_err = std::max(bulk_err, std::abs(res.u_bulk[n] - u_exact[n]));
+    }
+    REQUIRE(bulk_err < 2.0e-2);
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-TEST_CASE("LaplaceInteriorDirichlet2D: interior bulk O(h²) convergence",
-          "[laplace][bvp][interior][dirichlet][2d]")
+TEST_CASE("LaplaceInteriorDirichlet2D: legacy Gauss-point interior bulk O(h²) convergence on 5-fold star",
+          "[laplace][bvp][interior][dirichlet][legacy][gauss][2d]")
 {
-    const int Ns[]     = {32, 64, 128, 256, 512};
-    const int n_levels = 5;
+    const int Ns[]     = {32, 64, 128, 256, 512, 1024};
+    const int n_levels = 6;
     ConvergenceData data[n_levels];
 
-    std::printf("\n  LaplaceInteriorDirichlet2D: interior BVP convergence\n");
-    std::printf("  Manufactured: u_int=sin(πx)sin(πy) inside ellipse\n");
+    std::printf("\n  LaplaceInteriorDirichlet2D: legacy Gauss-point interior BVP convergence\n");
+    std::printf("  Manufactured: u_int=exp(x)cos(y) inside 5-fold star centered at (%.2f, %.2f), domain [-%.1f,%.1f]^2\n",
+                kStarCx, kStarCy, kBoxHalfWidth, kBoxHalfWidth);
+    std::printf("  Target min interface spacing / h ≈ %.1f (panel arc length / h = %.2f)\n",
+                kTargetInterfaceSpacingOverH, kTargetPanelLengthOverH);
     std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "rate", "iters");
 
     for (int l = 0; l < n_levels; ++l) {
-        data[l] = solve_and_measure(Ns[l]);
+        data[l] = solve_gauss_and_measure(Ns[l]);
         if (l == 0) {
             std::printf("  %6d  %12.4e  %8s  %6d\n", Ns[l], data[l].bulk_err, "—", data[l].iterations);
         } else {
             double rate = std::log2(data[l-1].bulk_err / data[l].bulk_err);
             std::printf("  %6d  %12.4e  %8.3f  %6d\n", Ns[l], data[l].bulk_err, rate, data[l].iterations);
             // REQUIRE(rate > 1.5);
+        }
+    }
+}
+
+TEST_CASE("LaplaceInteriorDirichlet2D: Chebyshev-Lobatto DOF convergence on 5-fold star",
+          "[laplace][bvp][interior][dirichlet][lobatto][convergence][2d]")
+{
+    const int Ns[]     = {32, 64, 128, 256, 512, 1024};
+    const int n_levels = 6;
+    ConvergenceData data[n_levels];
+
+    std::printf("\n  LaplaceInteriorDirichlet2D: Chebyshev-Lobatto DOF convergence\n");
+    std::printf("  Manufactured: u_int=exp(x)cos(y) inside 5-fold star centered at (%.2f, %.2f), domain [-%.1f,%.1f]^2\n",
+                kStarCx, kStarCy, kBoxHalfWidth, kBoxHalfWidth);
+    std::printf("  Panel DOFs: Chebyshev-Lobatto s={-1,0,1}; correction expansion centers: s={-0.75,-0.25,0.25,0.75}\n");
+    std::printf("  Target panel arc length / h = %.2f\n", kTargetPanelLengthOverH);
+    std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "rate", "iters");
+
+    for (int l = 0; l < n_levels; ++l) {
+        data[l] = solve_lobatto_and_measure(Ns[l]);
+        if (l == 0) {
+            std::printf("  %6d  %12.4e  %8s  %6d\n", Ns[l], data[l].bulk_err, "—", data[l].iterations);
+        } else {
+            const double rate = std::log2(data[l-1].bulk_err / data[l].bulk_err);
+            std::printf("  %6d  %12.4e  %8.3f  %6d\n", Ns[l], data[l].bulk_err, rate, data[l].iterations);
         }
     }
 }

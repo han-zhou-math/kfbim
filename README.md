@@ -10,9 +10,9 @@ interface iteration applies a matrix-free operator:
 Spread interface jumps -> solve bulk PDE -> restrict solution to interface
 ```
 
-The current code focuses on Laplace interface problems in 2D, with supporting
-grid, geometry, transfer, local Cauchy, and FFT bulk-solver components. The
-repository is structured as a reusable library rather than a one-off solver.
+The current code focuses on the 2D Laplace pipeline, with Chebyshev-Lobatto
+panels as the default discretization for new work. The repository is structured
+as a reusable library rather than a one-off solver.
 
 ## Status
 
@@ -25,14 +25,19 @@ Implemented:
 - 2D Laplace panel Cauchy solver for local jump reconstruction
 - 2D Laplace spread and restrict transfer operators
 - 2D and 3D zFFT-backed Laplace bulk solvers
-- End-to-end 2D Laplace interface tests with second-order convergence behavior
-- Boundary-value problem APIs (e.g., Laplace Interior Dirichlet BVP)
+- Matrix-free `LaplaceKFBIOperator`
+- Restarted GMRES outer solver
+- Modular `LaplacePotentialEval2D` operators for D/S/N jump primitives
+- End-to-end 2D Laplace interface and interior Dirichlet tests with current
+  Chebyshev-Lobatto convergence coverage, including a 5-fold star boundary
+- Current concrete boundary-value problem API: `LaplaceInteriorDirichlet2D`
 
 In progress / planned:
 
-- Matrix-free `LaplaceKFBIOperator`
-- Restarted GMRES outer solver
-- Variable-coefficient, Stokes, and elasticity extensions
+- Stable top-level `problems/` Layer 5 APIs for additional Laplace BVPs
+- Interior/exterior Dirichlet and Neumann wrappers built on the verified
+  potential operators
+- Variable-coefficient, 3D KFBI-pipeline, Stokes, and elasticity extensions
 - Python and MATLAB bindings
 
 See [PROGRESS.md](PROGRESS.md) for current development notes.
@@ -48,11 +53,14 @@ core/
   transfer/       Laplace spread/restrict operators
   solver/         FFT and zFFT bulk solvers
   operator/       Matrix-free KFBI operator interfaces
-  gmres/          Outer solver interfaces
-problems/         Higher-level problem APIs
+  gmres/          Restarted GMRES outer solver
+  problems/       Internal pipeline utilities
+problems/         Long-term Layer 5 public problem APIs
 tests/            Catch2 test suite
 scripts/          Visualization and diagnostics
 third_party/zfft/ Vendored zFFT backend
+third_party/old-codes/
+                  Archived reference implementation snippets
 notes/            Derivations and implementation notes
 ```
 
@@ -102,8 +110,12 @@ ctest --test-dir build
 Run a specific executable directly when you want Catch2 output:
 
 ```bash
-./build/tests/test_laplace_iface_2d -s
+./build/tests/test_laplace_interior_2d -s
 ```
+
+The current `test_laplace_interior_2d` manufactured harmonic solve uses a
+5-fold star curve and reports both Chebyshev-Lobatto and explicit legacy Gauss
+convergence tables.
 
 ## Visualization Scripts
 
@@ -136,3 +148,6 @@ Grid, interface, and geometry data
 Most current tests exercise individual layers plus the full 2D Laplace
 interface pipeline. When adding a new component, prefer a focused component test
 and one integration test that verifies convergence or conservation behavior.
+For new 2D Laplace work, use `CurveResampler2D::discretize()` and
+`LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter`; keep the legacy
+Gauss path only for explicit regression or comparison tests.

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <vector>
 #include <Eigen/Dense>
 #include "../grid/cartesian_grid_2d.hpp"
@@ -11,6 +12,15 @@
 #include "../operator/laplace_kfbi_operator.hpp"
 
 namespace kfbim {
+
+enum class LaplaceInteriorPanelMethod2D {
+    LegacyGaussPanel,
+    ChebyshevLobattoCenter,
+
+    // Backward-compatible aliases for older call sites.
+    GaussPanel = LegacyGaussPanel,
+    LobattoCenter = ChebyshevLobattoCenter
+};
 
 struct LaplaceInteriorSolveResult2D {
     Eigen::VectorXd u_bulk;       // Bulk solution
@@ -37,18 +47,20 @@ public:
                                const Interface2D&     iface,
                                const Eigen::VectorXd& g,
                                const Eigen::VectorXd& f_bulk,
-                               const std::vector<Eigen::VectorXd>& rhs_derivs);
+                               const std::vector<Eigen::VectorXd>& rhs_derivs,
+                               LaplaceInteriorPanelMethod2D panel_method =
+                                   LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter);
 
     // Solve for the density phi using GMRES and recover the bulk solution.
-    LaplaceInteriorSolveResult2D solve(int max_iter = 100, double tol = 1e-6, int restart = 50);
+    LaplaceInteriorSolveResult2D solve(int max_iter = 100, double tol = 1e-8, int restart = 50);
 
     const GridPair2D& grid_pair() const { return grid_pair_; }
 
 private:
     GridPair2D                 grid_pair_;
-    LaplacePanelSpread2D       spread_;
+    std::unique_ptr<ILaplaceSpread2D> spread_;
     LaplaceFftBulkSolverZfft2D bulk_solver_;
-    LaplaceQuadraticRestrict2D restrict_op_;
+    std::unique_ptr<ILaplaceRestrict2D> restrict_op_;
 
     Eigen::VectorXd              g_;
     Eigen::VectorXd              f_bulk_;

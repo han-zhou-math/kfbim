@@ -31,8 +31,8 @@ void LaplacePotentialEval2D::run_pipeline(
     const Eigen::VectorXd&              u_jump,
     const Eigen::VectorXd&              un_jump,
     const std::vector<Eigen::VectorXd>& rhs_derivs,
-    Eigen::VectorXd&                    trace_ext,
-    Eigen::VectorXd&                    flux_ext) const
+    Eigen::VectorXd&                    trace_int,
+    Eigen::VectorXd&                    flux_int) const
 {
     const auto& iface = spread_.grid_pair().interface();
     const int   Nq    = iface.num_points();
@@ -57,19 +57,19 @@ void LaplacePotentialEval2D::run_pipeline(
     // 4. Restrict: fits bulk to interface, subtracts correction
     auto solution_polys = restrict_op_.apply(u_bulk, correction_polys);
 
-    // 5. Extract exterior trace and exterior normal derivative
+    // 5. Extract interior trace and interior normal derivative
     const auto& normals = iface.normals();
-    trace_ext.resize(Nq);
-    flux_ext.resize(Nq);
+    trace_int.resize(Nq);
+    flux_int.resize(Nq);
     for (int i = 0; i < Nq; ++i) {
-        trace_ext[i] = solution_polys[i].coeffs[0];
-        flux_ext[i]  = solution_polys[i].coeffs[1] * normals(i, 0)
+        trace_int[i] = solution_polys[i].coeffs[0];
+        flux_int[i]  = solution_polys[i].coeffs[1] * normals(i, 0)
                      + solution_polys[i].coeffs[2] * normals(i, 1);
     }
 }
 
 // D[φ]: [u]=φ, [∂ₙu]=0, f=0
-// u⁻ = trace_ext,  K[φ] = u⁻ + φ/2,  H[φ] = flux_ext (continuous)
+// u+ = trace_int,  K[φ] = u+ - φ/2,  H[φ] = flux_int (continuous)
 void LaplacePotentialEval2D::eval_double_layer(
     const Eigen::VectorXd& phi,
     Eigen::VectorXd&       K_phi,
@@ -78,20 +78,20 @@ void LaplacePotentialEval2D::eval_double_layer(
     const int Nq = problem_size();
     std::vector<Eigen::VectorXd> rhs_derivs(Nq, Eigen::VectorXd::Zero(1));
 
-    Eigen::VectorXd trace_ext, flux_ext;
+    Eigen::VectorXd trace_int, flux_int;
     run_pipeline(phi, Eigen::VectorXd::Zero(Nq), rhs_derivs,
-                 trace_ext, flux_ext);
+                 trace_int, flux_int);
 
     K_phi.resize(Nq);
     H_phi.resize(Nq);
     for (int i = 0; i < Nq; ++i) {
-        K_phi[i] = trace_ext[i] + 0.5 * phi[i];
-        H_phi[i] = flux_ext[i];
+        K_phi[i] = trace_int[i] - 0.5 * phi[i];
+        H_phi[i] = flux_int[i];
     }
 }
 
 // S[ψ]: [u]=0, [∂ₙu]=ψ, f=0
-// S[ψ] = trace_ext (continuous),  K'[ψ] = flux_ext + ψ/2
+// S[ψ] = trace_int (continuous),  K'[ψ] = flux_int - ψ/2
 void LaplacePotentialEval2D::eval_single_layer(
     const Eigen::VectorXd& psi,
     Eigen::VectorXd&       S_psi,
@@ -100,20 +100,20 @@ void LaplacePotentialEval2D::eval_single_layer(
     const int Nq = problem_size();
     std::vector<Eigen::VectorXd> rhs_derivs(Nq, Eigen::VectorXd::Zero(1));
 
-    Eigen::VectorXd trace_ext, flux_ext;
+    Eigen::VectorXd trace_int, flux_int;
     run_pipeline(Eigen::VectorXd::Zero(Nq), psi, rhs_derivs,
-                 trace_ext, flux_ext);
+                 trace_int, flux_int);
 
     S_psi.resize(Nq);
     Kt_psi.resize(Nq);
     for (int i = 0; i < Nq; ++i) {
-        S_psi[i]  = trace_ext[i];
-        Kt_psi[i] = flux_ext[i] + 0.5 * psi[i];
+        S_psi[i]  = trace_int[i];
+        Kt_psi[i] = flux_int[i] - 0.5 * psi[i];
     }
 }
 
 // N[q]: [u]=0, [∂ₙu]=0, [f]=q
-// N[q] = trace_ext (continuous),  ∂ₙN[q] = flux_ext (continuous)
+// N[q] = trace_int (continuous),  ∂ₙN[q] = flux_int (continuous)
 void LaplacePotentialEval2D::eval_newton(
     const Eigen::VectorXd& q,
     Eigen::VectorXd&       N_q,
@@ -126,15 +126,15 @@ void LaplacePotentialEval2D::eval_newton(
         rhs_derivs[i][0] = q[i];
     }
 
-    Eigen::VectorXd trace_ext, flux_ext;
+    Eigen::VectorXd trace_int, flux_int;
     run_pipeline(Eigen::VectorXd::Zero(Nq), Eigen::VectorXd::Zero(Nq), rhs_derivs,
-                 trace_ext, flux_ext);
+                 trace_int, flux_int);
 
     N_q.resize(Nq);
     Nn_q.resize(Nq);
     for (int i = 0; i < Nq; ++i) {
-        N_q[i]  = trace_ext[i];
-        Nn_q[i] = flux_ext[i];
+        N_q[i]  = trace_int[i];
+        Nn_q[i] = flux_int[i];
     }
 }
 
@@ -160,8 +160,8 @@ void LaplacePotentialEval3D::run_pipeline(
     const Eigen::VectorXd&              u_jump,
     const Eigen::VectorXd&              un_jump,
     const std::vector<Eigen::VectorXd>& rhs_derivs,
-    Eigen::VectorXd&                    trace_ext,
-    Eigen::VectorXd&                    flux_ext) const
+    Eigen::VectorXd&                    trace_int,
+    Eigen::VectorXd&                    flux_int) const
 {
     const auto& iface = spread_.grid_pair().interface();
     const int   Nq    = iface.num_points();
@@ -183,11 +183,11 @@ void LaplacePotentialEval3D::run_pipeline(
     auto solution_polys = restrict_op_.apply(u_bulk, correction_polys);
 
     const auto& normals = iface.normals();
-    trace_ext.resize(Nq);
-    flux_ext.resize(Nq);
+    trace_int.resize(Nq);
+    flux_int.resize(Nq);
     for (int i = 0; i < Nq; ++i) {
-        trace_ext[i] = solution_polys[i].coeffs[0];
-        flux_ext[i]  = solution_polys[i].coeffs[1] * normals(i, 0)
+        trace_int[i] = solution_polys[i].coeffs[0];
+        flux_int[i]  = solution_polys[i].coeffs[1] * normals(i, 0)
                      + solution_polys[i].coeffs[2] * normals(i, 1)
                      + solution_polys[i].coeffs[3] * normals(i, 2);
     }
@@ -201,15 +201,15 @@ void LaplacePotentialEval3D::eval_double_layer(
     const int Nq = problem_size();
     std::vector<Eigen::VectorXd> rhs_derivs(Nq, Eigen::VectorXd::Zero(1));
 
-    Eigen::VectorXd trace_ext, flux_ext;
+    Eigen::VectorXd trace_int, flux_int;
     run_pipeline(phi, Eigen::VectorXd::Zero(Nq), rhs_derivs,
-                 trace_ext, flux_ext);
+                 trace_int, flux_int);
 
     K_phi.resize(Nq);
     H_phi.resize(Nq);
     for (int i = 0; i < Nq; ++i) {
-        K_phi[i] = trace_ext[i] + 0.5 * phi[i];
-        H_phi[i] = flux_ext[i];
+        K_phi[i] = trace_int[i] - 0.5 * phi[i];
+        H_phi[i] = flux_int[i];
     }
 }
 
@@ -221,15 +221,15 @@ void LaplacePotentialEval3D::eval_single_layer(
     const int Nq = problem_size();
     std::vector<Eigen::VectorXd> rhs_derivs(Nq, Eigen::VectorXd::Zero(1));
 
-    Eigen::VectorXd trace_ext, flux_ext;
+    Eigen::VectorXd trace_int, flux_int;
     run_pipeline(Eigen::VectorXd::Zero(Nq), psi, rhs_derivs,
-                 trace_ext, flux_ext);
+                 trace_int, flux_int);
 
     S_psi.resize(Nq);
     Kt_psi.resize(Nq);
     for (int i = 0; i < Nq; ++i) {
-        S_psi[i]  = trace_ext[i];
-        Kt_psi[i] = flux_ext[i] + 0.5 * psi[i];
+        S_psi[i]  = trace_int[i];
+        Kt_psi[i] = flux_int[i] - 0.5 * psi[i];
     }
 }
 
@@ -245,15 +245,15 @@ void LaplacePotentialEval3D::eval_newton(
         rhs_derivs[i][0] = q[i];
     }
 
-    Eigen::VectorXd trace_ext, flux_ext;
+    Eigen::VectorXd trace_int, flux_int;
     run_pipeline(Eigen::VectorXd::Zero(Nq), Eigen::VectorXd::Zero(Nq), rhs_derivs,
-                 trace_ext, flux_ext);
+                 trace_int, flux_int);
 
     N_q.resize(Nq);
     Nn_q.resize(Nq);
     for (int i = 0; i < Nq; ++i) {
-        N_q[i]  = trace_ext[i];
-        Nn_q[i] = flux_ext[i];
+        N_q[i]  = trace_int[i];
+        Nn_q[i] = flux_int[i];
     }
 }
 

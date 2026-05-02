@@ -1,10 +1,18 @@
 #include "grid_pair_3d.hpp"
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/Surface_mesh.h>
+#include <CGAL/Side_of_triangle_mesh.h>
 #include <cmath>
 #include <limits>
 #include <algorithm>
-#include <queue>
+#include <unordered_map>
 
 namespace kfbim {
+
+using K3      = CGAL::Exact_predicates_inexact_constructions_kernel;
+using CPoint3 = K3::Point_3;
+using CMesh3  = CGAL::Surface_mesh<CPoint3>;
+using CSideOf = CGAL::Side_of_triangle_mesh<CMesh3, K3>;
 
 // ============================================================================
 // Internal helpers
@@ -41,46 +49,6 @@ static int nearest_node(const CartesianGrid3D& g, double x, double y, double z) 
     j = std::max(0, std::min(ny - 1, j));
     k = std::max(0, std::min(nz - 1, k));
     return k * (nx * ny) + j * nx + i;
-}
-
-// Möller–Trumbore ray–triangle intersection.
-// Ray origin (ox, oy, oz), direction D = (0, 1e-7, 1) — slightly off pure +z
-// to avoid exact edge/vertex alignment with axis-aligned triangle meshes,
-// which causes double-counting on shared edges and corrupts parity.
-// Returns true if the intersection parameter t > eps (ray hits above origin).
-static bool ray_tri_hit(double ox, double oy, double oz,
-                         double v0x, double v0y, double v0z,
-                         double v1x, double v1y, double v1z,
-                         double v2x, double v2y, double v2z)
-{
-    const double eps = 1e-10;
-    // Slightly off-axis: Dy breaks the x=y symmetry that causes shared-edge hits.
-    const double Dx = 0.0, Dy = 1e-7, Dz = 1.0;
-
-    double e1x = v1x-v0x, e1y = v1y-v0y, e1z = v1z-v0z;
-    double e2x = v2x-v0x, e2y = v2y-v0y, e2z = v2z-v0z;
-
-    // h = D × e2
-    double hx = Dy*e2z - Dz*e2y;
-    double hy = Dz*e2x - Dx*e2z;
-    double hz = Dx*e2y - Dy*e2x;
-
-    double a = e1x*hx + e1y*hy + e1z*hz;
-    if (std::fabs(a) < eps) return false;
-    double f = 1.0 / a;
-
-    double sx = ox-v0x, sy = oy-v0y, sz = oz-v0z;
-    double u = f * (sx*hx + sy*hy + sz*hz);
-    if (u < 0.0 || u > 1.0) return false;
-
-    double qx = sy*e1z - sz*e1y;
-    double qy = sz*e1x - sx*e1z;
-    double qz = sx*e1y - sy*e1x;
-    double v = f * (Dx*qx + Dy*qy + Dz*qz);
-    if (v < 0.0 || u + v > 1.0) return false;
-
-    double t = f * (e2x*qx + e2y*qy + e2z*qz);
-    return t > eps;
 }
 
 // ============================================================================
@@ -137,73 +105,42 @@ GridPair3D::GridPair3D(const CartesianGrid3D& grid, const Interface3D& iface)
     }
 
     // ------------------------------------------------------------------
-    // 3. domain_label_vec[n]: narrow-band ray-cast + BFS flood-fill.
+    // 3. domain_label_vec[n]: 0=exterior, comp+1=interior of component comp.
     //
-    // (a) Band nodes (min_iface_dist < band_radius): ray-cast exactly.
-    // (b) Remaining nodes: BFS from labeled band — safe because no
-    //     interface edge can connect two non-band nodes when
-    //     band_radius >= h_max.
+    // Build one CGAL::Surface_mesh per component and query every grid node
+    // via CGAL::Side_of_triangle_mesh (AABB-accelerated).
+    // ON_BOUNDARY → interior (nodes exactly on the surface are interior).
     // ------------------------------------------------------------------
-    const double h_max = std::max({grid.spacing()[0], grid.spacing()[1], grid.spacing()[2]});
 
-    // Max distance from any quadrature point to a vertex of its panel.
-    // Accounts for coarse meshes where centroids can be far from corners.
-    double max_panel_radius = 0.0;
-    for (int p = 0; p < Np; ++p) {
-        for (int vi = 0; vi < 3; ++vi) {
-            int vidx = iface.panels()(p, vi);
-            double dx = iface.points()(p,0) - iface.vertices()(vidx,0);
-            double dy = iface.points()(p,1) - iface.vertices()(vidx,1);
-            double dz = iface.points()(p,2) - iface.vertices()(vidx,2);
-            max_panel_radius = std::max(max_panel_radius, std::sqrt(dx*dx+dy*dy+dz*dz));
+    impl_->domain_label_vec.resize(N, 0);
+    for (int comp = 0; comp < Nc; ++comp) {
+        CMesh3 mesh;
+        std::unordered_map<int, CMesh3::Vertex_index> vmap;
+        auto get_or_add = [&](int gv) {
+            auto [it, inserted] = vmap.emplace(gv, CMesh3::Vertex_index{});
+            if (inserted)
+                it->second = mesh.add_vertex(CPoint3(
+                    iface.vertices()(gv, 0),
+                    iface.vertices()(gv, 1),
+                    iface.vertices()(gv, 2)));
+            return it->second;
+        };
+        for (int p = 0; p < Np; ++p) {
+            if (iface.panel_components()(p) != comp) continue;
+            mesh.add_face(get_or_add(iface.panels()(p, 0)),
+                          get_or_add(iface.panels()(p, 1)),
+                          get_or_add(iface.panels()(p, 2)));
+        }
+
+        CSideOf side_of(mesh);
+        for (int n = 0; n < N; ++n) {
+            if (impl_->domain_label_vec[n] != 0) continue;
+            auto   c    = grid.coord(n);
+            auto   side = side_of(CPoint3(c[0], c[1], c[2]));
+            if (side == CGAL::ON_BOUNDED_SIDE || side == CGAL::ON_BOUNDARY)
+                impl_->domain_label_vec[n] = comp + 1;
         }
     }
-    const double band_radius = 2.0 * h_max + max_panel_radius;
-
-    constexpr int UNLABELED = -1;
-    impl_->domain_label_vec.resize(N, UNLABELED);
-
-    std::queue<int> bfs;
-    for (int n = 0; n < N; ++n) {
-        if (impl_->min_iface_dist[n] < band_radius) {
-            auto   c  = grid.coord(n);
-            double px = c[0], py = c[1], pz = c[2];
-
-            std::vector<int> hits(Nc, 0);
-            for (int p = 0; p < Np; ++p) {
-                int va = iface.panels()(p, 0);
-                int vb = iface.panels()(p, 1);
-                int vc = iface.panels()(p, 2);
-                if (ray_tri_hit(px, py, pz,
-                                iface.vertices()(va, 0), iface.vertices()(va, 1), iface.vertices()(va, 2),
-                                iface.vertices()(vb, 0), iface.vertices()(vb, 1), iface.vertices()(vb, 2),
-                                iface.vertices()(vc, 0), iface.vertices()(vc, 1), iface.vertices()(vc, 2)))
-                    hits[iface.panel_components()(p)]++;
-            }
-
-            int lbl = 0;
-            for (int comp = 0; comp < Nc; ++comp) {
-                if (hits[comp] % 2 == 1) { lbl = comp + 1; break; }
-            }
-            impl_->domain_label_vec[n] = lbl;
-            bfs.push(n);
-        }
-    }
-
-    while (!bfs.empty()) {
-        int n = bfs.front(); bfs.pop();
-        int lbl = impl_->domain_label_vec[n];
-        for (int nb : grid.neighbors(n)) {
-            if (nb >= 0 && impl_->domain_label_vec[nb] == UNLABELED) {
-                impl_->domain_label_vec[nb] = lbl;
-                bfs.push(nb);
-            }
-        }
-    }
-
-    for (int n = 0; n < N; ++n)
-        if (impl_->domain_label_vec[n] == UNLABELED)
-            impl_->domain_label_vec[n] = 0;
 }
 
 GridPair3D::~GridPair3D() = default;

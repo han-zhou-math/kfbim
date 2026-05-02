@@ -4,16 +4,47 @@
 
 namespace kfbim {
 
+namespace {
+
+std::unique_ptr<ILaplaceSpread2D> make_laplace_spread_2d(
+    LaplaceInteriorPanelMethod2D method,
+    const GridPair2D&            grid_pair)
+{
+    switch (method) {
+    case LaplaceInteriorPanelMethod2D::LegacyGaussPanel:
+        return std::make_unique<LaplacePanelSpread2D>(grid_pair);
+    case LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter:
+        return std::make_unique<LaplaceLobattoCenterSpread2D>(grid_pair);
+    }
+    return std::make_unique<LaplaceLobattoCenterSpread2D>(grid_pair);
+}
+
+std::unique_ptr<ILaplaceRestrict2D> make_laplace_restrict_2d(
+    LaplaceInteriorPanelMethod2D method,
+    const GridPair2D&            grid_pair)
+{
+    switch (method) {
+    case LaplaceInteriorPanelMethod2D::LegacyGaussPanel:
+        return std::make_unique<LaplaceQuadraticRestrict2D>(grid_pair);
+    case LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter:
+        return std::make_unique<LaplaceLobattoCenterRestrict2D>(grid_pair);
+    }
+    return std::make_unique<LaplaceLobattoCenterRestrict2D>(grid_pair);
+}
+
+} // namespace
+
 LaplaceInteriorDirichlet2D::LaplaceInteriorDirichlet2D(
     const CartesianGrid2D& grid,
     const Interface2D&     iface,
     const Eigen::VectorXd& g,
     const Eigen::VectorXd& f_bulk,
-    const std::vector<Eigen::VectorXd>& rhs_derivs)
+    const std::vector<Eigen::VectorXd>& rhs_derivs,
+    LaplaceInteriorPanelMethod2D panel_method)
     : grid_pair_(grid, iface)
-    , spread_(grid_pair_)
+    , spread_(make_laplace_spread_2d(panel_method, grid_pair_))
     , bulk_solver_(grid, ZfftBcType::Dirichlet)
-    , restrict_op_(grid_pair_)
+    , restrict_op_(make_laplace_restrict_2d(panel_method, grid_pair_))
     , g_(g)
     , f_bulk_(f_bulk)
     , rhs_derivs_(rhs_derivs)
@@ -25,7 +56,7 @@ LaplaceInteriorSolveResult2D LaplaceInteriorDirichlet2D::solve(int max_iter, dou
     const int Nq = grid_pair_.interface().num_points();
 
     // 1. Instantiate the operator
-    LaplaceKFBIOperator2D op(spread_, bulk_solver_, restrict_op_, f_bulk_, rhs_derivs_, LaplaceKFBIMode::Dirichlet);
+    LaplaceKFBIOperator2D op(*spread_, bulk_solver_, *restrict_op_, f_bulk_, rhs_derivs_, LaplaceKFBIMode::Dirichlet);
 
     // 2. Evaluate volume potential: V f|_Γ
     Eigen::VectorXd Vf_gamma;
@@ -48,7 +79,7 @@ LaplaceInteriorSolveResult2D LaplaceInteriorDirichlet2D::solve(int max_iter, dou
         jumps[i].rhs_derivs = rhs_derivs_[i];
     }
 
-    LaplaceInterfaceSolver2D iface_solver(spread_, bulk_solver_, restrict_op_);
+    LaplaceInterfaceSolver2D iface_solver(*spread_, bulk_solver_, *restrict_op_);
     auto res = iface_solver.solve(jumps, f_bulk_);
 
     return {std::move(res.u_bulk), std::move(phi), iterations, gmres_solver.converged()};

@@ -1,10 +1,18 @@
 #include "grid_pair_2d.hpp"
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/Polygon_2.h>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <algorithm>
-#include <queue>
+#include <vector>
 
 namespace kfbim {
+
+using K2      = CGAL::Exact_predicates_inexact_constructions_kernel;
+using CPoint2 = K2::Point_2;
+using CPoly2  = CGAL::Polygon_2<K2>;
+using Point2  = std::array<double, 2>;
 
 // ============================================================================
 // Internal helpers
@@ -35,28 +43,109 @@ static int nearest_node(const CartesianGrid2D& g, double x, double y) {
     return j * nx + i;
 }
 
-// 2D winding-number test — true if (px,py) is strictly inside the polygon.
-static bool winding_contains(double px, double py,
-                              const std::vector<std::array<double, 2>>& poly)
+static Point2 midpoint(Point2 a, Point2 b) {
+    return {0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1])};
+}
+
+static void push_cgal_point(CPoly2& poly, Point2 p) {
+    poly.push_back(CPoint2(p[0], p[1]));
+}
+
+static Point2 quadratic_panel_point(const Interface2D& iface,
+                                    int                panel,
+                                    const double       nodes[3],
+                                    double             s)
 {
-    int wn = 0;
-    int n  = static_cast<int>(poly.size());
-    for (int i = 0; i < n; ++i) {
-        double x0 = poly[i][0],        y0 = poly[i][1];
-        double x1 = poly[(i+1)%n][0],  y1 = poly[(i+1)%n][1];
-        if (y0 <= py) {
-            if (y1 > py) {
-                // upward crossing — is point left of the edge?
-                if ((x1-x0)*(py-y0) - (px-x0)*(y1-y0) > 0) wn++;
-            }
-        } else {
-            if (y1 <= py) {
-                // downward crossing — is point right of the edge?
-                if ((x1-x0)*(py-y0) - (px-x0)*(y1-y0) < 0) wn--;
-            }
+    const double s0 = nodes[0];
+    const double s1 = nodes[1];
+    const double s2 = nodes[2];
+
+    const double l0 = ((s - s1) * (s - s2)) / ((s0 - s1) * (s0 - s2));
+    const double l1 = ((s - s0) * (s - s2)) / ((s1 - s0) * (s1 - s2));
+    const double l2 = ((s - s0) * (s - s1)) / ((s2 - s0) * (s2 - s1));
+
+    const int q0 = iface.point_index(panel, 0);
+    const int q1 = iface.point_index(panel, 1);
+    const int q2 = iface.point_index(panel, 2);
+
+    return {
+        l0 * iface.points()(q0, 0) + l1 * iface.points()(q1, 0) + l2 * iface.points()(q2, 0),
+        l0 * iface.points()(q0, 1) + l1 * iface.points()(q1, 1) + l2 * iface.points()(q2, 1)
+    };
+}
+
+static std::vector<CPoly2> build_raw_label_polygons(const Interface2D& iface) {
+    const int k = iface.points_per_panel();
+    const int Np = iface.num_panels();
+    const int Nc = iface.num_components();
+
+    std::vector<CPoly2> polys(Nc);
+    for (int p = 0; p < Np; ++p) {
+        int c = iface.panel_components()(p);
+        for (int qi = 0; qi < k; ++qi) {
+            int idx = p * k + qi;
+            polys[c].push_back(CPoint2(iface.points()(idx, 0), iface.points()(idx, 1)));
         }
     }
-    return wn != 0;
+    return polys;
+}
+
+static std::vector<CPoly2> build_label_polygons(const Interface2D& iface) {
+    const int k = iface.points_per_panel();
+    if (k != 3)
+        return build_raw_label_polygons(iface);
+
+    constexpr double gl_nodes[3] = {
+        -0.77459666924148337704,
+         0.0,
+         0.77459666924148337704
+    };
+    constexpr double lobatto_nodes[3] = {-1.0, 0.0, 1.0};
+
+    const double* nodes = nullptr;
+    switch (iface.panel_node_layout()) {
+    case PanelNodeLayout2D::LegacyGaussLegendre:
+        nodes = gl_nodes;
+        break;
+    case PanelNodeLayout2D::ChebyshevLobatto:
+        nodes = lobatto_nodes;
+        break;
+    case PanelNodeLayout2D::Raw:
+        return build_raw_label_polygons(iface);
+    }
+
+    const int Np = iface.num_panels();
+    const int Nc = iface.num_components();
+    constexpr std::array<double, 4> internal_s = {-0.6, -0.2, 0.2, 0.6};
+
+    std::vector<std::vector<int>> panels_by_component(Nc);
+    for (int p = 0; p < Np; ++p)
+        panels_by_component[iface.panel_components()(p)].push_back(p);
+
+    std::vector<CPoly2> polys(Nc);
+    for (int comp = 0; comp < Nc; ++comp) {
+        const auto& panels = panels_by_component[comp];
+        if (panels.empty())
+            continue;
+
+        std::vector<Point2> shared_starts(panels.size());
+        for (int i = 0; i < static_cast<int>(panels.size()); ++i) {
+            const int prev_panel = panels[(i + static_cast<int>(panels.size()) - 1)
+                                          % static_cast<int>(panels.size())];
+            const int curr_panel = panels[i];
+            shared_starts[i] = midpoint(quadratic_panel_point(iface, prev_panel, nodes, 1.0),
+                                        quadratic_panel_point(iface, curr_panel, nodes, -1.0));
+        }
+
+        for (int i = 0; i < static_cast<int>(panels.size()); ++i) {
+            const int panel = panels[i];
+            push_cgal_point(polys[comp], shared_starts[i]);
+            for (double s : internal_s)
+                push_cgal_point(polys[comp], quadratic_panel_point(iface, panel, nodes, s));
+        }
+    }
+
+    return polys;
 }
 
 // ============================================================================
@@ -77,8 +166,6 @@ GridPair2D::GridPair2D(const CartesianGrid2D& grid, const Interface2D& iface)
 {
     const int Nq = iface.num_points();
     const int N  = grid.num_dofs();
-    const int k  = iface.points_per_panel();
-    const int Np = iface.num_panels();
     const int Nc = iface.num_components();
 
     // ------------------------------------------------------------------
@@ -114,67 +201,28 @@ GridPair2D::GridPair2D(const CartesianGrid2D& grid, const Interface2D& iface)
     // ------------------------------------------------------------------
     // 3. domain_label_vec[n]: 0=exterior, comp+1=interior of component comp.
     //
-    // Strategy:
-    //   a) Narrow band (min_iface_dist < band_radius): run the winding-number
-    //      test exactly — these nodes are near the interface and need geometric
-    //      classification.
-    //   b) Remaining nodes: BFS flood-fill from the labeled band.  No interface
-    //      edge can connect two non-band nodes when band_radius >= h, so labels
-    //      propagate safely through the grid graph without any geometric test.
+    // Build one CGAL::Polygon_2 per component for labels.  Three-point panels
+    // are interpreted as quadratic Gauss-Legendre panel curves and oversampled
+    // for labeling only; closest-point and narrow-band queries still use the
+    // original interface points above.  ON_BOUNDARY -> interior.
     // ------------------------------------------------------------------
 
-    // Build per-component polygons (used only for band nodes).
-    std::vector<std::vector<std::array<double, 2>>> polys(Nc);
-    for (int p = 0; p < Np; ++p) {
-        int c = iface.panel_components()(p);
-        for (int qi = 0; qi < k; ++qi) {
-            int idx = p * k + qi;
-            polys[c].push_back({iface.points()(idx, 0), iface.points()(idx, 1)});
-        }
-    }
+    std::vector<CPoly2> polys = build_label_polygons(iface);
 
-    // Band radius: must be >= max grid spacing so that no interface edge
-    // connects two non-band nodes.  Use 2x for safety with discrete quadrature.
-    const double h_max      = std::max(grid.spacing()[0], grid.spacing()[1]);
-    const double band_radius = 2.0 * h_max;
-
-    constexpr int UNLABELED = -1;
-    impl_->domain_label_vec.resize(N, UNLABELED);
-
-    // (a) Label band nodes with winding-number test; seed BFS queue.
-    std::queue<int> bfs;
+    impl_->domain_label_vec.resize(N, 0);
     for (int n = 0; n < N; ++n) {
-        if (impl_->min_iface_dist[n] < band_radius) {
-            auto  c   = grid.coord(n);
-            int   lbl = 0;
-            for (int comp = 0; comp < Nc; ++comp) {
-                if (winding_contains(c[0], c[1], polys[comp])) {
-                    lbl = comp + 1;
-                    break;
-                }
-            }
-            impl_->domain_label_vec[n] = lbl;
-            bfs.push(n);
-        }
-    }
-
-    // (b) BFS flood-fill: propagate labels to unlabeled non-band nodes.
-    while (!bfs.empty()) {
-        int n = bfs.front(); bfs.pop();
-        int lbl = impl_->domain_label_vec[n];
-        for (int nb : grid.neighbors(n)) {
-            if (nb >= 0 && impl_->domain_label_vec[nb] == UNLABELED) {
-                impl_->domain_label_vec[nb] = lbl;
-                bfs.push(nb);
+        auto    c = grid.coord(n);
+        CPoint2 p(c[0], c[1]);
+        for (int comp = 0; comp < Nc; ++comp) {
+            if (polys[comp].size() < 3)
+                continue;
+            auto side = polys[comp].bounded_side(p);
+            if (side == CGAL::ON_BOUNDED_SIDE || side == CGAL::ON_BOUNDARY) {
+                impl_->domain_label_vec[n] = comp + 1;
+                break;
             }
         }
     }
-
-    // Fallback: any node still unlabeled (disconnected island — degenerate mesh)
-    // gets label 0.
-    for (int n = 0; n < N; ++n)
-        if (impl_->domain_label_vec[n] == UNLABELED)
-            impl_->domain_label_vec[n] = 0;
 }
 
 GridPair2D::~GridPair2D() = default;

@@ -18,8 +18,9 @@ namespace kfbim {
 //   2. Evaluates the polynomial at every nearby bulk node (via GridPair) and
 //      accumulates the values into rhs_correction.
 //
-// The returned vector of LocalPolys is passed to Restrict::apply() so the
-// jump correction can also be evaluated at the interface points themselves.
+// The returned vector of LocalPolys is passed to the paired Restrict::apply().
+// Most spreads return one polynomial per interface point; center-based spreads
+// may return generated expansion-center polynomials instead.
 //
 // rhs_correction is *accumulated into*, not zeroed — the caller zeros it first
 // when starting a fresh iteration, or accumulates across multiple interfaces.
@@ -31,7 +32,7 @@ public:
 
     // jumps[i]         = jump data at interface quadrature point i
     // rhs_correction   = correction accumulated into, length grid_pair().grid().num_dofs()
-    // returns          = fitted local poly at each point, length Interface2D::num_points()
+    // returns          = fitted local polys for the paired restrict operator
     virtual std::vector<LocalPoly2D> apply(
         const std::vector<LaplaceJumpData2D>& jumps,
         Eigen::VectorXd&                      rhs_correction) const = 0;

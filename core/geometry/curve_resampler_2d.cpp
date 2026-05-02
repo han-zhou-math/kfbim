@@ -60,7 +60,76 @@ double CurveResampler2D::ArcLengthMap::get_t(double s) const {
     return t0 + frac * (t1 - t0);
 }
 
-Interface2D CurveResampler2D::discretize(const ICurve2D& curve, double h, double target_L_h_ratio) {
+Interface2D CurveResampler2D::discretize(const ICurve2D& curve,
+                                          double h,
+                                          double target_L_h_ratio)
+{
+    return discretize_chebyshev_lobatto(curve, h, target_L_h_ratio);
+}
+
+Interface2D CurveResampler2D::discretize_chebyshev_lobatto(const ICurve2D& curve,
+                                                           double h,
+                                                           double target_L_h_ratio)
+{
+    if (h <= 0.0) {
+        throw std::invalid_argument("CurveResampler2D: h must be positive.");
+    }
+    if (target_L_h_ratio <= 0.0) {
+        throw std::invalid_argument("CurveResampler2D: target_L_h_ratio must be positive.");
+    }
+
+    ArcLengthMap map = build_arc_length_map(curve, 20000);
+    double S = map.total_length;
+
+    int num_panels = std::max(1, static_cast<int>(std::round(S / (target_L_h_ratio * h))));
+    double L = S / num_panels;
+
+    const int k = 3;
+    const int Nq = k * num_panels;
+
+    Eigen::MatrixX2d pts(Nq, 2);
+    Eigen::MatrixX2d nml(Nq, 2);
+    Eigen::VectorXd  wts(Nq);
+    Eigen::VectorXi  comp = Eigen::VectorXi::Zero(num_panels);
+
+    static const double kLobatto_s[3] = {-1.0, 0.0, 1.0};
+    static const double kLobatto_w[3] = {1.0/3.0, 4.0/3.0, 1.0/3.0};
+
+    int q = 0;
+    for (int p = 0; p < num_panels; ++p) {
+        double s_mid = (p + 0.5) * L;
+        double half_L = 0.5 * L;
+
+        for (int i = 0; i < k; ++i) {
+            double s_q = s_mid + half_L * kLobatto_s[i];
+            double t_q = map.get_t(s_q);
+
+            Eigen::Vector2d r = curve.eval(t_q);
+            Eigen::Vector2d drdt = curve.deriv(t_q);
+            double speed = drdt.norm();
+
+            pts(q, 0) = r.x();
+            pts(q, 1) = r.y();
+
+            nml(q, 0) =  drdt.y() / speed;
+            nml(q, 1) = -drdt.x() / speed;
+            wts(q) = kLobatto_w[i] * half_L;
+
+            ++q;
+        }
+    }
+
+    return Interface2D(std::move(pts), std::move(nml), std::move(wts), k, std::move(comp),
+                       PanelNodeLayout2D::ChebyshevLobatto);
+}
+
+Interface2D CurveResampler2D::discretize_legacy_gauss(const ICurve2D& curve,
+                                                      double h,
+                                                      double target_L_h_ratio)
+{
+    if (h <= 0.0) {
+        throw std::invalid_argument("CurveResampler2D: h must be positive.");
+    }
     if (target_L_h_ratio <= 3.55) {
         throw std::invalid_argument("CurveResampler2D: target_L_h_ratio must be > 3.55 to guarantee arc_h_ratio > 0.8 for 3-point Gauss-Legendre panels.");
     }
@@ -109,7 +178,8 @@ Interface2D CurveResampler2D::discretize(const ICurve2D& curve, double h, double
         }
     }
 
-    return Interface2D(std::move(pts), std::move(nml), std::move(wts), k, std::move(comp));
+    return Interface2D(std::move(pts), std::move(nml), std::move(wts), k, std::move(comp),
+                       PanelNodeLayout2D::LegacyGaussLegendre);
 }
 
 } // namespace kfbim

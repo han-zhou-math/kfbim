@@ -28,12 +28,12 @@ enum class LaplaceKFBIMode {
 // Concrete Laplace KFBIM operators (Layer 3)
 //
 // Dirichlet mode packing (problem_size = num_points):
-//   x[i] = [∂u/∂n] at point i,   u_jump = 0 (given)
-//   y[i] = corrected trace u|_Γ
+//   x[i] = [u] at point i,   [∂u/∂n] = 0
+//   y[i] = interior trace u+|_Γ
 //
 // Neumann mode packing (problem_size = num_points):
-//   x[i] = [u] at point i,   un_jump = 0 (given)
-//   y[i] = corrected normal flux ∂u/∂n|_Γ
+//   x[i] = [∂u/∂n] at point i,   [u] = 0
+//   y[i] = interior normal flux ∂u+/∂n|_Γ
 //
 // apply() pipeline:
 //   1. Unpack x → LaplaceJumpData (mode determines which field)

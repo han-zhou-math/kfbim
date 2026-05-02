@@ -2,11 +2,20 @@
 
 This note documents the mathematical framework for the elliptic PDE solvers in this repository.
 
+## Table of Contents
+- [1. Geometry Representation](#1-geometry-representation)
+- [2. The Constant Interface Problem (Poisson)](#2-the-constant-interface-problem-poisson)
+- [3. Boundary Integral Operators](#3-boundary-integral-operators)
+- [4. Interface Solver Outputs (KFBIM Operator Evaluation)](#4-interface-solver-outputs-kfbim-operator-evaluation)
+- [5. Boundary Value Problems (BVPs) to BIEs](#5-boundary-value-problems-bvps-to-bies)
+- [6. Generic Interface Problems (Variable Coefficients)](#6-generic-interface-problems-variable-coefficients)
+- [7. BIE for Generic Interface Problems](#7-bie-for-generic-interface-problems)
+
 ## 1. Geometry Representation
 
 The domain $\Omega \subset \mathbb{R}^d$ is partitioned by an interface $\Gamma$ into an interior region $\Omega_{int}$ and an exterior region $\Omega_{ext}$.
 
-*   **Interface $\Gamma$**: Represented by a collection of panels. Each panel in 2D consists of 3 Gauss-Legendre quadrature points.
+*   **Interface $\Gamma$**: Represented by a collection of panels. New 2D Laplace work uses Chebyshev-Lobatto panel nodes $s=\{-1,0,1\}$ by default. The local correction path generates four expansion centers per panel at $s=\{-0.75,-0.25,0.25,0.75\}$. The older 3-point Gauss-Legendre panel layout remains available only as an explicit legacy regression path.
 *   **Normals $\mathbf{n}$**: Unit outward normal pointing from $\Omega_{int}$ to $\Omega_{ext}$.
 *   **Domain Labels $\ell$**: 
     *   $\ell(\mathbf{x}) = 1$ if $\mathbf{x} \in \Omega_{int}$.
@@ -56,7 +65,7 @@ Each potential is itself the solution to a specific interface problem on the box
 
 The double-layer sign $[u] = -\mu$ follows from the jump relation of the normal derivative of $G$:
 $$\lim_{\mathbf{x}\to\Gamma^{\pm}} \int_\Gamma \frac{\partial G}{\partial n_y}(\mathbf{x},\mathbf{y})\,\mu(\mathbf{y})\,ds_y = \mp\frac{1}{2}\mu + \int_\Gamma \frac{\partial G}{\partial n_y}(\mathbf{x},\mathbf{y})\,\mu(\mathbf{y})\,ds_y$$
-so that $[\mathcal{D}\mu] = \mathcal{D}\mu|_{\Gamma^-} - \mathcal{D}\mu|_{\Gamma^+} = -\mu$ (with normal $\mathbf{n}$ pointing from $\Omega^+$ to $\Omega^-$).
+so that $[\mathcal{D}\mu] = \mathcal{D}\mu|_{\Gamma^+} - \mathcal{D}\mu|_{\Gamma^-} = -\mu$ (with normal $\mathbf{n}$ pointing from $\Omega^+$ to $\Omega^-$).
 
 By linearity, the full representation $u = \mathcal{S}\sigma - \mathcal{D}\mu + \mathcal{V}f$ satisfies:
 $$-\Delta u = f \quad \text{in } B\setminus\Gamma, \qquad u = 0 \quad \text{on } \partial B, \qquad [u] = \mu, \qquad [\partial_n u] = \sigma$$
@@ -83,35 +92,41 @@ u_{ext}|_\Gamma = S\sigma - (K + \tfrac{1}{2}I)\mu + V f
 $$
 The KFBIM "Interface Solver" effectively acts as a black-box evaluator for these operators. For example, by setting $\mu=0, f=0$, the solver returns $u_{int}|_\Gamma = S\sigma$.
 
-## 4. Generic Interface Problems (Variable Coefficients)
+## 4. Interface Solver Outputs (KFBIM Operator Evaluation)
 
-The generic second-order elliptic interface problem is:
-
-$$
-\boxed{-\nabla \cdot (\beta(\mathbf{x}) \nabla u) + \kappa^2(\mathbf{x})\, u = f(\mathbf{x}) \quad \text{in } \Omega_{int} \cup \Omega_{ext}}
-$$
-
-where both coefficients are piecewise constant with a jump across $\Gamma$:
+`LaplaceInterfaceSolver2D` takes jump data $(\mu, \sigma)$ and bulk forcing $f$
+and returns the volume solution $u_{bulk}$ together with averaged interface
+quantities:
 
 $$
-\beta(\mathbf{x}) = \begin{cases}
-\beta_{int} & \mathbf{x} \in \Omega_{int} \\[2pt]
-\beta_{ext} & \mathbf{x} \in \Omega_{ext}
-\end{cases},
-\qquad
-\kappa^2(\mathbf{x}) = \begin{cases}
-\kappa^2_{int} & \mathbf{x} \in \Omega_{int} \\[2pt]
-\kappa^2_{ext} & \mathbf{x} \in \Omega_{ext}
-\end{cases}
+u_{avg} = \frac{u^+ + u^-}{2}, \qquad
+(\partial_n u)_{avg} = \frac{\partial_n u^+ + \partial_n u^-}{2}.
 $$
 
-The jump conditions on $\Gamma$ become:
+Interior and exterior traces are recovered by the jump relations:
 
 $$
-[u]_\Gamma = \mu, \qquad [\beta\,\partial_n u]_\Gamma = \sigma
+u^+ = u_{avg} + \frac{\mu}{2}, \qquad
+u^- = u_{avg} - \frac{\mu}{2},
 $$
 
-This reduces to the constant-coefficient interface problem (Section 2) when $\beta_{int} = \beta_{ext} = 1$ and $\kappa_{int} = \kappa_{ext} = 0$.
+$$
+\partial_n u^+ = (\partial_n u)_{avg} + \frac{\sigma}{2}, \qquad
+\partial_n u^- = (\partial_n u)_{avg} - \frac{\sigma}{2}.
+$$
+
+`LaplacePotentialEval2D` wraps the same pipeline and exposes reusable averaged
+operators:
+
+| Primitive | $(\mu, \sigma)$ | RHS data | Returned outputs |
+|:----------|:---------------|:---------|:-----------------|
+| Double-layer jump primitive | $(\phi, 0)$ | $0$ | $K\phi = u_{avg}$, $H\phi = (\partial_n u)_{avg}$ |
+| Single-layer primitive | $(0, \psi)$ | $0$ | $S\psi = u_{avg}$, $K'\psi = (\partial_n u)_{avg}$ |
+| Interface forcing primitive | $(0, 0)$ | $[f]=q$ | $Nq = u_{avg}$, $\partial_n Nq = (\partial_n u)_{avg}$ |
+
+The double-layer primitive follows the implementation convention $[u]=\phi$.
+Relative to the classical representation $-\mathcal{D}\phi$, this is the sign
+used by the current second-kind BVP operator code.
 
 ## 5. Boundary Value Problems (BVPs) to BIEs
 
@@ -154,7 +169,7 @@ $$
 \boxed{(\tfrac{1}{2}I - K)\phi = g - \mathcal{V}f|_\Gamma}
 $$
 
-**KFBIM evaluation.** In each GMRES iteration, the left-hand operator $(\tfrac{1}{2}I - K)$ applied to a density $\phi$ is evaluated by calling the interface solver with jumps $(\mu = \phi,\; \sigma = 0)$ and $f_{bulk} = 0$. The output $u_{int}$ equals $(\tfrac{1}{2}I - K)\phi$ directly:
+**KFBIM evaluation.** In each GMRES iteration, the left-hand operator $(\tfrac{1}{2}I - K)$ applied to a density $\phi$ is evaluated by calling the interface solver with jumps $(\mu = \phi,\; \sigma = 0)$ and $f_{bulk} = 0$. The solver returns the averaged trace; the interior trace is recovered as $u^+ = u_{avg} + \tfrac{1}{2}\phi$ and equals $(\tfrac{1}{2}I - K)\phi$:
 
 $$
 (\tfrac{1}{2}I - K)\phi = -(\mathcal{D}\phi)|_{\Gamma^+} = u_{int} \quad \text{(from interface solver with } \mu=\phi,\; \sigma=0,\; f=0\text{)}
@@ -195,7 +210,7 @@ $$
 
 In practice, the nullspace is handled by fixing the density at one point or by projecting out the constant mode during GMRES.
 
-**KFBIM evaluation.** $(\tfrac{1}{2}I + K')\psi$ is the interior normal derivative of $\mathcal{S}\psi$. Call the interface solver with jumps $(\mu = 0,\; \sigma = \psi)$ and $f_{bulk} = 0$; the output $un_{int}$ gives $(\tfrac{1}{2}I + K')\psi$ directly. The volume contribution $\partial_n(\mathcal{V}f)|_\Gamma$ is obtained via the interface solver with jumps $(0, 0)$ and $f_{bulk} = f$.
+**KFBIM evaluation.** $(\tfrac{1}{2}I + K')\psi$ is the interior normal derivative of $\mathcal{S}\psi$. Call the interface solver with jumps $(\mu = 0,\; \sigma = \psi)$ and $f_{bulk} = 0$; recover $un^+ = un_{avg} + \tfrac{1}{2}\psi$ to get $(\tfrac{1}{2}I + K')\psi$. The volume contribution $\partial_n(\mathcal{V}f)|_\Gamma$ is obtained via the interface solver with jumps $(0, 0)$ and $f_{bulk} = f$.
 
 ### Exterior Dirichlet BVP
 
@@ -222,7 +237,7 @@ $$
 \boxed{(K + \tfrac{1}{2}I)\phi = \mathcal{V}f|_\Gamma - g}
 $$
 
-**KFBIM evaluation.** Call the interface solver with jumps $(\mu = \phi,\; \sigma = 0)$ and $f_{bulk} = 0$. The output $u_{ext}$ (exterior trace of $-\mathcal{D}\phi$) equals $-(K + \tfrac{1}{2}I)\phi$, so $(K + \tfrac{1}{2}I)\phi = -u_{ext}$.
+**KFBIM evaluation.** Call the interface solver with jumps $(\mu = \phi,\; \sigma = 0)$ and $f_{bulk} = 0$. Recover the exterior trace $u^- = u_{avg} - \tfrac{1}{2}\phi$ of $-\mathcal{D}\phi$. It equals $-(K + \tfrac{1}{2}I)\phi$, so $(K + \tfrac{1}{2}I)\phi = -u^-$.
 
 ### Exterior Neumann BVP
 
@@ -251,7 +266,7 @@ $$
 
 **Nullspace ($\kappa = 0$).** For the Laplace equation, the operator $(K' - \tfrac{1}{2}I)$ also has a one-dimensional nullspace in 2D, corresponding to the constant density. This is handled by the same projection technique as the interior Neumann case.
 
-**KFBIM evaluation.** Call the interface solver with jumps $(\mu = 0,\; \sigma = \psi)$ and $f_{bulk} = 0$; the output $un_{ext}$ gives $(K' - \tfrac{1}{2}I)\psi$ directly.
+**KFBIM evaluation.** Call the interface solver with jumps $(\mu = 0,\; \sigma = \psi)$ and $f_{bulk} = 0$; recover the exterior normal derivative $un^- = un_{avg} - \tfrac{1}{2}\psi$, which gives $(K' - \tfrac{1}{2}I)\psi$.
 
 ### BIE Summary
 
@@ -262,18 +277,97 @@ $$
 | Exterior Dirichlet | $u = -\mathcal{D}\phi + \mathcal{V}f$ | $(K + \tfrac{1}{2}I)\phi = \mathcal{V}f\|_\Gamma - g$ |
 | Exterior Neumann   | $u = \mathcal{S}\psi + \mathcal{V}f$  | $(K' - \tfrac{1}{2}I)\psi = g - \partial_n(\mathcal{V}f)\|_\Gamma$ |
 
-## 6. Interface Solver Outputs (KFBIM Operator Evaluation)
+## 6. Generic Interface Problems (Variable Coefficients)
 
-The interface solver takes jump data $(\mu, \sigma)$ and bulk forcing $f$ and returns the volume solution $u_{bulk}$ together with the interior traces $u_{int}|_\Gamma$ and $\partial_n u_{int}|_\Gamma$. Each BIE operator is evaluated by calling the solver with the appropriate inputs:
+The generic second-order elliptic interface problem is:
 
-| Operator | $(\mu, \sigma)$ | $f$ | Solver Output | Meaning |
-|:---------|:---------------|:----|:--------------|:--------|
-| $\tfrac{1}{2}I - K$ | $(\phi, 0)$ | $0$ | $u_{int}$ | interior trace of $-\mathcal{D}\phi$ |
-| $\tfrac{1}{2}I + K'$ | $(0, \psi)$ | $0$ | $un_{int}$ | interior normal derivative of $\mathcal{S}\psi$ |
-| $K + \tfrac{1}{2}I$ | $(\phi, 0)$ | $0$ | $-u_{ext}$ | negative exterior trace of $-\mathcal{D}\phi$ |
-| $K' - \tfrac{1}{2}I$ | $(0, \psi)$ | $0$ | $un_{ext}$ | exterior normal derivative of $\mathcal{S}\psi$ |
-| $\mathcal{V}$ | $(0, 0)$ | $f$ | $u_{int}$ | volume potential trace ($= u_{ext}$) |
-| $\partial_n \mathcal{V}$ | $(0, 0)$ | $f$ | $un_{int}$ | volume potential normal derivative ($= un_{ext}$) |
+$$
+\boxed{-\nabla \cdot (\beta(\mathbf{x}) \nabla u) + \kappa^2(\mathbf{x})\, u = f(\mathbf{x}) \quad \text{in } \Omega_{int} \cup \Omega_{ext}}
+$$
 
-The exterior traces $u_{ext}$ and $un_{ext}$ are not directly returned by the current solver interface but can be obtained from the interior traces and the jump relations:
-$u_{ext} = u_{int} - \mu$, $\;un_{ext} = un_{int} - \sigma$.
+where both coefficients are piecewise constant with a jump across $\Gamma$:
+
+$$
+\beta(\mathbf{x}) = \begin{cases}
+\beta_{int} & \mathbf{x} \in \Omega_{int} \\[2pt]
+\beta_{ext} & \mathbf{x} \in \Omega_{ext}
+\end{cases},
+\qquad
+\kappa^2(\mathbf{x}) = \begin{cases}
+\kappa^2_{int} & \mathbf{x} \in \Omega_{int} \\[2pt]
+\kappa^2_{ext} & \mathbf{x} \in \Omega_{ext}
+\end{cases}
+$$
+
+The jump conditions on $\Gamma$ become:
+
+$$
+[u]_\Gamma = \mu, \qquad [\beta\,\partial_n u]_\Gamma = \sigma
+$$
+
+This reduces to the constant-coefficient interface problem (Section 2) when $\beta_{int} = \beta_{ext} = 1$ and $\kappa_{int} = \kappa_{ext} = 0$.
+
+## 7. BIE for Generic Interface Problems
+
+We now consider the generic interface problem from Section 6:
+$$
+-\nabla \cdot (\beta(\mathbf{x}) \nabla u) + \kappa^2(\mathbf{x})\, u = f(\mathbf{x}) \quad \text{in } \Omega_{int} \cup \Omega_{ext}
+$$
+with jump conditions $[u] = \mu$ and $[\beta \partial_n u] = \sigma$.
+
+### Constant $\beta/\kappa^2$ Ratio
+
+First, we consider the special case where the ratio of $\kappa^2$ to $\beta$ is the same on both sides of the interface. Let this constant ratio be $\lambda^2$:
+$$
+\frac{\kappa^2_{int}}{\beta_{int}} = \frac{\kappa^2_{ext}}{\beta_{ext}} \equiv \lambda^2
+$$
+
+Since $\beta$ is piecewise constant, we can divide the PDE in each subdomain by its respective $\beta$ value. This yields the modified Helmholtz equation on the entire domain $B \setminus \Gamma$:
+$$
+-\Delta u + \lambda^2 u = \frac{f}{\beta}
+$$
+
+**Representation.** We can express the solution using the representation formula for the operator $-\Delta + \lambda^2$:
+$$
+u(\mathbf{x}) = \mathcal{S}\psi(\mathbf{x}) - \mathcal{D}\mu(\mathbf{x}) + \mathcal{V}(f/\beta)(\mathbf{x})
+$$
+where $\psi$ is an unknown single-layer density. By construction, the double-layer density is chosen to be exactly $\mu$ to satisfy the Dirichlet jump condition:
+$$
+[u] = [\mathcal{S}\psi] - [\mathcal{D}\mu] + [\mathcal{V}(f/\beta)] = 0 - (-\mu) + 0 = \mu
+$$
+
+**Derivation of the BIE.** To find the unknown density $\psi$, we use the flux jump condition $[\beta \partial_n u] = \sigma$. First, we take the normal derivative of the representation formula from both the interior and exterior:
+$$
+\partial_n u_{int} = (K' + \tfrac{1}{2}I)\psi - \partial_n(\mathcal{D}\mu)|_\Gamma + \partial_n \mathcal{V}(f/\beta)|_\Gamma
+$$
+$$
+\partial_n u_{ext} = (K' - \tfrac{1}{2}I)\psi - \partial_n(\mathcal{D}\mu)|_\Gamma + \partial_n \mathcal{V}(f/\beta)|_\Gamma
+$$
+Note that the normal derivatives of the double-layer potential and the volume potential are continuous across the interface.
+
+Substituting these into the flux jump condition $\beta_{int} \partial_n u_{int} - \beta_{ext} \partial_n u_{ext} = \sigma$:
+$$
+\beta_{int} \left( (K' + \tfrac{1}{2}I)\psi - \partial_n(\mathcal{D}\mu) + \partial_n \mathcal{V}(f/\beta) \right) - \beta_{ext} \left( (K' - \tfrac{1}{2}I)\psi - \partial_n(\mathcal{D}\mu) + \partial_n \mathcal{V}(f/\beta) \right) = \sigma
+$$
+
+Grouping the terms with $\psi$:
+$$
+\beta_{int}(K' + \tfrac{1}{2}I)\psi - \beta_{ext}(K' - \tfrac{1}{2}I)\psi = \frac{\beta_{int} + \beta_{ext}}{2}\psi + (\beta_{int} - \beta_{ext})K'\psi
+$$
+
+For the continuous potential terms, we get a factor of $(\beta_{int} - \beta_{ext})$:
+$$
+-(\beta_{int} - \beta_{ext})\partial_n(\mathcal{D}\mu)|_\Gamma + (\beta_{int} - \beta_{ext})\partial_n \mathcal{V}(f/\beta)|_\Gamma
+$$
+
+Equating the sum to $\sigma$ and rearranging yields the Boundary Integral Equation for $\psi$:
+$$
+\frac{\beta_{int} + \beta_{ext}}{2}\psi + (\beta_{int} - \beta_{ext})K'\psi = \sigma + (\beta_{int} - \beta_{ext}) \Big( \partial_n(\mathcal{D}\mu)|_\Gamma - \partial_n \mathcal{V}(f/\beta)|_\Gamma \Big)
+$$
+
+Dividing by the average $\bar{\beta} = \frac{\beta_{int} + \beta_{ext}}{2}$, this can be written as a standard Fredholm integral equation of the second kind:
+$$
+\boxed{ (I + 2\frac{\beta_{int} - \beta_{ext}}{\beta_{int} + \beta_{ext}} K')\psi = \frac{2}{\beta_{int} + \beta_{ext}}\sigma + 2\frac{\beta_{int} - \beta_{ext}}{\beta_{int} + \beta_{ext}} \Big( \partial_n(\mathcal{D}\mu)|_\Gamma - \partial_n \mathcal{V}(f/\beta)|_\Gamma \Big) }
+$$
+
+This BIE can be solved for $\psi$, after which the full solution $u$ can be evaluated using the representation formula.

@@ -7,12 +7,14 @@ Interface2D::Interface2D(Eigen::MatrixX2d points,
                          Eigen::MatrixX2d normals,
                          Eigen::VectorXd  weights,
                          int              points_per_panel,
-                         Eigen::VectorXi  panel_components)
+                         Eigen::VectorXi  panel_components,
+                         PanelNodeLayout2D panel_node_layout)
     : points_(std::move(points))
     , normals_(std::move(normals))
     , weights_(std::move(weights))
     , points_per_panel_(points_per_panel)
     , panel_components_(std::move(panel_components))
+    , panel_node_layout_(panel_node_layout)
 {
     if (points_per_panel_ <= 0)
         throw std::invalid_argument("points_per_panel must be positive");

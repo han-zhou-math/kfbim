@@ -19,11 +19,14 @@ class ILaplaceRestrict3D;
 // Evaluates the three fundamental potentials for the constant-coefficient
 // interface problem  -Δu + κ u = f,  [u] = a,  [∂ₙu] = b:
 //
-//   D[φ]  Double-layer:  f=0,  a=φ,  b=0
+//   D[φ]  Double-layer jump primitive:  f=0,  a=φ,  b=0
 //   S[ψ]  Single-layer:  f=0,  a=0,  b=ψ
 //   N[q]  Newton:        f=q,  a=0,  b=0   (q = [f] on interface)
 //
-// Convention: u⁺ = interior limit, u⁻ = exterior limit, [u] = u⁺ − u⁻.
+// Convention: u+ = interior limit, u- = exterior limit, [u] = u+ - u-.
+// The double-layer primitive follows this jump convention directly.  Relative
+// to the classical representation whose double-layer has jump -phi, this is
+// the sign used by the current second-kind BVP operators.
 //
 // Derived operators (returned alongside each potential):
 //   K[φ]   = principal-value trace of D          = ½(D⁺ + D⁻)[φ]
@@ -33,9 +36,10 @@ class ILaplaceRestrict3D;
 //   N[q]   = trace of N (continuous)
 //   ∂ₙN[q] = normal derivative of N (continuous)
 //
-// Internal: one KFBI pipeline run (Spread → BulkSolve → Restrict) per call.
-// The restrict step outputs the *exterior* trace/gradient (u⁻, ∂ₙu⁻);
-// interior-side quantities follow from the jump relations [u] = u⁺ − u⁻ etc.
+// Internal: one KFBI pipeline run (Spread -> BulkSolve -> Restrict) per call.
+// The current restrict implementations output the interior trace/gradient
+// (u+, d_n u+); exterior-side quantities follow from the jump relations
+// [u] = u+ - u- and [d_n u] = d_n u+ - d_n u-.
 // ============================================================================
 
 class LaplacePotentialEval2D {
@@ -65,12 +69,12 @@ public:
                      Eigen::VectorXd&       Nn_q) const;
 
 private:
-    // Run pipeline with given jumps and f-jumps; returns exterior trace + flux.
+    // Run pipeline with given jumps and f-jumps; returns interior trace + flux.
     void run_pipeline(const Eigen::VectorXd&              u_jump,
                       const Eigen::VectorXd&              un_jump,
                       const std::vector<Eigen::VectorXd>& rhs_derivs,
-                      Eigen::VectorXd&                    trace_ext,
-                      Eigen::VectorXd&                    flux_ext) const;
+                      Eigen::VectorXd&                    trace_int,
+                      Eigen::VectorXd&                    flux_int) const;
 
     const ILaplaceSpread2D&     spread_;
     const ILaplaceBulkSolver2D& bulk_solver_;
@@ -105,8 +109,8 @@ private:
     void run_pipeline(const Eigen::VectorXd&              u_jump,
                       const Eigen::VectorXd&              un_jump,
                       const std::vector<Eigen::VectorXd>& rhs_derivs,
-                      Eigen::VectorXd&                    trace_ext,
-                      Eigen::VectorXd&                    flux_ext) const;
+                      Eigen::VectorXd&                    trace_int,
+                      Eigen::VectorXd&                    flux_int) const;
 
     const ILaplaceSpread3D&     spread_;
     const ILaplaceBulkSolver3D& bulk_solver_;

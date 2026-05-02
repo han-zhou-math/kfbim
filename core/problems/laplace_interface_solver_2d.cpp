@@ -23,11 +23,11 @@ LaplaceInterfaceSolver2D::LaplaceInterfaceSolver2D(
         double dx = pts(i, 0) - pts(i + 1, 0);
         double dy = pts(i, 1) - pts(i + 1, 1);
         double d = std::sqrt(dx * dx + dy * dy);
-        if (d < min_arc)
+        if (d > 1e-14 && d < min_arc)
             min_arc = d;
     }
 
-    arc_h_ratio_ = min_arc / h;
+    arc_h_ratio_ = (min_arc == std::numeric_limits<double>::max()) ? 0.0 : min_arc / h;
     if (arc_h_ratio_ < 0.5) {
         std::cerr << "LaplaceInterfaceSolver2D: arc_h_ratio = "
                   << arc_h_ratio_ << " < 0.5 — interface may be under-resolved\n";
