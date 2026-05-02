@@ -14,7 +14,9 @@
 | 3 | `LaplaceKFBIOperator2D/3D` — linear and affine modes | ✓ done |
 | 4 | `GMRES` (restarted, Givens) | ✓ done |
 | 3 | `LaplacePotentialEval2D` — modular D, S, N potential operators (K, H, K', ∂ₙN) | ⏳ pending |
+| 5 | `LaplaceInteriorDirichlet2D` — High-level BVP API | ✓ done |
 | — | IIM defect correction (2D, exact C and Taylor path) | ✓ done |
+| — | Quasi-uniform curve resampling for stable discretization (`CurveResampler2D`) | ✓ done |
 | — | Convention: u⁺ = interior, u⁻ = exterior, [u] = u_int − u_ext; labels 0 = Ω⁻, 1 = Ω⁺ | ✓ settled |
 | — | Interface Solver Output: Returns averaged trace and normal derivative | ✓ settled |
 

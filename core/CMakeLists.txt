@@ -20,6 +20,7 @@ add_library(kfbim_core STATIC
     # Layer 0 — Geometry
     geometry/grid_pair_2d.cpp
     geometry/grid_pair_3d.cpp
+    geometry/curve_resampler_2d.cpp
 
     # Layer 1.5 — Local Cauchy Solver (add when implemented)
     # local_cauchy/laplace_local_solver_2d.cpp
@@ -40,6 +41,7 @@ add_library(kfbim_core STATIC
 
     # Layer 3 utility — Interface solver pipeline
     problems/laplace_interface_solver_2d.cpp
+    problems/laplace_interior.cpp
 
     # Layer 4 — Outer Solver
     gmres/gmres.cpp

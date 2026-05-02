@@ -14,14 +14,13 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - Layer 2: `LaplaceFftBulkSolverZfft2D` (DST, Dirichlet BC)
   - Layer 3: `LaplaceKFBIOperator2D` (delegates to `LaplaceInterfaceSolver2D`), `LaplaceInterfaceSolver2D` (Spread → BulkSolve → Restrict pipeline, arc_h_ratio check)
   - Layer 4: GMRES outer solver
+  - Layer 5: `LaplaceInteriorDirichlet2D` API
 - **Uncommitted changes:**
-  - `core/problems/laplace_interface_solver_2d.{hpp,cpp}` — new interface solver module
-  - `core/operator/laplace_kfbi_operator.{hpp,cpp}` — refactored to delegate to `LaplaceInterfaceSolver2D`
-  - `core/CMakeLists.txt` — added solver source
-  - `tests/test_laplace_interface_solver_2d.cpp` — new test (in progress, interface average formula being corrected)
+  - `core/problems/laplace_interior.{hpp,cpp}` — new interior Dirichlet BVP API
+  - `core/CMakeLists.txt` — added new API source
+  - `tests/test_laplace_interior_2d.cpp` — added interior BVP convergence test
   - `tests/CMakeLists.txt` — added new test
   - `CLAUDE.md` — this file
-- **In progress:** `test_laplace_interface_solver_2d.cpp` — manufactured Poisson solution (S + D + V potentials) on circle interface; bulk convergence passes (O(h²)); interface average trace recovery formula being fixed (sign convention: u⁺=interior, u⁻=exterior, [u]=u⁺−u⁻).
 - **4 pre-existing test failures** unrelated to current work (GMRES tolerance: 1.6e-2 > 1e-2, rate 0.98 < 1.0; IIM spread rate 1.70 < 1.8; GridPair3D torus).
 
 ## Core Algorithm

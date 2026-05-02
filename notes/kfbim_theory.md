@@ -117,6 +117,17 @@ This reduces to the constant-coefficient interface problem (Section 2) when $\be
 
 BVPs are solved by formulating them as Boundary Integral Equations (BIEs) on $\Gamma$.
 
+**Zero-extension of the bulk forcing.** In a BVP, the bulk forcing $f$ is physically defined only on the problem domain ($\Omega_{int}$ for interior BVPs, $\Omega_{ext}$ for exterior BVPs). However, the representation formula and the interface solver both operate on the full box domain $B$. We therefore extend $f$ by zero to $B$:
+
+$$
+\tilde{f}(\mathbf{x}) = \begin{cases}
+f(\mathbf{x}) & \mathbf{x} \in \Omega_{int} \text{ (or } \Omega_{ext}\text{)} \\[2pt]
+0 & \text{otherwise in } B
+\end{cases}
+$$
+
+The volume potential $\mathcal{V}f$ that appears in the BIE right-hand sides is then understood as $\mathcal{V}\tilde{f}$ — integrating $\tilde{f}$ over $B$. In the KFBIM interface solver, this corresponds to passing $f_{bulk} = \tilde{f}$ (the zero-extended $f$ on the full box).
+
 ### Interior Dirichlet BVP
 
 Find $u$ such that $-\Delta u = f$ in $\Omega_{int}$ with $u|_\Gamma = g$.

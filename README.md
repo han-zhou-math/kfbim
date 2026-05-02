@@ -19,24 +19,23 @@ repository is structured as a reusable library rather than a one-off solver.
 Implemented:
 
 - Cartesian and MAC grid types in 2D and 3D
-- 2D and 3D interface containers with panel connectivity, quadrature points,
-  normals, and weights
+- 2D and 3D interface containers with panel connectivity, quadrature points, normals, and weights
 - 2D and 3D grid/interface pairing with closest-point and domain-label queries
+- Quasi-uniform arc-length curve resampling for stable interface discretization
 - 2D Laplace panel Cauchy solver for local jump reconstruction
 - 2D Laplace spread and restrict transfer operators
 - 2D and 3D zFFT-backed Laplace bulk solvers
 - End-to-end 2D Laplace interface tests with second-order convergence behavior
+- Boundary-value problem APIs (e.g., Laplace Interior Dirichlet BVP)
 
 In progress / planned:
 
 - Matrix-free `LaplaceKFBIOperator`
 - Restarted GMRES outer solver
-- Boundary-value problem APIs
 - Variable-coefficient, Stokes, and elasticity extensions
 - Python and MATLAB bindings
 
-See [PLAN.md](PLAN.md) and [HANDOFF.md](HANDOFF.md) for current development
-notes.
+See [PROGRESS.md](PROGRESS.md) for current development notes.
 
 ## Repository Layout
 
