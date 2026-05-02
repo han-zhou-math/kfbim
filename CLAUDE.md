@@ -5,8 +5,8 @@ Reconstruct problem-dependent KFBIM codes into a clean, reusable C++ library wit
 Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
 
 ## Current Status
-- Branch `main` is synced with `origin/main` at commit `53d6ac8` (`Update project status notes`).
-- Working tree has uncommitted changes as of 2026-05-01 (see below).
+- Branch `main` HEAD at commit `2ade3c3` (`Implement Laplace Interior Dirichlet BVP and curve resampling`).
+- Working tree has uncommitted changes as of 2026-05-02 (see below).
 - **Completed modules** (all tests passing):
   - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
   - Layer 1: `LaplacePanelSpread2D`, `LaplaceQuadraticRestrict2D` (6-point sub-cell stencil)
@@ -16,12 +16,13 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - Layer 4: GMRES outer solver
   - Layer 5: `LaplaceInteriorDirichlet2D` API
 - **Uncommitted changes:**
-  - `core/problems/laplace_interior.{hpp,cpp}` — new interior Dirichlet BVP API
-  - `core/CMakeLists.txt` — added new API source
-  - `tests/test_laplace_interior_2d.cpp` — added interior BVP convergence test
-  - `tests/CMakeLists.txt` — added new test
-  - `CLAUDE.md` — this file
+  - `tests/test_laplace_interior_circle_2d.cpp` — circle-domain convergence test for `LaplaceInteriorDirichlet2D`; fixed two issues causing erratic rates (see test header for details)
+  - `tests/CMakeLists.txt` — registers the new test
+  - `laplace_interior_circle_2d_N128.csv` — run-time CSV output; add `*.csv` to `.gitignore` before committing
 - **4 pre-existing test failures** unrelated to current work (GMRES tolerance: 1.6e-2 > 1e-2, rate 0.98 < 1.0; IIM spread rate 1.70 < 1.8; GridPair3D torus).
+
+### Known numerical pitfall — grid/interface alignment
+When a Cartesian grid node lands exactly on the interface, the IIM correction stencil has zero distance to the interface, making the local polynomial fit degenerate. This produces erratic convergence rates. **Rule:** for convergence tests, ensure no grid node is exactly on the interface by either offsetting the interface center or using a domain size incommensurate with the interface geometry. See `tests/test_laplace_interior_circle_2d.cpp` for a concrete example and fix.
 
 ## Core Algorithm
 Kernel-free boundary integral method for elliptic PDEs on complex interfaces/boundaries in 2D and 3D.

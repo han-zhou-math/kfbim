@@ -17,6 +17,7 @@
 | 5 | `LaplaceInteriorDirichlet2D` — High-level BVP API | ✓ done |
 | — | IIM defect correction (2D, exact C and Taylor path) | ✓ done |
 | — | Quasi-uniform curve resampling for stable discretization (`CurveResampler2D`) | ✓ done |
+| — | `test_laplace_interior_circle_2d`: circle-domain convergence test (fixed grid-alignment and phantom-exterior issues) | ✓ done |
 | — | Convention: u⁺ = interior, u⁻ = exterior, [u] = u_int − u_ext; labels 0 = Ω⁻, 1 = Ω⁺ | ✓ settled |
 | — | Interface Solver Output: Returns averaged trace and normal derivative | ✓ settled |
 
@@ -25,6 +26,12 @@
 - **Interface Problem**: Tests archived (`tests/archive/`) to focus on component testing.
 - **Dirichlet BVP ($2^{nd}$-kind BIE)**: Double-layer unknown $[u]=\phi$. Operator mode aligned. Tests archived.
 - **Neumann BVP ($2^{nd}$-kind BIE)**: Single-layer unknown $[\partial_n u]=\phi$. Operator mode aligned. Tests archived.
+- **Interior Dirichlet BVP — circle domain**: `test_laplace_interior_circle_2d.cpp`. Manufactured solution $u = e^x \sin y$ (harmonic), domain $[-1.8,1.8]^2$, circle center $(0, 0.1)$, radius $1$. Verified $O(h^2)$ convergence (rates 2.22, 2.24, 2.66, 3.07 for $N = 32 \to 512$).
+
+### Test-setup pitfall: grid/interface alignment
+If a grid node lands exactly on the interface (e.g. origin-centered unit circle on $[-2,2]^2$ with $h=4/N$ — axis crossings at $(\pm1,0)$, $(0,\pm1)$ hit node positions for all $N$ divisible by 4), the IIM correction stencil is degenerate (zero distance to interface), producing erratic convergence. Fix: offset the interface center or choose a domain size incommensurate with the interface geometry.
+
+Additionally, an oversized domain amplifies the phantom exterior solution (which the DST bulk solver forces to zero at the box boundary), degrading rates at fine grid levels. Use the tightest domain that still gives $\geq 0.5h$ clearance around the interface.
 
 ### Modular Potential Operators (`core/operator/laplace_potential.hpp`)
 
