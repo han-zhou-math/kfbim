@@ -8,27 +8,29 @@
 | 0 | `Interface2D/3D` (panels, points, normals, weights); `Interface2D` records Chebyshev-Lobatto, legacy Gauss, or raw node layout | ✓ done |
 | 0 | `GridPair2D/3D` (domain labeling, closest-pt query); `GridPair2D` labels use oversampled curved-panel polygons | ✓ done |
 | 1.5 | `laplace_panel_solver_2d.hpp` — per-panel 6×6 collocation Cauchy solver; Chebyshev-Lobatto center variant stores C derivatives at four expansion centers per panel | ✓ done |
-| 2 | `LaplaceFftBulkSolverZfft2D/3D` — DST Poisson solver | ✓ done |
+| 2 | `LaplaceFftBulkSolverZfft2D/3D` — DST Poisson/screened solver | ✓ done |
 | 1 | `LaplaceLobattoCenterSpread2D` / `LaplaceLobattoCenterRestrict2D` — preferred Chebyshev-Lobatto expansion-center path | ✓ done |
 | 1 | `LaplacePanelSpread2D` / `LaplaceQuadraticRestrict2D` — legacy Gauss-point path | ✓ done |
 | 3 | `LaplaceKFBIOperator2D/3D` — linear and affine modes | ✓ done |
 | 4 | `GMRES` (restarted, Givens) | ✓ done |
 | 3 | `LaplacePotentialEval2D` — modular D, S, N potential operators (K, H, K', ∂ₙN); covered by `test_laplace_potential_2d` | ✓ done |
-| 5 | `LaplaceInteriorDirichlet2D` — High-level BVP API | ✓ done |
+| 5 | `LaplaceInteriorDirichlet2D` — interior Dirichlet BVP for `-Delta u + eta*u = f` | ✓ done |
+| 5 | `LaplaceTransmissionConstantRatio2D` — constant-ratio discontinuous-coefficient interface utility | ✓ done |
 | — | IIM defect correction (2D, exact C and Taylor path) | ✓ done |
 | — | Quasi-uniform curve resampling for stable discretization (`CurveResampler2D`); default is Chebyshev-Lobatto, legacy Gauss is explicit | ✓ done |
-| — | `test_laplace_interior_circle_2d`: circle-domain convergence test (fixed grid-alignment and phantom-exterior issues) | ✓ done |
+| — | `tests/archive/test_laplace_interior_circle_2d_legacy_gauss.cpp`: archived circle-domain regression for grid-alignment and phantom-exterior issues | ✓ done |
 | — | Convention: u⁺ = interior, u⁻ = exterior, [u] = u_int − u_ext; labels 0 = Ω⁻, 1 = Ω⁺ | ✓ settled |
 | — | Interface Solver Output: Returns averaged trace and normal derivative | ✓ settled |
 
 ### Verified Formulations (Laplace 2D)
 
-- **Interface Problem**: Tests archived (`tests/archive/`) to focus on component testing.
-- **Dirichlet BVP ($2^{nd}$-kind BIE)**: Double-layer unknown $[u]=\phi$. Operator mode aligned. Tests archived.
-- **Neumann BVP ($2^{nd}$-kind BIE)**: Single-layer unknown $[\partial_n u]=\phi$. Operator mode aligned. Tests archived.
+- **Interface Problem**: Legacy Gauss tests archived (`tests/archive/`) to focus the active suite on Chebyshev-Lobatto components and BVP/interface convergence.
+- **Dirichlet BVP ($2^{nd}$-kind BIE)**: Double-layer unknown $[u]=\phi$. Operator mode aligned.
+- **Neumann BVP ($2^{nd}$-kind BIE)**: Single-layer unknown $[\partial_n u]=\phi$. Operator mode aligned at the operator level; public wrapper still future work.
 - **Interior Dirichlet BVP — preferred Chebyshev-Lobatto panels**: `test_laplace_interior_2d.cpp`. Manufactured solution $u = e^x \cos y$ (harmonic), domain $[-1.8,1.8]^2$, 5-fold star curve centered at $(0.07,-0.04)$ with $r(t)=0.75(1+0.25\cos 5t)$. Panel DOFs are Chebyshev-Lobatto nodes $s=\{-1,0,1\}$; correction expansion centers are $s=\{-0.75,-0.25,0.25,0.75\}$. Latest high-resolution refinement recovers about third-order convergence.
-- **Interior Dirichlet BVP — legacy Gauss panels**: `test_laplace_interior_2d.cpp` also keeps an explicit legacy comparison using `LegacyGaussPanel`. Rates are good through $N=512$ on the 5-fold star, then flatten at the finest level in the latest run.
-- **Interior Dirichlet BVP — offset circle legacy regression**: `test_laplace_interior_circle_2d.cpp`. Manufactured solution $u = e^x \sin y$ (harmonic), domain $[-2,2]^2$, circle center $(0, 0.1)$, radius $1$. Latest rates for $N=32\to1024$ are 1.797, 2.838, 3.108, 1.731, 2.656.
+- **Screened interior Dirichlet BVP**: `test_laplace_interior_screened_2d.cpp`. Solves $-\Delta u+u=f$, $u=g$, using manufactured $u=\exp(\sin x)+\cos y$ on a 3-fold star. The outer box is sampled from the interface bounds and the test writes CSV/PNG output under `output/laplace_interior_screened_star3`.
+- **Constant-ratio discontinuous-coefficient transmission**: `test_laplace_transmission_constant_ratio_2d.cpp`. Solves $-\nabla\cdot(\beta\nabla u)+\kappa^2u=f$ with $\kappa^2/\beta=\lambda^2$ equal on both sides, so the reduced equation is $-\Delta u+\lambda^2u=q=f/\beta$. The test uses a 5-fold star, nonzero outer Cartesian Dirichlet data, manufactured interior/exterior branches, and Python visualization under `output/laplace_transmission_constant_ratio_2d`.
+- **Legacy Gauss regressions**: older Gauss-point transfer tests are in `tests/archive/` and are not part of the active Chebyshev-Lobatto convergence set.
 
 ### Preferred 2D panel method
 
@@ -37,7 +39,8 @@ New 2D Laplace work should use Chebyshev-Lobatto panels.
 - `CurveResampler2D::discretize()` returns Chebyshev-Lobatto panels.
 - `LaplaceInteriorDirichlet2D` defaults to `LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter`.
 - Use `CurveResampler2D::discretize_legacy_gauss()` and `LaplaceInteriorPanelMethod2D::LegacyGaussPanel` only for legacy Gauss comparisons.
-- For each Chebyshev-Lobatto panel, the three geometry/DOF nodes are the endpoints and midpoint; the four generated expansion centers are the uniform interval centers in local panel parameter.
+- For each Chebyshev-Lobatto panel, the three geometry/DOF nodes are the endpoints and midpoint; the four generated expansion centers are $s=\{-0.75,-0.25,0.25,0.75\}$.
+- Active convergence tests use `panel_length/h ~= 4`, so adjacent Chebyshev-node spacing is about $2h$, and GMRES tolerance is $10^{-8}$.
 
 ### Public API boundary
 
@@ -51,54 +54,35 @@ New 2D Laplace work should use Chebyshev-Lobatto panels.
 
 | N | max err | rate | GMRES iters |
 |---:|--------:|-----:|------------:|
-| 32 | 1.0721e-01 | — | 19 |
-| 64 | 7.0126e-03 | 3.934 | 17 |
-| 128 | 9.5195e-04 | 2.881 | 17 |
-| 256 | 4.5468e-04 | 1.066 | 16 |
-| 512 | 5.6535e-05 | 3.008 | 15 |
-| 1024 | 6.1526e-06 | 3.200 | 13 |
+| 32 | 2.7945e-02 | — | 19 |
+| 64 | 6.2512e-03 | 2.160 | 28 |
+| 128 | 2.3670e-03 | 1.401 | 22 |
+| 256 | 2.7520e-04 | 3.105 | 26 |
+| 512 | 5.0119e-05 | 2.457 | 20 |
+| 1024 | 6.9491e-06 | 2.850 | 20 |
 
-`test_laplace_interior_2d`, 5-fold star, legacy Gauss path:
-
-| N | max err | rate | GMRES iters |
-|---:|--------:|-----:|------------:|
-| 32 | 5.1058e-02 | — | 18 |
-| 64 | 7.7224e-03 | 2.725 | 20 |
-| 128 | 1.6672e-03 | 2.212 | 18 |
-| 256 | 3.3502e-04 | 2.315 | 21 |
-| 512 | 6.1310e-05 | 2.450 | 21 |
-| 1024 | 4.5125e-05 | 0.442 | 31 |
-
-`test_laplace_interface_solver_2d`:
-
-| N | u_avg err | rate | un_avg err | rate |
-|---:|----------:|-----:|-----------:|-----:|
-| 32 | 2.8927e-03 | — | 6.4067e-02 | — |
-| 64 | 3.9585e-04 | 2.869 | 2.1744e-02 | 1.559 |
-| 128 | 1.1855e-04 | 1.739 | 6.0578e-03 | 1.844 |
-| 256 | 3.1473e-05 | 1.913 | 1.7755e-03 | 1.771 |
-
-`test_grid_alignment_pitfall_2d`, Poisson interface solve:
-
-| N | bulk err | rate | u_avg err | rate | un_avg err | rate |
-|---:|---------:|-----:|----------:|-----:|-----------:|-----:|
-| 32 | 1.2622e-02 | — | 1.0352e-02 | — | 6.0732e-02 | — |
-| 64 | 2.9028e-03 | 2.120 | 3.5772e-03 | 1.533 | 2.3096e-02 | 1.395 |
-| 128 | 6.8632e-04 | 2.080 | 6.5883e-04 | 2.441 | 6.2735e-03 | 1.880 |
-| 256 | 8.3146e-05 | 3.045 | 6.5968e-05 | 3.320 | 1.3225e-03 | 2.246 |
-| 512 | 1.4276e-05 | 2.542 | 1.2931e-05 | 2.351 | 4.0951e-04 | 1.691 |
-| 1024 | 1.9528e-06 | 2.870 | 1.7414e-06 | 2.893 | 1.1584e-04 | 1.822 |
-
-`test_laplace_interior_circle_2d`:
+`test_laplace_interior_screened_2d`, 3-fold star, $-\Delta u+u=f$:
 
 | N | max err | rate | GMRES iters |
 |---:|--------:|-----:|------------:|
-| 32 | 1.1238e-02 | — | 17 |
-| 64 | 3.2333e-03 | 1.797 | 20 |
-| 128 | 4.5225e-04 | 2.838 | 12 |
-| 256 | 5.2441e-05 | 3.108 | 13 |
-| 512 | 1.5793e-05 | 1.731 | 17 |
-| 1024 | 2.5051e-06 | 2.656 | 26 |
+| 32 | 2.2317e-03 | — | 13 |
+| 64 | 6.3270e-04 | 1.819 | 14 |
+| 128 | 1.7405e-04 | 1.862 | 18 |
+| 256 | 2.6148e-05 | 2.735 | 15 |
+| 512 | 5.6018e-06 | 2.223 | 17 |
+| 1024 | 7.4545e-07 | 2.910 | 10 |
+
+`test_laplace_transmission_constant_ratio_2d`, 5-fold star,
+$\beta_{int}=2$, $\beta_{ext}=1$, $\lambda^2=1.1$:
+
+| N | max err | rate | GMRES iters |
+|---:|--------:|-----:|------------:|
+| 32 | 5.8784e-03 | — | 9 |
+| 64 | 7.2765e-04 | 3.014 | 9 |
+| 128 | 1.3191e-04 | 2.464 | 9 |
+| 256 | 2.4540e-05 | 2.426 | 9 |
+| 512 | 3.4423e-06 | 2.834 | 8 |
+| 1024 | 6.2691e-07 | 2.457 | 8 |
 
 ### Test-setup pitfall: grid/interface alignment
 If a grid node lands exactly on the interface (e.g. origin-centered unit circle on $[-2,2]^2$ with $h=4/N$ — axis crossings at $(\pm1,0)$, $(0,\pm1)$ hit node positions for all $N$ divisible by 4), the IIM correction stencil is degenerate (zero distance to interface), producing erratic convergence. Fix: offset the interface center or choose a domain size incommensurate with the interface geometry.
@@ -132,17 +116,20 @@ there in small API steps, with direct tests before higher-level BVP wiring.
 
 1. **Verified modular potentials** — keep `test_laplace_potential_2d` green for
    `D`, `S`, and `N` jump-relation consistency.
-2. **Interior/exterior Dirichlet wrappers** — expose user-facing Layer 5 APIs
+2. **Screened/interior Dirichlet and constant-ratio transmission tests** — keep
+   the active convergence tests green and preserve Python visualization output
+   under `output/`.
+3. **Interior/exterior Dirichlet wrappers** — expose user-facing Layer 5 APIs
    under top-level `problems/`, using manufactured harmonic solutions for tests.
-3. **Interior/exterior Neumann wrappers** — add nullspace/compatibility handling
+4. **Interior/exterior Neumann wrappers** — add nullspace/compatibility handling
    explicitly and test projected GMRES behavior.
-4. **Forcing and volume-potential APIs** — generalize beyond the current
+5. **Forcing and volume-potential APIs** — generalize beyond the current
    `f_bulk` plus interface `rhs_derivs` path.
 
 ### Next Agent Continuation Checklist
 
 - Continue the public 2D Laplace BVP API plan; do not pivot to 3D, Stokes,
-  variable coefficients, or bindings unless explicitly requested.
+  general variable coefficients, or bindings unless explicitly requested.
 - Start the next implementation under top-level `problems/`, keeping
   `core/problems/` as internal pipeline utilities.
 - Use `LaplacePotentialEval2D` for the next Dirichlet/Neumann operator wrapper
@@ -154,9 +141,8 @@ there in small API steps, with direct tests before higher-level BVP wiring.
 - Before handing off, run the known set:
   `test_laplace_potential_2d`,
   `test_laplace_interior_2d`,
-  `test_laplace_interface_solver_2d`,
-  `test_grid_alignment_pitfall_2d '[grid_alignment]'`, and
-  `test_laplace_interior_circle_2d`.
+  `test_laplace_interior_screened_2d`, and
+  `test_laplace_transmission_constant_ratio_2d`.
 
 ### Deferred Work
 
@@ -166,14 +152,15 @@ there in small API steps, with direct tests before higher-level BVP wiring.
 - **Stokes**: defer until the Laplace BVP API is clean. Stokes has interfaces
   and scaffolding, but no concrete local Cauchy, spread, restrict, or operator
   implementation yet.
-- **Discontinuous coefficients**: keep the design notes, but schedule this after
-  the constant-coefficient BVP APIs are stable.
+- **General discontinuous coefficients**: the constant-ratio case is now
+  implemented; defer the case where $\kappa^2/\beta$ differs across the
+  interface.
 
 ### Test Plan
 
 - Run the known convergence set after structural changes:
-  `test_laplace_interior_2d`, `test_laplace_interface_solver_2d`,
-  `test_grid_alignment_pitfall_2d`, and `test_laplace_interior_circle_2d`.
+  `test_laplace_interior_2d`, `test_laplace_interior_screened_2d`, and
+  `test_laplace_transmission_constant_ratio_2d`.
 - Run `test_laplace_potential_2d` after changes to potential, restrict, spread,
   interface-solver, or sign-convention code.
 - Add BVP tests one API at a time, using manufactured harmonic solutions and

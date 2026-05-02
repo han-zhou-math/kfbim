@@ -3,3 +3,4 @@
 .cache/
 scripts/*.png
 *.csv
+/output/

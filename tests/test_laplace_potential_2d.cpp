@@ -70,7 +70,7 @@ TEST_CASE("LaplacePotentialEval2D matches interface-solver jump relations",
 
     CartesianGrid2D grid({-half_width, -half_width}, {h, h}, {N, N}, DofLayout2D::Node);
     OffsetCircleCurve2D curve;
-    Interface2D iface = CurveResampler2D::discretize(curve, h, 4.4);
+    Interface2D iface = CurveResampler2D::discretize(curve, h, 4.0);
     GridPair2D grid_pair(grid, iface);
 
     LaplaceLobattoCenterSpread2D spread(grid_pair);

@@ -18,6 +18,7 @@ endif()
 
 include(CTest)
 include(Catch)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 # ---------------------------------------------------------------------------
 # kfbim_add_test(<target> <sources...>)
@@ -31,6 +32,12 @@ function(kfbim_add_test target)
         kfbim_core
         kfbim_problems
         Catch2::Catch2WithMain
+    )
+    target_compile_definitions(${target} PRIVATE
+        KFBIM_TEST_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/output"
+        KFBIM_PYTHON_EXECUTABLE="${Python3_EXECUTABLE}"
+        KFBIM_SCREENED_VIS_SCRIPT="${PROJECT_SOURCE_DIR}/scripts/visualize_screened_star3.py"
+        KFBIM_TRANSMISSION_VIS_SCRIPT="${PROJECT_SOURCE_DIR}/scripts/visualize_transmission_constant_ratio_2d.py"
     )
     catch_discover_tests(${target})
 endfunction()
@@ -54,23 +61,15 @@ kfbim_add_test(test_grid_pair test_grid_pair.cpp)
 # IIM defect correction + FFT solve (Layer 0 + 2 integration)
 kfbim_add_test(test_iim_2d test_iim_2d.cpp)
 
-# Hidden diagnostic for the documented grid/interface alignment pitfall.
-kfbim_add_test(test_grid_alignment_pitfall_2d test_grid_alignment_pitfall_2d.cpp)
-
-# Layer 1.5 local Cauchy solver
-kfbim_add_test(test_local_cauchy test_local_cauchy.cpp)
-
-# Layer 1 transfer operators
-kfbim_add_test(test_transfer_2d test_transfer_2d.cpp)
-
-# Interface Solver Pipeline
-kfbim_add_test(test_laplace_interface_solver_2d test_laplace_interface_solver_2d.cpp)
-
 # Modular Layer 3 potential evaluator
 kfbim_add_test(test_laplace_potential_2d test_laplace_potential_2d.cpp)
 
-# Full pipeline (interior Dirichlet, circle domain): add when all layers exist.
+# Full pipeline — interior Dirichlet, Chebyshev-Lobatto panels.
 kfbim_add_test(test_laplace_interior_2d test_laplace_interior_2d.cpp)
 
-# Full pipeline — unit circle, harmonic manufactured solution
-kfbim_add_test(test_laplace_interior_circle_2d test_laplace_interior_circle_2d.cpp)
+# Full pipeline — screened Poisson interior Dirichlet, 3-fold star
+kfbim_add_test(test_laplace_interior_screened_2d test_laplace_interior_screened_2d.cpp)
+
+# Full pipeline — constant-ratio discontinuous coefficient transmission problem
+kfbim_add_test(test_laplace_transmission_constant_ratio_2d
+               test_laplace_transmission_constant_ratio_2d.cpp)

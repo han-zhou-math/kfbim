@@ -36,15 +36,15 @@ static Interface2D make_circle(double cx, double cy, double r, int N)
     return {pts, nml, wts, 1, comp};
 }
 
-// Circle represented by 3-point Gauss-Legendre panel geometry.
-static Interface2D make_circle_gauss_panels(double cx, double cy, double r, int N_panels)
+// Circle represented by 3-point Chebyshev-Lobatto panel geometry.
+static Interface2D make_circle_lobatto_panels(double cx, double cy, double r, int N_panels)
 {
-    constexpr double gl_s[3] = {
-        -0.7745966692414834,
+    constexpr double lobatto_s[3] = {
+        -1.0,
          0.0,
-         0.7745966692414834
+         1.0
     };
-    constexpr double gl_w[3] = {5.0 / 9.0, 8.0 / 9.0, 5.0 / 9.0};
+    constexpr double lobatto_w[3] = {1.0 / 3.0, 4.0 / 3.0, 1.0 / 3.0};
 
     const int Nq = 3 * N_panels;
     Eigen::MatrixX2d pts(Nq, 2), nml(Nq, 2);
@@ -57,18 +57,18 @@ static Interface2D make_circle_gauss_panels(double cx, double cy, double r, int 
         const double theta_mid = (p + 0.5) * dtheta;
         const double half_dtheta = 0.5 * dtheta;
         for (int i = 0; i < 3; ++i) {
-            const double th = theta_mid + half_dtheta * gl_s[i];
+            const double th = theta_mid + half_dtheta * lobatto_s[i];
             const double ct = std::cos(th), st = std::sin(th);
             pts(q, 0) = cx + r * ct;
             pts(q, 1) = cy + r * st;
             nml(q, 0) = ct;
             nml(q, 1) = st;
-            wts(q) = gl_w[i] * half_dtheta * r;
+            wts(q) = lobatto_w[i] * half_dtheta * r;
             ++q;
         }
     }
 
-    return {pts, nml, wts, 3, comp};
+    return {pts, nml, wts, 3, comp, PanelNodeLayout2D::ChebyshevLobatto};
 }
 
 // Multi-circle interface: arbitrary number of circles, each its own component.
@@ -257,15 +257,15 @@ TEST_CASE("GridPair2D domain labeling — circle", "[gridpair][2d]")
     REQUIRE(n_exterior_wrong == 0);
 }
 
-TEST_CASE("GridPair2D domain labeling uses oversampled quadratic panels",
+TEST_CASE("GridPair2D domain labeling uses oversampled Chebyshev-Lobatto panels",
           "[gridpair][2d][domain]")
 {
-    auto iface = make_circle_gauss_panels(0.0, 0.0, 1.0, 4);
+    auto iface = make_circle_lobatto_panels(0.0, 0.0, 1.0, 4);
     CartesianGrid2D grid({-0.99, -0.99}, {0.99, 0.99}, {2, 2}, DofLayout2D::Node);
     GridPair2D gp(grid, iface);
 
     // These nodes sit just inside the true circle at quadratic panel boundaries.
-    // A polygon through only the stored Gauss points cuts across those boundaries.
+    // A polygon through only the stored panel points cuts across those boundaries.
     REQUIRE(gp.domain_label(grid.index(2, 1)) == 1);
     REQUIRE(gp.domain_label(grid.index(1, 2)) == 1);
     REQUIRE(gp.domain_label(grid.index(0, 1)) == 1);

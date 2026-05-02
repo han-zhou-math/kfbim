@@ -42,6 +42,7 @@ add_library(kfbim_core STATIC
     # Layer 3 utility — Interface solver pipeline
     problems/laplace_interface_solver_2d.cpp
     problems/laplace_interior.cpp
+    problems/laplace_transmission_constant_ratio_2d.cpp
 
     # Layer 4 — Outer Solver
     gmres/gmres.cpp

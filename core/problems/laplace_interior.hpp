@@ -33,7 +33,7 @@ struct LaplaceInteriorSolveResult2D {
 // LaplaceInteriorDirichlet2D
 //
 // Solves the interior Dirichlet BVP:
-//   -Δu = f   in Ω_int
+//   -Δu + eta*u = f   in Ω_int
 //     u = g   on Γ
 //
 // Uses the KFBIM 2nd-kind boundary integral formulation:
@@ -49,7 +49,8 @@ public:
                                const Eigen::VectorXd& f_bulk,
                                const std::vector<Eigen::VectorXd>& rhs_derivs,
                                LaplaceInteriorPanelMethod2D panel_method =
-                                   LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter);
+                                   LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter,
+                               double eta = 0.0);
 
     // Solve for the density phi using GMRES and recover the bulk solution.
     LaplaceInteriorSolveResult2D solve(int max_iter = 100, double tol = 1e-8, int restart = 50);

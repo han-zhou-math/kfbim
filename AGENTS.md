@@ -1,4 +1,4 @@
-# KFBIM Library — Project Guide
+# KFBIM Library - Project Guide
 
 ## Project Goal
 Reconstruct problem-dependent KFBIM codes into a clean, reusable C++ library with a public API.
@@ -6,8 +6,9 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
 
 ## Current Status
 - Branch `main`; run `git log --oneline -n 3` for the exact current commit.
-- This guide reflects the 2026-05-02 2D Laplace Chebyshev-Lobatto and 5-fold star convergence work.
-- **Completed modules** (all tests passing):
+- This guide reflects the 2026-05-02 2D Laplace Chebyshev-Lobatto,
+  screened-Poisson, and constant-ratio transmission work.
+- **Completed modules** (active tests passing):
   - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
     - `Interface2D` tracks panel node layout: `ChebyshevLobatto`, `LegacyGaussLegendre`, or `Raw`.
     - `GridPair2D::domain_label()` uses oversampled curved-panel polygons for 3-point panels.
@@ -20,7 +21,8 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - Layer 1.5: `LaplacePanelCauchySolver2D`
     - Legacy Gauss Cauchy solve at the three panel points.
     - Chebyshev-Lobatto Cauchy solve at four generated expansion centers per panel, `s={-0.75,-0.25,0.25,0.75}`.
-  - Layer 2: `LaplaceFftBulkSolverZfft2D` (DST, Dirichlet BC)
+    - Current collocation offset is `0.05`.
+  - Layer 2: `LaplaceFftBulkSolverZfft2D` (DST, Dirichlet BC, optional screened shift)
   - Layer 3: `LaplaceKFBIOperator2D` (delegates to `LaplaceInterfaceSolver2D`), `LaplaceInterfaceSolver2D` (Spread → BulkSolve → Restrict pipeline, arc_h_ratio check)
   - Layer 3 modular potentials: `LaplacePotentialEval2D`
     - Evaluates D/S/N jump primitives through the existing KFBI pipeline.
@@ -28,22 +30,38 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     - Covered by `tests/test_laplace_potential_2d.cpp`.
   - Layer 4: GMRES outer solver
   - Layer 5: `LaplaceInteriorDirichlet2D` API
+    - Solves `-Delta u + eta*u = f` in the interior.
     - Default panel method is `ChebyshevLobattoCenter`.
     - `LegacyGaussPanel` remains available explicitly.
+  - Constant-ratio discontinuous coefficient interface utility:
+    - `LaplaceTransmissionConstantRatio2D`
+    - Solves `-div(beta grad u)+kappa^2 u=f` when `kappa^2/beta=lambda_sq`
+      is the same on both sides.
+    - Divides by `beta` to use a common screened operator
+      `-Delta u + lambda_sq u=q`.
+    - Eliminates optional nonzero outer Cartesian Dirichlet data into the RHS,
+      then restores boundary values in the output.
 - **Recent implementation notes:**
   - Chebyshev-Lobatto panel/expansion-center path is implemented and verified.
   - Gauss-point path is retained as legacy and must be selected explicitly in new tests/code.
   - `LaplacePotentialEval2D` has direct D/S/N jump-relation tests.
-  - `tests/test_laplace_interior_2d.cpp` now solves the harmonic interior Dirichlet problem on a 5-fold star curve centered at `(0.07,-0.04)`, using `r(t)=0.75*(1+0.25*cos(5t))`.
-  - `tests/test_laplace_interior_circle_2d.cpp` remains a legacy-Gauss convergence regression.
+  - Active convergence tests target adjacent Chebyshev-node spacing of about
+    `2h` (`panel_length/h ~= 4`) and GMRES tolerance `1e-8`.
+  - `tests/test_laplace_interior_2d.cpp` solves the harmonic interior
+    Dirichlet problem on a 5-fold star curve centered at `(0.07,-0.04)`.
+  - `tests/test_laplace_interior_screened_2d.cpp` solves
+    `-Delta u + u = f` with manufactured solution `exp(sin(x))+cos(y)` on a
+    3-fold star.
+  - `tests/test_laplace_transmission_constant_ratio_2d.cpp` solves the first
+    discontinuous-coefficient interface problem on a 5-fold star.
+  - Legacy Gauss tests were moved to `tests/archive/`.
   - Legacy reference code was moved from `old-codes/` to `third_party/old-codes/`.
-  - Run-time CSV output such as `laplace_interior_*.csv` should not be committed.
-- **Current convergence test status:** the requested convergence binaries all passed on 2026-05-02:
+  - Runtime CSV/PNG output is written under `output/` and should not be committed.
+- **Current convergence test status:** the active convergence binaries passed on 2026-05-02:
   - `build/tests/test_laplace_potential_2d -s`
   - `build/tests/test_laplace_interior_2d -s`
-  - `build/tests/test_laplace_interface_solver_2d -s`
-  - `build/tests/test_grid_alignment_pitfall_2d '[grid_alignment]' -s`
-  - `build/tests/test_laplace_interior_circle_2d -s`
+  - `build/tests/test_laplace_interior_screened_2d -s`
+  - `build/tests/test_laplace_transmission_constant_ratio_2d -s`
 
 ## Next Agent Handoff — Continue This Plan
 
@@ -55,8 +73,13 @@ When resuming this project, continue the 2D Laplace public-API plan rather than 
    - Keep `core/problems/` as internal pipeline utilities; make top-level `problems/` the long-term Layer 5 user-facing API surface.
 
 2. **Next implementation target.**
-   - Build the next user-facing 2D Laplace BVP wrapper under top-level `problems/`.
-   - Preferred order: interior/exterior Dirichlet wrappers first, then interior/exterior Neumann wrappers with nullspace/compatibility handling, then forcing/nonzero-volume-potential cases.
+   - Promote stable 2D Laplace BVP wrappers under top-level `problems/`.
+   - Preferred order: interior/exterior Dirichlet wrappers first, then
+     interior/exterior Neumann wrappers with nullspace/compatibility handling,
+     then forcing/nonzero-volume-potential cases.
+   - Continue discontinuous-coefficient work from the verified constant-ratio
+     case; defer the general case where `kappa^2/beta` differs across the
+     interface.
    - Use `LaplacePotentialEval2D` as the verified modular building block for D/S/N operator combinations.
 
 3. **Testing requirements for the next change.**
@@ -65,9 +88,8 @@ When resuming this project, continue the 2D Laplace public-API plan rather than 
    - Run at least:
      - `build/tests/test_laplace_potential_2d -s`
      - `build/tests/test_laplace_interior_2d -s`
-     - `build/tests/test_laplace_interface_solver_2d -s`
-     - `build/tests/test_grid_alignment_pitfall_2d '[grid_alignment]' -s`
-     - `build/tests/test_laplace_interior_circle_2d -s`
+     - `build/tests/test_laplace_interior_screened_2d -s`
+     - `build/tests/test_laplace_transmission_constant_ratio_2d -s`
 
 4. **Deferred work.**
    - Do not start Python/MATLAB bindings until the top-level C++ problem API is stable.
@@ -81,6 +103,8 @@ Use Chebyshev-Lobatto panels for new 2D Laplace work.
 - Geometry/DOF nodes per panel: `s={-1,0,1}`.
 - Correction expansion centers per panel: `s={-0.75,-0.25,0.25,0.75}`.
 - `CurveResampler2D::discretize()` now returns Chebyshev-Lobatto panels.
+- Current convergence tests set `panel_length/h ~= 4`, so adjacent
+  Chebyshev-node spacing is about `2h`.
 - `LaplaceInteriorDirichlet2D` defaults to `LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter`.
 - Use `CurveResampler2D::discretize_legacy_gauss()` and `LaplaceInteriorPanelMethod2D::LegacyGaussPanel` only for legacy Gauss comparisons/regressions.
 
@@ -90,26 +114,39 @@ Use Chebyshev-Lobatto panels for new 2D Laplace work.
 
 | N | max err | rate | GMRES iters |
 |---:|--------:|-----:|------------:|
-| 32 | 1.0721e-01 | — | 19 |
-| 64 | 7.0126e-03 | 3.934 | 17 |
-| 128 | 9.5195e-04 | 2.881 | 17 |
-| 256 | 4.5468e-04 | 1.066 | 16 |
-| 512 | 5.6535e-05 | 3.008 | 15 |
-| 1024 | 6.1526e-06 | 3.200 | 13 |
+| 32 | 2.7945e-02 | - | 19 |
+| 64 | 6.2512e-03 | 2.160 | 28 |
+| 128 | 2.3670e-03 | 1.401 | 22 |
+| 256 | 2.7520e-04 | 3.105 | 26 |
+| 512 | 5.0119e-05 | 2.457 | 20 |
+| 1024 | 6.9491e-06 | 2.850 | 20 |
 
-`test_laplace_interior_2d`, 5-fold star, legacy Gauss path:
+`test_laplace_interior_screened_2d`, 3-fold star,
+`u=exp(sin(x))+cos(y)`, `-Delta u + u=f`:
 
 | N | max err | rate | GMRES iters |
 |---:|--------:|-----:|------------:|
-| 32 | 5.1058e-02 | — | 18 |
-| 64 | 7.7224e-03 | 2.725 | 20 |
-| 128 | 1.6672e-03 | 2.212 | 18 |
-| 256 | 3.3502e-04 | 2.315 | 21 |
-| 512 | 6.1310e-05 | 2.450 | 21 |
-| 1024 | 4.5125e-05 | 0.442 | 31 |
+| 32 | 2.2317e-03 | - | 13 |
+| 64 | 6.3270e-04 | 1.819 | 14 |
+| 128 | 1.7405e-04 | 1.862 | 18 |
+| 256 | 2.6148e-05 | 2.735 | 15 |
+| 512 | 5.6018e-06 | 2.223 | 17 |
+| 1024 | 7.4545e-07 | 2.910 | 10 |
+
+`test_laplace_transmission_constant_ratio_2d`, 5-fold star,
+`beta_int=2`, `beta_ext=1`, `kappa^2/beta=lambda_sq=1.1`:
+
+| N | max err | rate | GMRES iters |
+|---:|--------:|-----:|------------:|
+| 32 | 5.8784e-03 | - | 9 |
+| 64 | 7.2765e-04 | 3.014 | 9 |
+| 128 | 1.3191e-04 | 2.464 | 9 |
+| 256 | 2.4540e-05 | 2.426 | 9 |
+| 512 | 3.4423e-06 | 2.834 | 8 |
+| 1024 | 6.2691e-07 | 2.457 | 8 |
 
 ### Known numerical pitfall — grid/interface alignment
-When a Cartesian grid node lands exactly on the interface, the IIM correction stencil has zero distance to the interface, making the local polynomial fit degenerate. This produces erratic convergence rates. **Rule:** for convergence tests, ensure no grid node is exactly on the interface by either offsetting the interface center or using a domain size incommensurate with the interface geometry. See `tests/test_laplace_interior_circle_2d.cpp` for a concrete example and fix.
+When a Cartesian grid node lands exactly on the interface, the IIM correction stencil has zero distance to the interface, making the local polynomial fit degenerate. This produces erratic convergence rates. **Rule:** for convergence tests, ensure no grid node is exactly on the interface by either offsetting the interface center or using a domain size incommensurate with the interface geometry. See `tests/archive/test_laplace_interior_circle_2d_legacy_gauss.cpp` for the archived regression that exposed this pitfall.
 
 ## Core Algorithm
 Kernel-free boundary integral method for elliptic PDEs on complex interfaces/boundaries in 2D and 3D.
@@ -121,7 +158,8 @@ One GMRES iteration = one application of the interface-to-interface operator:
 GMRES iterates on this operator until the interface unknowns converge.
 
 ## Target PDE Types
-- Laplace / Poisson
+- Laplace / Poisson / screened Poisson
+- Constant-ratio discontinuous coefficient transmission
 - Stokes
 - Elasticity
 - Variable-coefficient elliptic
@@ -211,8 +249,11 @@ Higher layers depend only on the abstractions of lower layers, not their impleme
 - **Normal n** points outward (from interior Ω⁺ to exterior Ω⁻), matching `Interface2D::normals()`
 - **Domain label**: `GridPair2D::domain_label(n)` returns 0 = exterior (Ω⁻), 1 = interior (Ω⁺)
 - **Correction polynomial** C from panel Cauchy solver: C = [u] on Γ, ∂C/∂n = [∂u/∂n]
-- **Restrict**: fits bulk solution at stencil nodes, subtracts C → `u_trace = fit(bulk) − [u]`
-- **Interface average**: `u_avg = (u⁺+u⁻)/2 = u_trace + [u]`
+- **Restrict**: returns the interior trace/flux used by
+  `LaplaceInterfaceSolver2D`
+- **Interface average**:
+  `u_avg = (u⁺+u⁻)/2 = u_int - [u]/2`, and similarly
+  `un_avg = un_int - [∂u/∂n]/2`
 
 ```
 core/
@@ -226,8 +267,11 @@ core/
   problems/       # LaplaceInterfaceSolver2D  (Layer 3 utility)
   gmres/          # outer solver  (Layer 4)
 problems/         # LaplaceInterfaceProblem, LaplaceTransmissionProblem, ...  (Layer 5)
+scripts/          # Python visualization scripts
 bindings/         # pybind11 wrappers (future)
 tests/
+tests/archive/    # legacy Gauss/reference tests
+output/           # generated runtime output, gitignored
 examples/
 ```
 

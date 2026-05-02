@@ -23,7 +23,7 @@ namespace kfbim {
 //   Rows 3–4  Neumann   : X(t−δ), X(t+δ)             → normal-deriv [∂_n u]·h
 //   Row  5    PDE       : X(t)                       → (−Δ+κ)C · h²
 //
-// Here t is the panel-local coordinate of the target Gauss point, δ=0.1, and
+// Here t is the panel-local coordinate of the target Gauss point, δ=0.05, and
 // all jump data at off-node collocation locations is interpolated from the
 // panel's 3 Gauss nodes.
 //
@@ -52,14 +52,15 @@ inline constexpr double kPanelLobattoS[3] = {
      1.0
 };
 
-inline constexpr double kLobattoExpansionS[4] = {
+inline constexpr int kLobattoExpansionCount = 4;
+inline constexpr double kLobattoExpansionS[kLobattoExpansionCount] = {
     -0.75,
     -0.25,
      0.25,
      0.75
 };
 
-inline constexpr double kCollocationDelta = 0.1;
+inline constexpr double kCollocationDelta = 0.05;
 
 inline void lagrange_basis_3_at_nodes(const double nodes[3], double s, double L[3]) {
     const double s0 = nodes[0];
@@ -451,7 +452,7 @@ inline PanelCenterCauchyResult2D laplace_panel_lobatto_center_cauchy_2d(
 {
     assert(iface.points_per_panel() == 3);
     const int Np = iface.num_panels();
-    const int Nc = 4 * Np;
+    const int Nc = detail::kLobattoExpansionCount * Np;
 
     PanelCenterCauchyResult2D res;
     res.centers     = Eigen::MatrixX2d::Zero(Nc, 2);
@@ -486,8 +487,8 @@ inline PanelCenterCauchyResult2D laplace_panel_lobatto_center_cauchy_2d(
         const double panel_b[3]  = { b[g0], b[g1], b[g2] };
         const double panel_Lu[3] = { Lu_iface[g0], Lu_iface[g1], Lu_iface[g2] };
 
-        for (int i = 0; i < 4; ++i) {
-            const int ci = 4 * p + i;
+        for (int i = 0; i < detail::kLobattoExpansionCount; ++i) {
+            const int ci = detail::kLobattoExpansionCount * p + i;
             const double t = detail::kLobattoExpansionS[i];
             const double s_minus = t - detail::kCollocationDelta;
             const double s_plus  = t + detail::kCollocationDelta;

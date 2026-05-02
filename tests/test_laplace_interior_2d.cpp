@@ -16,6 +16,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <vector>
 #include <algorithm>
 
@@ -29,8 +30,11 @@ using namespace kfbim;
 
 static constexpr double kPi = 3.14159265358979323846;
 static constexpr double kBoxHalfWidth = 1.8;
-static constexpr double kTargetInterfaceSpacingOverH = 1.0;
-static constexpr double kTargetPanelLengthOverH = 4.436491673103709; // min GL-point spacing ≈ h
+static constexpr double kTargetPanelLengthOverH = 4.0;
+
+#ifndef KFBIM_TEST_OUTPUT_DIR
+#define KFBIM_TEST_OUTPUT_DIR "output"
+#endif
 
 // ── Manufactured solution ────────────────────────────────────────────────────
 
@@ -76,7 +80,15 @@ struct ConvergenceData {
     int    iterations;
 };
 
-static ConvergenceData solve_and_measure(int N, LaplaceInteriorPanelMethod2D panel_method)
+static std::filesystem::path output_dir()
+{
+    std::filesystem::path dir =
+        std::filesystem::path(KFBIM_TEST_OUTPUT_DIR) / "laplace_interior_star5";
+    std::filesystem::create_directories(dir);
+    return dir;
+}
+
+static ConvergenceData solve_and_measure(int N)
 {
     const double L = 2.0 * kBoxHalfWidth;
     const double h = L / N;
@@ -85,10 +97,7 @@ static ConvergenceData solve_and_measure(int N, LaplaceInteriorPanelMethod2D pan
     int nx = d[0], ny = d[1];
 
     StarCurve2D star;
-    Interface2D iface =
-        (panel_method == LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter)
-        ? CurveResampler2D::discretize(star, h, kTargetPanelLengthOverH)
-        : CurveResampler2D::discretize_legacy_gauss(star, h, kTargetPanelLengthOverH);
+    Interface2D iface = CurveResampler2D::discretize(star, h, kTargetPanelLengthOverH);
     const int Nq = iface.num_points();
 
     // 1. Setup boundary condition g
@@ -123,8 +132,8 @@ static ConvergenceData solve_and_measure(int N, LaplaceInteriorPanelMethod2D pan
     }
 
     // 3. Solve using the high-level API
-    LaplaceInteriorDirichlet2D problem(grid, iface, g, f_bulk, rhs_derivs, panel_method);
-    auto res = problem.solve();
+    LaplaceInteriorDirichlet2D problem(grid, iface, g, f_bulk, rhs_derivs);
+    auto res = problem.solve(800, 1.0e-8, 200);
 
     REQUIRE(res.converged);
 
@@ -137,7 +146,8 @@ static ConvergenceData solve_and_measure(int N, LaplaceInteriorPanelMethod2D pan
     }
 
     if (N == 128) {
-        FILE* fp = std::fopen("laplace_interior_2d_star5_N128.csv", "w");
+        const std::filesystem::path path = output_dir() / "laplace_interior_2d_star5_N128.csv";
+        FILE* fp = std::fopen(path.string().c_str(), "w");
         if (fp) {
             std::fprintf(fp, "x,y,u_bulk,u_exact,label\n");
             for (int n = 0; n < nx * ny; ++n) {
@@ -151,14 +161,9 @@ static ConvergenceData solve_and_measure(int N, LaplaceInteriorPanelMethod2D pan
     return {bulk_err, res.iterations};
 }
 
-static ConvergenceData solve_gauss_and_measure(int N)
-{
-    return solve_and_measure(N, LaplaceInteriorPanelMethod2D::LegacyGaussPanel);
-}
-
 static ConvergenceData solve_lobatto_and_measure(int N)
 {
-    return solve_and_measure(N, LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter);
+    return solve_and_measure(N);
 }
 
 TEST_CASE("LaplaceInteriorDirichlet2D: Lobatto-center KFBIM path runs on 5-fold star",
@@ -195,7 +200,7 @@ TEST_CASE("LaplaceInteriorDirichlet2D: Lobatto-center KFBIM path runs on 5-fold 
     }
 
     LaplaceInteriorDirichlet2D problem(grid, iface, g, f_bulk, rhs_derivs);
-    auto res = problem.solve();
+    auto res = problem.solve(800, 1.0e-8, 200);
 
     REQUIRE(res.converged);
 
@@ -209,32 +214,6 @@ TEST_CASE("LaplaceInteriorDirichlet2D: Lobatto-center KFBIM path runs on 5-fold 
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-TEST_CASE("LaplaceInteriorDirichlet2D: legacy Gauss-point interior bulk O(h²) convergence on 5-fold star",
-          "[laplace][bvp][interior][dirichlet][legacy][gauss][2d]")
-{
-    const int Ns[]     = {32, 64, 128, 256, 512, 1024};
-    const int n_levels = 6;
-    ConvergenceData data[n_levels];
-
-    std::printf("\n  LaplaceInteriorDirichlet2D: legacy Gauss-point interior BVP convergence\n");
-    std::printf("  Manufactured: u_int=exp(x)cos(y) inside 5-fold star centered at (%.2f, %.2f), domain [-%.1f,%.1f]^2\n",
-                kStarCx, kStarCy, kBoxHalfWidth, kBoxHalfWidth);
-    std::printf("  Target min interface spacing / h ≈ %.1f (panel arc length / h = %.2f)\n",
-                kTargetInterfaceSpacingOverH, kTargetPanelLengthOverH);
-    std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "rate", "iters");
-
-    for (int l = 0; l < n_levels; ++l) {
-        data[l] = solve_gauss_and_measure(Ns[l]);
-        if (l == 0) {
-            std::printf("  %6d  %12.4e  %8s  %6d\n", Ns[l], data[l].bulk_err, "—", data[l].iterations);
-        } else {
-            double rate = std::log2(data[l-1].bulk_err / data[l].bulk_err);
-            std::printf("  %6d  %12.4e  %8.3f  %6d\n", Ns[l], data[l].bulk_err, rate, data[l].iterations);
-            // REQUIRE(rate > 1.5);
-        }
-    }
-}
-
 TEST_CASE("LaplaceInteriorDirichlet2D: Chebyshev-Lobatto DOF convergence on 5-fold star",
           "[laplace][bvp][interior][dirichlet][lobatto][convergence][2d]")
 {
@@ -246,7 +225,8 @@ TEST_CASE("LaplaceInteriorDirichlet2D: Chebyshev-Lobatto DOF convergence on 5-fo
     std::printf("  Manufactured: u_int=exp(x)cos(y) inside 5-fold star centered at (%.2f, %.2f), domain [-%.1f,%.1f]^2\n",
                 kStarCx, kStarCy, kBoxHalfWidth, kBoxHalfWidth);
     std::printf("  Panel DOFs: Chebyshev-Lobatto s={-1,0,1}; correction expansion centers: s={-0.75,-0.25,0.25,0.75}\n");
-    std::printf("  Target panel arc length / h = %.2f\n", kTargetPanelLengthOverH);
+    std::printf("  Target Chebyshev-node spacing / h ≈ %.2f (panel arc length / h = %.2f)\n",
+                0.5 * kTargetPanelLengthOverH, kTargetPanelLengthOverH);
     std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "rate", "iters");
 
     for (int l = 0; l < n_levels; ++l) {

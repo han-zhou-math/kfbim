@@ -8,15 +8,16 @@ namespace {
 
 std::unique_ptr<ILaplaceSpread2D> make_laplace_spread_2d(
     LaplaceInteriorPanelMethod2D method,
-    const GridPair2D&            grid_pair)
+    const GridPair2D&            grid_pair,
+    double                       kappa)
 {
     switch (method) {
     case LaplaceInteriorPanelMethod2D::LegacyGaussPanel:
-        return std::make_unique<LaplacePanelSpread2D>(grid_pair);
+        return std::make_unique<LaplacePanelSpread2D>(grid_pair, kappa);
     case LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter:
-        return std::make_unique<LaplaceLobattoCenterSpread2D>(grid_pair);
+        return std::make_unique<LaplaceLobattoCenterSpread2D>(grid_pair, kappa);
     }
-    return std::make_unique<LaplaceLobattoCenterSpread2D>(grid_pair);
+    return std::make_unique<LaplaceLobattoCenterSpread2D>(grid_pair, kappa);
 }
 
 std::unique_ptr<ILaplaceRestrict2D> make_laplace_restrict_2d(
@@ -40,10 +41,11 @@ LaplaceInteriorDirichlet2D::LaplaceInteriorDirichlet2D(
     const Eigen::VectorXd& g,
     const Eigen::VectorXd& f_bulk,
     const std::vector<Eigen::VectorXd>& rhs_derivs,
-    LaplaceInteriorPanelMethod2D panel_method)
+    LaplaceInteriorPanelMethod2D panel_method,
+    double eta)
     : grid_pair_(grid, iface)
-    , spread_(make_laplace_spread_2d(panel_method, grid_pair_))
-    , bulk_solver_(grid, ZfftBcType::Dirichlet)
+    , spread_(make_laplace_spread_2d(panel_method, grid_pair_, eta))
+    , bulk_solver_(grid, ZfftBcType::Dirichlet, eta)
     , restrict_op_(make_laplace_restrict_2d(panel_method, grid_pair_))
     , g_(g)
     , f_bulk_(f_bulk)

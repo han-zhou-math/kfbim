@@ -9,6 +9,8 @@ namespace kfbim {
 
 namespace {
 
+constexpr int kLobattoExpansionCentersPerPanel = 4;
+
 Eigen::Vector2d interface_point(const Interface2D& iface, int q) {
     return iface.points().row(q).transpose();
 }
@@ -190,7 +192,7 @@ std::vector<LocalPoly2D> LaplaceLobattoCenterRestrict2D::apply(
     const auto& grid = grid_pair_.grid();
     const auto& iface = grid_pair_.interface();
     const int n_iface = iface.num_points();
-    const int expected_centers = 4 * iface.num_panels();
+    const int expected_centers = kLobattoExpansionCentersPerPanel * iface.num_panels();
 
     if (bulk_solution.size() != grid.num_dofs())
         throw std::invalid_argument("LaplaceLobattoCenterRestrict2D bulk_solution size must equal grid DOF count");
