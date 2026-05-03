@@ -13,7 +13,7 @@
 | 1 | `LaplacePanelSpread2D` / `LaplaceQuadraticRestrict2D` — legacy Gauss-point path | ✓ done |
 | 3 | `LaplaceKFBIOperator2D/3D` — linear and affine modes | ✓ done |
 | 4 | `GMRES` (restarted, Givens) | ✓ done |
-| 3 | `LaplacePotentialEval2D` — modular D, S, N potential operators (K, H, K', ∂ₙN); covered by `test_laplace_potential_2d` | ✓ done |
+| 3 | `LaplacePotentialEval2D` — modular D, S, N potential operators (K, H, K', ∂ₙN); covered by `test_potential` | ✓ done |
 | 5 | `LaplaceInteriorDirichlet2D` — interior Dirichlet BVP for `-Delta u + eta*u = f` | ✓ done |
 | 5 | `LaplaceTransmissionConstantRatio2D` — constant-ratio discontinuous-coefficient interface utility | ✓ done |
 | — | IIM defect correction (2D, exact C and Taylor path) | ✓ done |
@@ -27,9 +27,9 @@
 - **Interface Problem**: Legacy Gauss tests archived (`tests/archive/`) to focus the active suite on Chebyshev-Lobatto components and BVP/interface convergence.
 - **Dirichlet BVP ($2^{nd}$-kind BIE)**: Double-layer unknown $[u]=\phi$. Operator mode aligned.
 - **Neumann BVP ($2^{nd}$-kind BIE)**: Single-layer unknown $[\partial_n u]=\phi$. Operator mode aligned at the operator level; public wrapper still future work.
-- **Interior Dirichlet BVP — preferred Chebyshev-Lobatto panels**: `test_laplace_interior_2d.cpp`. Manufactured solution $u = e^x \cos y$ (harmonic), domain $[-1.8,1.8]^2$, 5-fold star curve centered at $(0.07,-0.04)$ with $r(t)=0.75(1+0.25\cos 5t)$. Panel DOFs are Chebyshev-Lobatto nodes $s=\{-1,0,1\}$; correction expansion centers are $s=\{-0.75,-0.25,0.25,0.75\}$. Latest high-resolution refinement recovers about third-order convergence.
-- **Screened interior Dirichlet BVP**: `test_laplace_interior_screened_2d.cpp`. Solves $-\Delta u+u=f$, $u=g$, using manufactured $u=\exp(\sin x)+\cos y$ on a 3-fold star. The outer box is sampled from the interface bounds and the test writes CSV/PNG output under `output/laplace_interior_screened_star3`.
-- **Constant-ratio discontinuous-coefficient transmission**: `test_laplace_transmission_constant_ratio_2d.cpp`. Solves $-\nabla\cdot(\beta\nabla u)+\kappa^2u=f$ with $\kappa^2/\beta=\lambda^2$ equal on both sides, so the reduced equation is $-\Delta u+\lambda^2u=q=f/\beta$. The test uses a 5-fold star, nonzero outer Cartesian Dirichlet data, manufactured interior/exterior branches, and Python visualization under `output/laplace_transmission_constant_ratio_2d`.
+- **Interior Dirichlet BVP — preferred Chebyshev-Lobatto panels**: `test_dirichlet.cpp`. Manufactured solution $u = e^x \cos y$ (harmonic), domain $[-1.8,1.8]^2$, 5-fold star curve centered at $(0.07,-0.04)$ with $r(t)=0.75(1+0.25\cos 5t)$. Panel DOFs are Chebyshev-Lobatto nodes $s=\{-1,0,1\}$; correction expansion centers are $s=\{-0.75,-0.25,0.25,0.75\}$. Latest high-resolution refinement recovers about third-order convergence.
+- **Screened interior Dirichlet BVP**: `test_screened.cpp`. Solves $-\Delta u+u=f$, $u=g$, using manufactured $u=\exp(\sin x)+\cos y$ on a 3-fold star. The outer box is sampled from the interface bounds and the test writes CSV/PNG output under `output/laplace_interior_screened_star3`.
+- **Constant-ratio discontinuous-coefficient transmission**: `test_transmission.cpp`. Solves $-\nabla\cdot(\beta\nabla u)+\kappa^2u=f$ with $\kappa^2/\beta=\lambda^2$ equal on both sides, so the reduced equation is $-\Delta u+\lambda^2u=q=f/\beta$. The test uses a 5-fold star, nonzero outer Cartesian Dirichlet data, manufactured interior/exterior branches, and Python visualization under `output/laplace_transmission_constant_ratio_2d`.
 - **Legacy Gauss regressions**: older Gauss-point transfer tests are in `tests/archive/` and are not part of the active Chebyshev-Lobatto convergence set.
 
 ### Preferred 2D panel method
@@ -44,13 +44,31 @@ New 2D Laplace work should use Chebyshev-Lobatto panels.
 
 ### Public API boundary
 
-- Keep `core/problems/` for internal pipeline utilities that compose lower-layer pieces, such as `LaplaceInterfaceSolver2D` and the current concrete `LaplaceInteriorDirichlet2D` implementation.
-- Treat top-level `problems/` as the long-term Layer 5 public API surface for stable user-facing BVP wrappers.
-- Do not start Python/MATLAB bindings until the top-level C++ problem API is stable.
+- Keep `src/problems/` for current problem-level utilities and concrete wrappers, such as `LaplaceInterfaceSolver2D`, `LaplaceInteriorDirichlet2D`, and `LaplaceTransmissionConstantRatio2D`.
+- Do not keep placeholder top-level problem API declarations. Add a separate public API directory only when there is implemented code to promote.
+- Do not start Python/MATLAB bindings until the C++ problem API is stable.
 
-### Latest convergence runs (2026-05-02)
+### Repository cleanup and layout
 
-`test_laplace_interior_2d`, 5-fold star, Chebyshev-Lobatto path:
+- `build/` is generated output and was removed from the working tree cleanup;
+  recreate it with `cmake -B build` when local binaries or tests are needed.
+- The old placeholder top-level `problems/` directory was removed. There is now
+  one active problem-wrapper location: `src/problems/`.
+- C++ library sources are under `src/`; the library target name remains
+  `kfbim_core`.
+- Visualization and diagnostic scripts are under `python/`.
+- Active test source names were shortened:
+  `test_fft`, `test_iim`, `test_potential`, `test_dirichlet`,
+  `test_screened`, and `test_transmission`.
+
+### Latest convergence runs (2026-05-03)
+
+The Release build and PDE/convergence suite passed after the repository
+reorganization:
+`test_fft`, `test_iim`, `test_potential`, `test_dirichlet`, `test_screened`,
+and `test_transmission`.
+
+`test_dirichlet`, 5-fold star, Chebyshev-Lobatto path:
 
 | N | max err | rate | GMRES iters |
 |---:|--------:|-----:|------------:|
@@ -61,7 +79,7 @@ New 2D Laplace work should use Chebyshev-Lobatto panels.
 | 512 | 5.0119e-05 | 2.457 | 20 |
 | 1024 | 6.9491e-06 | 2.850 | 20 |
 
-`test_laplace_interior_screened_2d`, 3-fold star, $-\Delta u+u=f$:
+`test_screened`, 3-fold star, $-\Delta u+u=f$:
 
 | N | max err | rate | GMRES iters |
 |---:|--------:|-----:|------------:|
@@ -72,7 +90,7 @@ New 2D Laplace work should use Chebyshev-Lobatto panels.
 | 512 | 5.6018e-06 | 2.223 | 17 |
 | 1024 | 7.4545e-07 | 2.910 | 10 |
 
-`test_laplace_transmission_constant_ratio_2d`, 5-fold star,
+`test_transmission`, 5-fold star,
 $\beta_{int}=2$, $\beta_{ext}=1$, $\lambda^2=1.1$:
 
 | N | max err | rate | GMRES iters |
@@ -89,7 +107,7 @@ If a grid node lands exactly on the interface (e.g. origin-centered unit circle 
 
 Additionally, an oversized domain amplifies the phantom exterior solution (which the DST bulk solver forces to zero at the box boundary), degrading rates at fine grid levels. Use the tightest domain that still gives $\geq 0.5h$ clearance around the interface.
 
-### Modular Potential Operators (`core/operator/laplace_potential.hpp`)
+### Modular Potential Operators (`src/operator/laplace_potential.hpp`)
 
 `LaplacePotentialEval2D` provides reusable evaluation of boundary integral
 operators via the KFBI pipeline (Spread → BulkSolve → Restrict). The double-layer
@@ -114,13 +132,13 @@ code handles bulk forcing through `f_bulk` and `rhs_derivs`.
 The 2D Laplace Chebyshev-Lobatto path is the stable foundation. Expand from
 there in small API steps, with direct tests before higher-level BVP wiring.
 
-1. **Verified modular potentials** — keep `test_laplace_potential_2d` green for
+1. **Verified modular potentials** — keep `test_potential` green for
    `D`, `S`, and `N` jump-relation consistency.
 2. **Screened/interior Dirichlet and constant-ratio transmission tests** — keep
    the active convergence tests green and preserve Python visualization output
    under `output/`.
 3. **Interior/exterior Dirichlet wrappers** — expose user-facing Layer 5 APIs
-   under top-level `problems/`, using manufactured harmonic solutions for tests.
+   from concrete implementations, using manufactured harmonic solutions for tests.
 4. **Interior/exterior Neumann wrappers** — add nullspace/compatibility handling
    explicitly and test projected GMRES behavior.
 5. **Forcing and volume-potential APIs** — generalize beyond the current
@@ -130,19 +148,19 @@ there in small API steps, with direct tests before higher-level BVP wiring.
 
 - Continue the public 2D Laplace BVP API plan; do not pivot to 3D, Stokes,
   general variable coefficients, or bindings unless explicitly requested.
-- Start the next implementation under top-level `problems/`, keeping
-  `core/problems/` as internal pipeline utilities.
+- Start the next implementation in `src/problems/`; split out a public API
+  directory only when the promoted wrapper is implemented.
 - Use `LaplacePotentialEval2D` for the next Dirichlet/Neumann operator wrapper
-  and keep `test_laplace_potential_2d` green while doing so.
+  and keep `test_potential` green while doing so.
 - Add one focused BVP test at a time with manufactured harmonic solutions and
   an interface/box setup that avoids exact grid-node alignment.
 - Preserve the Chebyshev-Lobatto default for all new 2D Laplace code; select
   `LegacyGaussPanel` only in legacy comparison/regression tests.
 - Before handing off, run the known set:
-  `test_laplace_potential_2d`,
-  `test_laplace_interior_2d`,
-  `test_laplace_interior_screened_2d`, and
-  `test_laplace_transmission_constant_ratio_2d`.
+  `test_potential`,
+  `test_dirichlet`,
+  `test_screened`, and
+  `test_transmission`.
 
 ### Deferred Work
 
@@ -159,9 +177,9 @@ there in small API steps, with direct tests before higher-level BVP wiring.
 ### Test Plan
 
 - Run the known convergence set after structural changes:
-  `test_laplace_interior_2d`, `test_laplace_interior_screened_2d`, and
-  `test_laplace_transmission_constant_ratio_2d`.
-- Run `test_laplace_potential_2d` after changes to potential, restrict, spread,
+  `test_dirichlet`, `test_screened`, and
+  `test_transmission`.
+- Run `test_potential` after changes to potential, restrict, spread,
   interface-solver, or sign-convention code.
 - Add BVP tests one API at a time, using manufactured harmonic solutions and
   avoiding exact grid/interface alignment.

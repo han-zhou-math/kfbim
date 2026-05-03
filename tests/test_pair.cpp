@@ -5,12 +5,12 @@
 
 static constexpr double kPi = 3.14159265358979323846;
 
-#include "core/grid/cartesian_grid_2d.hpp"
-#include "core/grid/cartesian_grid_3d.hpp"
-#include "core/interface/interface_2d.hpp"
-#include "core/interface/interface_3d.hpp"
-#include "core/geometry/grid_pair_2d.hpp"
-#include "core/geometry/grid_pair_3d.hpp"
+#include "src/grid/cartesian_grid_2d.hpp"
+#include "src/grid/cartesian_grid_3d.hpp"
+#include "src/interface/interface_2d.hpp"
+#include "src/interface/interface_3d.hpp"
+#include "src/geometry/grid_pair_2d.hpp"
+#include "src/geometry/grid_pair_3d.hpp"
 
 using namespace kfbim;
 

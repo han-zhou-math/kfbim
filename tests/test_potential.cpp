@@ -3,17 +3,17 @@
 #include <cmath>
 #include <vector>
 
-#include "core/geometry/curve_2d.hpp"
-#include "core/geometry/curve_resampler_2d.hpp"
-#include "core/geometry/grid_pair_2d.hpp"
-#include "core/grid/cartesian_grid_2d.hpp"
-#include "core/local_cauchy/jump_data.hpp"
-#include "core/operator/laplace_potential.hpp"
-#include "core/problems/laplace_interface_solver_2d.hpp"
-#include "core/solver/laplace_zfft_bulk_solver_2d.hpp"
-#include "core/solver/zfft_bc_type.hpp"
-#include "core/transfer/laplace_restrict_2d.hpp"
-#include "core/transfer/laplace_spread_2d.hpp"
+#include "src/geometry/curve_2d.hpp"
+#include "src/geometry/curve_resampler_2d.hpp"
+#include "src/geometry/grid_pair_2d.hpp"
+#include "src/grid/cartesian_grid_2d.hpp"
+#include "src/local_cauchy/jump_data.hpp"
+#include "src/operator/laplace_potential.hpp"
+#include "src/problems/laplace_interface_solver_2d.hpp"
+#include "src/solver/laplace_zfft_bulk_solver_2d.hpp"
+#include "src/solver/zfft_bc_type.hpp"
+#include "src/transfer/laplace_restrict_2d.hpp"
+#include "src/transfer/laplace_spread_2d.hpp"
 
 using namespace kfbim;
 

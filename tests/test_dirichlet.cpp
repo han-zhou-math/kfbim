@@ -20,11 +20,11 @@
 #include <vector>
 #include <algorithm>
 
-#include "core/grid/cartesian_grid_2d.hpp"
-#include "core/interface/interface_2d.hpp"
-#include "core/geometry/grid_pair_2d.hpp"
-#include "core/problems/laplace_interior.hpp"
-#include "core/geometry/curve_resampler_2d.hpp"
+#include "src/grid/cartesian_grid_2d.hpp"
+#include "src/interface/interface_2d.hpp"
+#include "src/geometry/grid_pair_2d.hpp"
+#include "src/problems/laplace_interior.hpp"
+#include "src/geometry/curve_resampler_2d.hpp"
 
 using namespace kfbim;
 

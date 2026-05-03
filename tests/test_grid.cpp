@@ -3,10 +3,10 @@
 #include <array>
 #include <cmath>
 
-#include "core/grid/cartesian_grid_2d.hpp"
-#include "core/grid/cartesian_grid_3d.hpp"
-#include "core/grid/mac_grid_2d.hpp"
-#include "core/grid/mac_grid_3d.hpp"
+#include "src/grid/cartesian_grid_2d.hpp"
+#include "src/grid/cartesian_grid_3d.hpp"
+#include "src/grid/mac_grid_2d.hpp"
+#include "src/grid/mac_grid_3d.hpp"
 
 using namespace kfbim;
 using Catch::Matchers::WithinAbs;

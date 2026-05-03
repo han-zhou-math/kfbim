@@ -8,7 +8,7 @@ The figure mirrors tests/test_transfer_2d.cpp:
     the spread polynomial, recovering the physical interface expansion.
 
 Output:
-  scripts/transfer_2d_viz.png
+  python/transfer_2d_viz.png
 """
 
 import os
@@ -141,7 +141,7 @@ def make_star_panels(n_panels):
 
 
 # ---------------------------------------------------------------------------
-# Panel Cauchy solver, matching core/local_cauchy/laplace_panel_solver_2d.hpp.
+# Panel Cauchy solver, matching src/local_cauchy/laplace_panel_solver_2d.hpp.
 # ---------------------------------------------------------------------------
 
 
@@ -506,6 +506,6 @@ ax.set_title("Restrict exact quadratic recovery after correction")
 ax.grid(True, axis="y", which="both", ls=":", alpha=0.5)
 
 plt.tight_layout(rect=[0, 0, 1, 0.94])
-out = "/Users/zhouhan/programs/kfbim/kfbim-recon/scripts/transfer_2d_viz.png"
+out = "python/transfer_2d_viz.png"
 plt.savefig(out, dpi=160, bbox_inches="tight")
 print(f"Saved -> {out}")

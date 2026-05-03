@@ -2,9 +2,9 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <Eigen/Dense>
 
-#include "core/local_cauchy/jump_data.hpp"
-#include "core/local_cauchy/local_poly.hpp"
-#include "core/grid/dof_layout.hpp"
+#include "src/local_cauchy/jump_data.hpp"
+#include "src/local_cauchy/local_poly.hpp"
+#include "src/grid/dof_layout.hpp"
 
 using namespace kfbim;
 using Catch::Matchers::WithinAbs;

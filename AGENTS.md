@@ -7,7 +7,8 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
 ## Current Status
 - Branch `main`; run `git log --oneline -n 3` for the exact current commit.
 - This guide reflects the 2026-05-02 2D Laplace Chebyshev-Lobatto,
-  screened-Poisson, and constant-ratio transmission work.
+  screened-Poisson, and constant-ratio transmission work, plus the
+  2026-05-03 repository cleanup/reorganization.
 - **Completed modules** (active tests passing):
   - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
     - `Interface2D` tracks panel node layout: `ChebyshevLobatto`, `LegacyGaussLegendre`, or `Raw`.
@@ -27,7 +28,7 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - Layer 3 modular potentials: `LaplacePotentialEval2D`
     - Evaluates D/S/N jump primitives through the existing KFBI pipeline.
     - Uses the current restrict convention: restrict returns interior trace/flux; averaged outputs are formed by subtracting half the jump where needed.
-    - Covered by `tests/test_laplace_potential_2d.cpp`.
+    - Covered by `tests/test_potential.cpp`.
   - Layer 4: GMRES outer solver
   - Layer 5: `LaplaceInteriorDirichlet2D` API
     - Solves `-Delta u + eta*u = f` in the interior.
@@ -47,21 +48,31 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - `LaplacePotentialEval2D` has direct D/S/N jump-relation tests.
   - Active convergence tests target adjacent Chebyshev-node spacing of about
     `2h` (`panel_length/h ~= 4`) and GMRES tolerance `1e-8`.
-  - `tests/test_laplace_interior_2d.cpp` solves the harmonic interior
+  - `tests/test_dirichlet.cpp` solves the harmonic interior
     Dirichlet problem on a 5-fold star curve centered at `(0.07,-0.04)`.
-  - `tests/test_laplace_interior_screened_2d.cpp` solves
+  - `tests/test_screened.cpp` solves
     `-Delta u + u = f` with manufactured solution `exp(sin(x))+cos(y)` on a
     3-fold star.
-  - `tests/test_laplace_transmission_constant_ratio_2d.cpp` solves the first
+  - `tests/test_transmission.cpp` solves the first
     discontinuous-coefficient interface problem on a 5-fold star.
   - Legacy Gauss tests were moved to `tests/archive/`.
   - Legacy reference code was moved from `old-codes/` to `third_party/old-codes/`.
   - Runtime CSV/PNG output is written under `output/` and should not be committed.
-- **Current convergence test status:** the active convergence binaries passed on 2026-05-02:
-  - `build/tests/test_laplace_potential_2d -s`
-  - `build/tests/test_laplace_interior_2d -s`
-  - `build/tests/test_laplace_interior_screened_2d -s`
-  - `build/tests/test_laplace_transmission_constant_ratio_2d -s`
+  - `build/` is disposable generated output. Recreate it with CMake when tests
+    or local binaries are needed; do not commit it.
+  - The C++ source tree is `src/` and the compiled library target remains
+    `kfbim_core`.
+  - Current concrete problem-level utilities and wrappers live in
+    `src/problems/`; the placeholder top-level `problems/` directory was
+    removed.
+  - Visualization and diagnostic Python scripts live in `python/`.
+- **Current convergence test status:** the active convergence binaries passed on 2026-05-03 after the `src/`, `python/`, and shortened-test-name reorganization:
+  - `build/tests/test_fft -s`
+  - `build/tests/test_iim -s`
+  - `build/tests/test_potential -s`
+  - `build/tests/test_dirichlet -s`
+  - `build/tests/test_screened -s`
+  - `build/tests/test_transmission -s`
 
 ## Next Agent Handoff — Continue This Plan
 
@@ -70,10 +81,11 @@ When resuming this project, continue the 2D Laplace public-API plan rather than 
 1. **Keep the foundation stable first.**
    - Preserve `LaplaceInteriorDirichlet2D` behavior and the default `ChebyshevLobattoCenter` panel method.
    - Keep legacy Gauss APIs/tests only for explicit regression or comparison paths.
-   - Keep `core/problems/` as internal pipeline utilities; make top-level `problems/` the long-term Layer 5 user-facing API surface.
+   - Keep current concrete problem-level utilities and wrappers in `src/problems/`.
+   - Do not keep placeholder top-level problem API declarations; create a separate public API directory only when wrappers are implemented.
 
 2. **Next implementation target.**
-   - Promote stable 2D Laplace BVP wrappers under top-level `problems/`.
+   - Continue stable 2D Laplace BVP wrappers from concrete implementations.
    - Preferred order: interior/exterior Dirichlet wrappers first, then
      interior/exterior Neumann wrappers with nullspace/compatibility handling,
      then forcing/nonzero-volume-potential cases.
@@ -86,13 +98,15 @@ When resuming this project, continue the 2D Laplace public-API plan rather than 
    - Add one focused BVP test at a time with manufactured harmonic solutions.
    - Avoid exact grid/interface alignment by offsetting the interface center or choosing an incommensurate box size.
    - Run at least:
-     - `build/tests/test_laplace_potential_2d -s`
-     - `build/tests/test_laplace_interior_2d -s`
-     - `build/tests/test_laplace_interior_screened_2d -s`
-     - `build/tests/test_laplace_transmission_constant_ratio_2d -s`
+     - `build/tests/test_fft -s`
+     - `build/tests/test_iim -s`
+     - `build/tests/test_potential -s`
+     - `build/tests/test_dirichlet -s`
+     - `build/tests/test_screened -s`
+     - `build/tests/test_transmission -s`
 
 4. **Deferred work.**
-   - Do not start Python/MATLAB bindings until the top-level C++ problem API is stable.
+   - Do not start Python/MATLAB bindings until the C++ problem API is stable.
    - Defer 3D BVP verification until concrete 3D local Cauchy, spread, and restrict implementations exist.
    - Defer Stokes until the Laplace BVP API is clean; Stokes currently has scaffolding but not concrete local Cauchy, spread, restrict, or operator implementations.
 
@@ -110,7 +124,7 @@ Use Chebyshev-Lobatto panels for new 2D Laplace work.
 
 ### Latest convergence snapshot
 
-`test_laplace_interior_2d`, 5-fold star, Chebyshev-Lobatto path:
+`test_dirichlet`, 5-fold star, Chebyshev-Lobatto path:
 
 | N | max err | rate | GMRES iters |
 |---:|--------:|-----:|------------:|
@@ -121,7 +135,7 @@ Use Chebyshev-Lobatto panels for new 2D Laplace work.
 | 512 | 5.0119e-05 | 2.457 | 20 |
 | 1024 | 6.9491e-06 | 2.850 | 20 |
 
-`test_laplace_interior_screened_2d`, 3-fold star,
+`test_screened`, 3-fold star,
 `u=exp(sin(x))+cos(y)`, `-Delta u + u=f`:
 
 | N | max err | rate | GMRES iters |
@@ -133,7 +147,7 @@ Use Chebyshev-Lobatto panels for new 2D Laplace work.
 | 512 | 5.6018e-06 | 2.223 | 17 |
 | 1024 | 7.4545e-07 | 2.910 | 10 |
 
-`test_laplace_transmission_constant_ratio_2d`, 5-fold star,
+`test_transmission`, 5-fold star,
 `beta_int=2`, `beta_ext=1`, `kappa^2/beta=lambda_sq=1.1`:
 
 | N | max err | rate | GMRES iters |
@@ -256,7 +270,7 @@ Higher layers depend only on the abstractions of lower layers, not their impleme
   `un_avg = un_int - [∂u/∂n]/2`
 
 ```
-core/
+src/
   grid/           # CartesianGrid2D/3D, MACGrid2D/3D, DofLayout
   interface/      # Interface2D, Interface3D
   geometry/       # GridPair2D/3D  (CGAL-dependent; pimpl hides CGAL headers)
@@ -264,10 +278,9 @@ core/
   local_cauchy/   # LaplacePanelCauchySolver2D, jump_data, local_poly  (Layer 1.5)
   solver/         # BulkSolver and impls  (Layer 2)
   operator/       # KFBIOperator  (Layer 3)
-  problems/       # LaplaceInterfaceSolver2D  (Layer 3 utility)
+  problems/       # Current problem-level utilities and BVP wrappers
   gmres/          # outer solver  (Layer 4)
-problems/         # LaplaceInterfaceProblem, LaplaceTransmissionProblem, ...  (Layer 5)
-scripts/          # Python visualization scripts
+python/           # Python visualization/diagnostic scripts
 bindings/         # pybind11 wrappers (future)
 tests/
 tests/archive/    # legacy Gauss/reference tests
@@ -289,6 +302,5 @@ examples/
 <!-- Fill in once CMake is set up -->
 
 ```bash
-# placeholder
 cmake -B build && cmake --build build
 ```

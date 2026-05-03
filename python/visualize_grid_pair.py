@@ -4,7 +4,7 @@ Visualize the GridPair bounding-box test cases:
   2. narrow band (1-layer, 2-layer) — grid nodes near the interface
      and their closest interface point
 
-Mirrors the geometry in tests/test_grid_pair.cpp.
+Mirrors the geometry in tests/test_pair.cpp.
 """
 
 import numpy as np
@@ -198,7 +198,7 @@ ax.legend(handles=legend_elems, fontsize=7, loc="lower right")
 
 # ─── save ────────────────────────────────────────────────────────────────────
 
-out = "/Users/zhouhan/programs/kfbim/kfbim-recon/scripts/grid_pair_test_viz.png"
+out = "python/grid_pair_test_viz.png"
 plt.tight_layout()
 plt.savefig(out, dpi=160, bbox_inches="tight")
 print(f"Saved → {out}")

@@ -4,12 +4,12 @@
 #include <vector>
 #include <algorithm>
 
-#include "core/grid/cartesian_grid_2d.hpp"
-#include "core/interface/interface_2d.hpp"
-#include "core/geometry/grid_pair_2d.hpp"
-#include "core/solver/laplace_zfft_bulk_solver_2d.hpp"
-#include "core/solver/zfft_bc_type.hpp"
-#include "core/solver/iim_laplace_2d.hpp"
+#include "src/grid/cartesian_grid_2d.hpp"
+#include "src/interface/interface_2d.hpp"
+#include "src/geometry/grid_pair_2d.hpp"
+#include "src/solver/laplace_zfft_bulk_solver_2d.hpp"
+#include "src/solver/zfft_bc_type.hpp"
+#include "src/solver/iim_laplace_2d.hpp"
 
 using namespace kfbim;
 using Catch::Matchers::WithinAbs;

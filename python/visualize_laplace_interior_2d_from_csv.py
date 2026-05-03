@@ -64,6 +64,6 @@ axes[2].set_ylabel('y')
 fig.colorbar(im2, ax=axes[2])
 
 plt.tight_layout()
-out_file = "scripts/laplace_interior_2d_results.png"
+out_file = "python/laplace_interior_2d_results.png"
 plt.savefig(out_file, dpi=150, bbox_inches='tight')
 print(f"Visualization saved to {out_file}")

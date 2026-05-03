@@ -351,7 +351,7 @@ ax.grid(True, which='both', ls=':', alpha=0.5)
 plt.subplots_adjust(top=0.91, bottom=0.06, left=0.06, right=0.97,
                     hspace=0.42, wspace=0.32)
 
-out = "/Users/zhouhan/programs/kfbim/kfbim-recon/scripts/panels_viz.png"
+out = "python/panels_viz.png"
 plt.savefig(out, dpi=150, bbox_inches='tight')
 print(f"Saved → {out}")
 plt.show()

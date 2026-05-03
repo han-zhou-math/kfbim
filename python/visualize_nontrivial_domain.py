@@ -229,7 +229,7 @@ fig.legend(handles=legend_elems, loc="lower center", ncol=3,
 
 plt.tight_layout(rect=[0, 0.06, 1, 1])
 
-out = "/Users/zhouhan/programs/kfbim/kfbim-recon/scripts/nontrivial_domain_viz.png"
+out = "python/nontrivial_domain_viz.png"
 plt.savefig(out, dpi=160, bbox_inches="tight")
 print(f"Saved → {out}")
 plt.show()

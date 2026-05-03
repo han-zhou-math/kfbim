@@ -49,6 +49,6 @@ for ax, N in zip(axes.flat, Ns):
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
 plt.tight_layout()
-out = "scripts/laplace_interior_circle_2d_results.png"
+out = "python/laplace_interior_circle_2d_results.png"
 plt.savefig(out, dpi=150, bbox_inches='tight')
 print(f"Saved {out}")

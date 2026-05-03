@@ -34,7 +34,7 @@ Implemented:
 
 In progress / planned:
 
-- Stable top-level `problems/` Layer 5 APIs for additional Laplace BVPs
+- Stable Layer 5 APIs for additional Laplace BVPs
 - Interior/exterior Dirichlet and Neumann wrappers built on the verified
   potential operators
 - Variable-coefficient, 3D KFBI-pipeline, Stokes, and elasticity extensions
@@ -45,7 +45,7 @@ See [PROGRESS.md](PROGRESS.md) for current development notes.
 ## Repository Layout
 
 ```text
-core/
+src/
   grid/           Cartesian and MAC grids
   interface/      Interface quadrature and panel data
   geometry/       GridPair queries and domain labels
@@ -54,10 +54,9 @@ core/
   solver/         FFT and zFFT bulk solvers
   operator/       Matrix-free KFBI operator interfaces
   gmres/          Restarted GMRES outer solver
-  problems/       Internal pipeline utilities
-problems/         Long-term Layer 5 public problem APIs
+  problems/       Current problem-level pipeline utilities and BVP wrappers
 tests/            Catch2 test suite
-scripts/          Visualization and diagnostics
+python/           Visualization and diagnostics
 third_party/zfft/ Vendored zFFT backend
 third_party/old-codes/
                   Archived reference implementation snippets
@@ -110,26 +109,29 @@ ctest --test-dir build
 Run a specific executable directly when you want Catch2 output:
 
 ```bash
-./build/tests/test_laplace_interior_2d -s
+./build/tests/test_dirichlet -s
 ```
 
-The current `test_laplace_interior_2d` manufactured harmonic solve uses a
-5-fold star curve and reports both Chebyshev-Lobatto and explicit legacy Gauss
-convergence tables.
+The current `test_dirichlet` manufactured harmonic solve uses a 5-fold star
+curve and reports Chebyshev-Lobatto convergence.
+
+Primary PDE/convergence executables are `test_fft`, `test_iim`,
+`test_dirichlet`, `test_screened`, and `test_transmission`; `test_potential`
+checks the modular boundary-potential jump relations.
 
 ## Visualization Scripts
 
-The `scripts/` directory contains Python visualization helpers for transfer,
+The `python/` directory contains Python visualization helpers for transfer,
 IIM, local Cauchy, grid-pair, and interface-labeling behavior. These scripts are
 diagnostic tools and are not required for building the C++ library.
 
 Example:
 
 ```bash
-python3 scripts/visualize_laplace_iface_2d.py
+python3 python/visualize_laplace_iface_2d.py
 ```
 
-Generated PNGs under `scripts/` are ignored by git.
+Generated PNGs under `python/` are ignored by git.
 
 ## Development Notes
 

@@ -375,7 +375,7 @@ cb.set_label('distance', fontsize=9)
 
 plt.tight_layout(rect=[0, 0, 1, 0.93])
 
-out = "/Users/zhouhan/programs/kfbim/kfbim-recon/scripts/iim_2d_taylor_viz.png"
+out = "python/iim_2d_taylor_viz.png"
 plt.savefig(out, dpi=150, bbox_inches='tight')
 print(f"\nSaved → {out}")
 plt.show()

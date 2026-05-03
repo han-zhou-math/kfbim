@@ -4,13 +4,13 @@
 #include <cstdio>
 #include <vector>
 
-#include "core/solver/laplace_fft_bulk_solver_2d.hpp"
-#include "core/solver/zfft_engine_2d.hpp"
-#include "core/solver/laplace_zfft_bulk_solver_2d.hpp"
-#include "core/solver/laplace_zfft_bulk_solver_3d.hpp"
+#include "src/solver/laplace_fft_bulk_solver_2d.hpp"
+#include "src/solver/zfft_engine_2d.hpp"
+#include "src/solver/laplace_zfft_bulk_solver_2d.hpp"
+#include "src/solver/laplace_zfft_bulk_solver_3d.hpp"
 
 #ifdef KFBIM_HAS_FFTW3
-#include "core/solver/fftw3_engine.hpp"
+#include "src/solver/fftw3_engine.hpp"
 #endif
 
 using namespace kfbim;

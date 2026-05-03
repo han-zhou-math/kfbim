@@ -298,6 +298,6 @@ table.scale(1, 4)
 ax3.set_title("GMRES Iteration Counts ($2^{nd}$-kind BIE)", y=0.8)
 
 plt.tight_layout()
-out_png = "scripts/laplace_dl_3fold_viz.png"
+out_png = "python/laplace_dl_3fold_viz.png"
 plt.savefig(out_png, dpi=150)
 print(f"Visualization saved to {out_png}")

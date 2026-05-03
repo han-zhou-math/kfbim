@@ -26,11 +26,11 @@
 #include <string>
 #include <vector>
 
-#include "core/geometry/curve_2d.hpp"
-#include "core/geometry/curve_resampler_2d.hpp"
-#include "core/geometry/grid_pair_2d.hpp"
-#include "core/grid/cartesian_grid_2d.hpp"
-#include "core/problems/laplace_transmission_constant_ratio_2d.hpp"
+#include "src/geometry/curve_2d.hpp"
+#include "src/geometry/curve_resampler_2d.hpp"
+#include "src/geometry/grid_pair_2d.hpp"
+#include "src/grid/cartesian_grid_2d.hpp"
+#include "src/problems/laplace_transmission_constant_ratio_2d.hpp"
 
 using namespace kfbim;
 
@@ -58,7 +58,7 @@ constexpr double kBoxMargin = 0.35;
 #endif
 
 #ifndef KFBIM_TRANSMISSION_VIS_SCRIPT
-#define KFBIM_TRANSMISSION_VIS_SCRIPT "scripts/visualize_transmission_constant_ratio_2d.py"
+#define KFBIM_TRANSMISSION_VIS_SCRIPT "python/visualize_transmission_constant_ratio_2d.py"
 #endif
 
 class Star3Curve2D final : public ICurve2D {

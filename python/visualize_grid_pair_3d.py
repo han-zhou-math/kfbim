@@ -1,5 +1,5 @@
 """
-Visualize 3D GridPair bounding-box test cases (mirrors test_grid_pair.cpp):
+Visualize 3D GridPair bounding-box test cases (mirrors test_pair.cpp):
   1. closest_bulk_node   — interface centroid → nearest grid node
   2. narrow band 1-layer — grid nodes within 1.5 h of the sphere
   3. narrow band 2-layer — grid nodes within 2.5 h of the sphere
@@ -27,7 +27,7 @@ def make_sphere_uv(cx, cy, cz, r, M, N):
     """
     UV sphere: M latitude rings, N longitude segments.
     Returns (vertices Nv×3, triangles Nt×3, centroids Nt×3).
-    Same geometry as the C++ make_sphere_uv in test_grid_pair.cpp.
+    Same geometry as the C++ make_sphere_uv in test_pair.cpp.
     """
     Nv = 2 + M * N
     verts = np.zeros((Nv, 3))
@@ -221,7 +221,7 @@ fig.legend(handles=legend_elems, loc="lower center", ncol=5,
 
 plt.tight_layout(rect=[0, 0.06, 1, 1])
 
-out = "/Users/zhouhan/programs/kfbim/kfbim-recon/scripts/grid_pair_test_viz_3d.png"
+out = "python/grid_pair_test_viz_3d.png"
 plt.savefig(out, dpi=160, bbox_inches="tight")
 print(f"Saved → {out}")
 plt.show()

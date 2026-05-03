@@ -27,13 +27,13 @@ if(NOT Eigen3_FOUND)
     FetchContent_MakeAvailable(Eigen3)
 endif()
 
-# CGAL: required only by core/geometry (GridPair).  pimpl keeps CGAL headers
+# CGAL: required only by src/geometry (GridPair).  pimpl keeps CGAL headers
 # out of the public API so no other module needs to link it.
 # Install: brew install cgal
 # CGAL is optional during early development; geometry tests are skipped when absent.
 find_package(CGAL QUIET)
 if(NOT CGAL_FOUND)
-    message(STATUS "CGAL not found — core/geometry (GridPair) will not be built. "
+    message(STATUS "CGAL not found — src/geometry (GridPair) will not be built. "
                    "Install with: brew install cgal")
 endif()
 
@@ -62,8 +62,7 @@ add_subdirectory(third_party/zfft)
 # ---------------------------------------------------------------------------
 # Library targets (dependency order)
 # ---------------------------------------------------------------------------
-add_subdirectory(core)
-add_subdirectory(problems)
+add_subdirectory(src)
 
 # ---------------------------------------------------------------------------
 # Tests

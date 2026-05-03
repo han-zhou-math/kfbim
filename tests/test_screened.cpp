@@ -25,11 +25,11 @@
 #include <string>
 #include <vector>
 
-#include "core/geometry/curve_2d.hpp"
-#include "core/geometry/curve_resampler_2d.hpp"
-#include "core/geometry/grid_pair_2d.hpp"
-#include "core/grid/cartesian_grid_2d.hpp"
-#include "core/problems/laplace_interior.hpp"
+#include "src/geometry/curve_2d.hpp"
+#include "src/geometry/curve_resampler_2d.hpp"
+#include "src/geometry/grid_pair_2d.hpp"
+#include "src/grid/cartesian_grid_2d.hpp"
+#include "src/problems/laplace_interior.hpp"
 
 using namespace kfbim;
 
@@ -55,7 +55,7 @@ constexpr double kBoxMargin = 0.30;
 #endif
 
 #ifndef KFBIM_SCREENED_VIS_SCRIPT
-#define KFBIM_SCREENED_VIS_SCRIPT "scripts/visualize_screened_star3.py"
+#define KFBIM_SCREENED_VIS_SCRIPT "python/visualize_screened_star3.py"
 #endif
 
 double exact_u(double x, double y)

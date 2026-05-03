@@ -481,7 +481,7 @@ ax.set_title(
 
 plt.tight_layout(rect=[0, 0, 1, 0.93])
 
-out = "/Users/zhouhan/programs/kfbim/kfbim-recon/scripts/local_cauchy_viz.png"
+out = "python/local_cauchy_viz.png"
 plt.savefig(out, dpi=150, bbox_inches='tight')
 print(f"\nSaved → {out}")
 plt.show()

@@ -23,21 +23,20 @@ find_package(Python3 COMPONENTS Interpreter REQUIRED)
 # ---------------------------------------------------------------------------
 # kfbim_add_test(<target> <sources...>)
 #
-# Creates a test executable, links it against kfbim_core + kfbim_problems +
-# Catch2, and registers all TEST_CASEs for CTest discovery.
+# Creates a test executable, links it against kfbim_core + Catch2, and
+# registers all TEST_CASEs for CTest discovery.
 # ---------------------------------------------------------------------------
 function(kfbim_add_test target)
     add_executable(${target} ${ARGN})
     target_link_libraries(${target} PRIVATE
         kfbim_core
-        kfbim_problems
         Catch2::Catch2WithMain
     )
     target_compile_definitions(${target} PRIVATE
         KFBIM_TEST_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/output"
         KFBIM_PYTHON_EXECUTABLE="${Python3_EXECUTABLE}"
-        KFBIM_SCREENED_VIS_SCRIPT="${PROJECT_SOURCE_DIR}/scripts/visualize_screened_star3.py"
-        KFBIM_TRANSMISSION_VIS_SCRIPT="${PROJECT_SOURCE_DIR}/scripts/visualize_transmission_constant_ratio_2d.py"
+        KFBIM_SCREENED_VIS_SCRIPT="${PROJECT_SOURCE_DIR}/python/visualize_screened_star3.py"
+        KFBIM_TRANSMISSION_VIS_SCRIPT="${PROJECT_SOURCE_DIR}/python/visualize_transmission_constant_ratio_2d.py"
     )
     catch_discover_tests(${target})
 endfunction()
@@ -53,23 +52,22 @@ kfbim_add_test(test_core test_core.cpp)
 kfbim_add_test(test_grid test_grid.cpp)
 
 # Layer 2 bulk solver (FFT)
-kfbim_add_test(test_solver test_solver.cpp)
+kfbim_add_test(test_fft test_fft.cpp)
 
 # Layer 0 geometry (GridPair)
-kfbim_add_test(test_grid_pair test_grid_pair.cpp)
+kfbim_add_test(test_pair test_pair.cpp)
 
 # IIM defect correction + FFT solve (Layer 0 + 2 integration)
-kfbim_add_test(test_iim_2d test_iim_2d.cpp)
+kfbim_add_test(test_iim test_iim.cpp)
 
 # Modular Layer 3 potential evaluator
-kfbim_add_test(test_laplace_potential_2d test_laplace_potential_2d.cpp)
+kfbim_add_test(test_potential test_potential.cpp)
 
 # Full pipeline — interior Dirichlet, Chebyshev-Lobatto panels.
-kfbim_add_test(test_laplace_interior_2d test_laplace_interior_2d.cpp)
+kfbim_add_test(test_dirichlet test_dirichlet.cpp)
 
 # Full pipeline — screened Poisson interior Dirichlet, 3-fold star
-kfbim_add_test(test_laplace_interior_screened_2d test_laplace_interior_screened_2d.cpp)
+kfbim_add_test(test_screened test_screened.cpp)
 
 # Full pipeline — constant-ratio discontinuous coefficient transmission problem
-kfbim_add_test(test_laplace_transmission_constant_ratio_2d
-               test_laplace_transmission_constant_ratio_2d.cpp)
+kfbim_add_test(test_transmission test_transmission.cpp)

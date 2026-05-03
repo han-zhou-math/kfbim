@@ -385,7 +385,7 @@ ax.set_xlim(-kPi, kPi)
 
 plt.tight_layout(rect=[0, 0, 1, 0.93])
 
-out = "/Users/zhouhan/programs/kfbim/kfbim-recon/scripts/laplace_iface_2d_viz.png"
+out = "python/laplace_iface_2d_viz.png"
 plt.savefig(out, dpi=150, bbox_inches='tight')
 print(f"\nSaved → {out}")
 plt.show()

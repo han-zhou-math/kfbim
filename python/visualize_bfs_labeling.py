@@ -259,7 +259,7 @@ fig.legend(handles=legend_elems, loc="lower center", ncol=5,
 
 plt.tight_layout(rect=[0, 0.06, 1, 1])
 
-out = "/Users/zhouhan/programs/kfbim/kfbim-recon/scripts/bfs_labeling_viz.png"
+out = "python/bfs_labeling_viz.png"
 plt.savefig(out, dpi=160, bbox_inches="tight")
 print(f"Saved → {out}")
 plt.show()
