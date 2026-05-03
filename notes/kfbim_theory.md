@@ -4,29 +4,150 @@ This note documents the mathematical framework for the elliptic PDE solvers in t
 
 ## Table of Contents
 - [1. Geometry Representation](#1-geometry-representation)
-- [2. The Constant Interface Problem (Poisson)](#2-the-constant-interface-problem-poisson)
+- [2. The Constant Interface Problem (Elliptic)](#2-the-constant-interface-problem-elliptic)
 - [3. Boundary Integral Operators](#3-boundary-integral-operators)
 - [4. Interface Solver Outputs (KFBIM Operator Evaluation)](#4-interface-solver-outputs-kfbim-operator-evaluation)
 - [5. Boundary Value Problems (BVPs) to BIEs](#5-boundary-value-problems-bvps-to-bies)
 - [6. Generic Interface Problems (Variable Coefficients)](#6-generic-interface-problems-variable-coefficients)
-- [7. BIE for Generic Interface Problems](#7-bie-for-generic-interface-problems)
+  - [7. BIE for Generic Interface Problems](#7-bie-for-generic-interface-problems)
 
 ## 1. Geometry Representation
 
 The domain $\Omega \subset \mathbb{R}^d$ is partitioned by an interface $\Gamma$ into an interior region $\Omega_{int}$ and an exterior region $\Omega_{ext}$.
 
-*   **Interface $\Gamma$**: Represented by a collection of panels. New 2D Laplace work uses Chebyshev-Lobatto panel nodes $s=\{-1,0,1\}$ by default. The local correction path generates four expansion centers per panel at $s=\{-0.75,-0.25,0.25,0.75\}$. The older 3-point Gauss-Legendre panel layout remains available only as an explicit legacy regression path.
+*   **Interface $\Gamma$**: Represented by a collection of panels.
+
+### 2D: Curve Panels
+
+In 2D, $\Gamma$ is a closed curve represented by isoparametric polynomial panel
+segments. Each panel maps the reference interval $[-1,1]$ to $\mathbb{R}^2$. The
+panel nodes serve simultaneously as geometry definition and DOF/quadrature
+locations. New 2D Laplace work uses Chebyshev-Lobatto panel nodes
+$s=\{-1,0,1\}$ by default. The local correction path generates four expansion
+centers per panel at $s=\{-0.75,-0.25,0.25,0.75\}$. The older 3-point
+Gauss-Legendre panel layout remains available only as an explicit legacy
+regression path.
+
+### 3D: Curved Triangle Patches
+
+In 3D, $\Gamma$ is partitioned into curved triangle patches. The design mirrors
+the 2D Lobatto-panel pattern: each patch is defined by Lobatto interpolation
+nodes on a reference triangle, and local Cauchy corrections are computed at a
+set of uniform expansion centers in the patch interior.
+
+**Reference triangle.** Let $\mathcal{T} \subset \mathbb{R}^2$ be the reference
+triangle in barycentric coordinates:
+
+$$\mathcal{T} = \{(\lambda_1, \lambda_2, \lambda_3) \mid \lambda_1 + \lambda_2 + \lambda_3 = 1,\; \lambda_i \ge 0\}.$$
+
+Equivalently, in Cartesian coordinates on the reference plane:
+$\mathcal{T} = \{(u, v) \mid u \ge 0,\; v \ge 0,\; u+v \le 1\}$ with
+$\lambda_1 = 1-u-v$, $\lambda_2 = u$, $\lambda_3 = v$.
+
+**Lobatto geometry nodes.** The Chebyshev-Lobatto distribution on the interval
+does not have a unique generalization to the triangle. We use a **warped/blended
+Chebyshev-Lobatto** construction that directly parallels the 2D case:
+
+*   **Edge nodes.** On each edge of the reference triangle, place the standard
+    1D Chebyshev-Lobatto points (degree $p$): $p+1$ points including both
+    endpoints, clustering near vertices as $\cos(k\pi/p)$.
+*   **Interior nodes.** Blend the three edge distributions into the triangle
+    interior using a Gordon-Hall (transfinite) warp. For each candidate point
+    with barycentric coordinates $(\lambda_1, \lambda_2, \lambda_3)$, the warp
+    corrects the naive bilinear blend to match the Chebyshev-Lobatto edge data
+    exactly.
+
+For the **quadratic** default $p=2$, the 1D Chebyshev-Lobatto nodes are
+$\{-1, 0, 1\}$ on each edge, yielding the same 6 nodes as the equidistant set:
+3 vertices $(1,0,0)$, $(0,1,0)$, $(0,0,1)$ and 3 edge midpoints
+$(\tfrac12,\tfrac12,0)$, $(\tfrac12,0,\tfrac12)$,
+$(0,\tfrac12,\tfrac12)$. The warp is nontrivial only for $p \ge 3$, where
+the Chebyshev-Lobatto edge clustering differs from the equidistant distribution.
+
+Total nodes per patch: $(p+1)(p+2)/2$.
+
+**Curved patch mapping.** Patch $m$ is a mapping
+$X_m : \mathcal{T} \to \mathbb{R}^3$ given by Lagrange interpolation through its
+$N_L = (p+1)(p+2)/2$ Lobatto control points
+$\{\mathbf{P}_{m,\ell}\}_{\ell=1}^{N_L} \subset \mathbb{R}^3$:
+
+$$X_m(\boldsymbol{\lambda}) = \sum_{\ell=1}^{N_L} \mathbf{P}_{m,\ell}\,
+L_\ell(\boldsymbol{\lambda}),$$
+
+where $L_\ell$ is the bivariate Lagrange basis polynomial equal to 1 at Lobatto
+node $\ell$ and 0 at all others. The control points $\mathbf{P}_{m,\ell}$ at the
+patch vertices and edge midpoints are shared with neighboring patches to ensure
+$C^0$ continuity of $\Gamma$.
+
+**Uniform expansion centers.** Following the 2D pattern (4 uniform centers per
+panel), the reference triangle $\mathcal{T}$ is first uniformly subdivided and
+the centroids of the subtriangles are taken as expansion centers on the curved
+patch surface.
+
+**Uniform subdivision.** Partition $\mathcal{T}$ at level $L \ge 2$ by dividing
+each edge into $L$ equal segments and connecting the subdivision points with
+lines parallel to the edges. This yields $L^2$ small congruent triangles, each
+similar to $\mathcal{T}$ with side length $1/L$.
+
+**Expansion centers as subtriangle centroids.** The $N_c = L^2$ expansion
+centers per patch are the centroids (in reference coordinates) of these $L^2$
+subtriangles. In barycentric coordinates, each centroid is the arithmetic mean
+of its three subtriangle vertices (which lie on the reference grid with spacing
+$1/L$). Every centroid has strictly positive barycentric coordinates (all
+$\lambda_i > 0$), so expansion centers lie strictly in the interior of
+$\mathcal{T}$, away from the Lobatto boundary nodes — exactly as in 2D where
+centers occupy $s \in \{-0.75, -0.25, 0.25, 0.75\}$ while Chebyshev-Lobatto
+nodes are at $s \in \{-1, 0, 1\}$.
+
+The default subdivision level $L = 2$ gives $N_c = 4$ expansion centers per
+patch, directly matching the 2D panel. Finer levels ($L = 3, 4, \dots$) give
+$9, 16, \dots$ centers for higher-order local corrections.
+
+The Cartesian image in $\mathbb{R}^3$ follows from the patch mapping:
+$\mathbf{c}_{m,q} = X_m(\boldsymbol{\lambda}_q)$ for each centroid
+$\boldsymbol{\lambda}_q$. The outward unit normal $\mathbf{n}_{m,q}$ at each
+center is obtained from the parametric tangent vectors:
+
+$$\mathbf{n} = \frac{\partial_u X_m \times \partial_v X_m}
+{\|\partial_u X_m \times \partial_v X_m\|}.$$
+
+**Panel-major storage.** Expansion centers are stored in patch-major order.
+Patch $m$ occupies global indices $[m N_c,\,(m+1) N_c)$. The global index of
+expansion center $q$ on patch $m$ is
+
+$$i(m, q) = m N_c + q, \qquad m = 0,\dots,N_p-1,\;\; q = 0,\dots,N_c-1.$$
+
+The jump DOFs $( \mu, \sigma )$ are defined at the expansion centers. To
+evaluate jump data at an arbitrary point on the patch (e.g., for spread
+operations or for the Lobatto node interpolation), polynomial interpolation from
+the expansion centers to the target point is used.
+
+**Multi-component surfaces.** Disconnected parts of $\Gamma$ (e.g., multiple
+immersed bodies) are supported by assigning each panel a component ID
+$c_p \in \{0,\dots,C-1\}$ where $C$ is the number of components. Interior
+domain labels increment per component: $\ell = 1$ inside component 0,
+$\ell = 2$ inside component 1, etc.
+
+**Parametric surface factories.** Standard surfaces are built from angular
+parameterizations:
+*   **UV sphere**: latitude rings ($M$) and longitude segments ($N$), with
+    triangle caps at the poles. $N_p = 2MN$.
+*   **Ellipsoid**: same connectivity as the UV sphere, with semi-axes
+    $(a,b,c)$.
+*   **Torus**: major-radius circles ($N_{\text{tor}}$) and minor-radius circles
+    ($N_{\text{pol}}$), giving a genus-1 surface.
+
 *   **Normals $\mathbf{n}$**: Unit outward normal pointing from $\Omega_{int}$ to $\Omega_{ext}$.
 *   **Domain Labels $\ell$**: 
     *   $\ell(\mathbf{x}) = 1$ if $\mathbf{x} \in \Omega_{int}$.
     *   $\ell(\mathbf{x}) = 0$ if $\mathbf{x} \in \Omega_{ext}$.
 
-## 2. The Constant Interface Problem (Poisson)
+## 2. The Constant Interface Problem (Elliptic)
 
-Consider the Poisson equation on a rectangular box $B = [0, L_x] \times [0, L_y]$ containing the interface $\Gamma$:
+Consider the elliptic equation on a rectangular box $B = [0, L_x] \times [0, L_y]$ containing the interface $\Gamma$:
 
 $$
--\Delta u = f \quad \text{in } B \setminus \Gamma
+-\Delta u + \lambda^2 u = f \quad \text{in } B \setminus \Gamma
 $$
 
 subject to:
@@ -49,7 +170,7 @@ where:
 *   $\mathcal{D}$ is the **Double-Layer Potential**: $(\mathcal{D}\mu)(\mathbf{x}) = \int_\Gamma \frac{\partial G}{\partial n_y}(\mathbf{x}, \mathbf{y}) \mu(\mathbf{y}) ds_y$
 *   $\mathcal{V}$ is the **Volume Potential**: $(\mathcal{V}f)(\mathbf{x}) = \int_\Omega G(\mathbf{x}, \mathbf{y}) f(\mathbf{y}) dy$
 *   $G$ is the Green's function of the rectangular box domain $B$ with homogeneous boundary conditions, satisfying:
-    $$-\Delta_{\mathbf{x}} G(\mathbf{x}, \mathbf{y}) = \delta(\mathbf{x} - \mathbf{y}) \quad \text{in } B, \qquad G(\mathbf{x}, \mathbf{y}) = 0 \quad \text{on } \partial B$$
+    $$(-\Delta_{\mathbf{x}} + \lambda^2) G(\mathbf{x}, \mathbf{y}) = \delta(\mathbf{x} - \mathbf{y}) \quad \text{in } B, \qquad G(\mathbf{x}, \mathbf{y}) = 0 \quad \text{on } \partial B$$
     For the unit box $B = [0,1]^2$ with homogeneous Dirichlet BC, the eigenfunction expansion is:
     $$G(x,y; \xi,\eta) = 4\sum_{m=1}^{\infty}\sum_{n=1}^{\infty} \frac{\sin(m\pi x)\sin(n\pi y)\sin(m\pi \xi)\sin(n\pi \eta)}{\pi^2(m^2 + n^2)}$$
 
@@ -59,22 +180,22 @@ Each potential is itself the solution to a specific interface problem on the box
 
 | Potential | PDE in $B\setminus\Gamma$ | BC on $\partial B$ | $[u]$ on $\Gamma$ | $[\partial_n u]$ on $\Gamma$ |
 |:---------|:--------------------------|:-------------------|:------------------|:----------------------------|
-| $\mathcal{S}\sigma$ | $-\Delta u = 0$ | $u = 0$ | $0$ | $\sigma$ |
-| $\mathcal{D}\mu$    | $-\Delta u = 0$ | $u = 0$ | $-\mu$ | $0$ |
-| $\mathcal{V}f$      | $-\Delta u = f$ | $u = 0$ | $0$ | $0$ |
+| $\mathcal{S}\sigma$ | $-\Delta u + \lambda^2 u = 0$ | $u = 0$ | $0$ | $\sigma$ |
+| $\mathcal{D}\mu$    | $-\Delta u + \lambda^2 u = 0$ | $u = 0$ | $-\mu$ | $0$ |
+| $\mathcal{V}f$      | $-\Delta u + \lambda^2 u = f$ | $u = 0$ | $0$ | $0$ |
 
 The double-layer sign $[u] = -\mu$ follows from the jump relation of the normal derivative of $G$:
 $$\lim_{\mathbf{x}\to\Gamma^{\pm}} \int_\Gamma \frac{\partial G}{\partial n_y}(\mathbf{x},\mathbf{y})\,\mu(\mathbf{y})\,ds_y = \mp\frac{1}{2}\mu + \int_\Gamma \frac{\partial G}{\partial n_y}(\mathbf{x},\mathbf{y})\,\mu(\mathbf{y})\,ds_y$$
 so that $[\mathcal{D}\mu] = \mathcal{D}\mu|_{\Gamma^+} - \mathcal{D}\mu|_{\Gamma^-} = -\mu$ (with normal $\mathbf{n}$ pointing from $\Omega^+$ to $\Omega^-$).
 
 By linearity, the full representation $u = \mathcal{S}\sigma - \mathcal{D}\mu + \mathcal{V}f$ satisfies:
-$$-\Delta u = f \quad \text{in } B\setminus\Gamma, \qquad u = 0 \quad \text{on } \partial B, \qquad [u] = \mu, \qquad [\partial_n u] = \sigma$$
+$$-\Delta u + \lambda^2 u = f \quad \text{in } B\setminus\Gamma, \qquad u = 0 \quad \text{on } \partial B, \qquad [u] = \mu, \qquad [\partial_n u] = \sigma$$
 which recovers the constant interface problem of Section 2.
 
 ### KFBIM Approach
-Instead of evaluating the layer-potential integrals (or the eigenfunction expansion) directly, KFBIM solves the interface problem on a uniform Cartesian grid using the **Immersed Interface Method (IIM)**. The box Green's function $G$ is never explicitly formed; applying it is equivalent to solving $-\Delta u = f$ with homogeneous BCs on $B$, which is done efficiently via FFT. 
+Instead of evaluating the layer-potential integrals (or the eigenfunction expansion) directly, KFBIM solves the interface problem on a uniform Cartesian grid using the **Immersed Interface Method (IIM)**. The box Green's function $G$ is never explicitly formed; applying it is equivalent to solving $-\Delta u + \lambda^2 u = f$ with homogeneous BCs on $B$, which is done efficiently via FFT.
 1.  **Spread**: Convert jumps $(\mu, \sigma)$ into a defect correction for the bulk RHS $f$.
-2.  **Bulk Solve**: Solve the corrected Poisson system $-\Delta_h u = F$ using a fast solver (FFT/ZFFT).
+2.  **Bulk Solve**: Solve the corrected elliptic system $-\Delta_h u = F$ using a fast solver (FFT/ZFFT).
 3.  **Restrict**: Interpolate the bulk solution $u$ back to $\Gamma$ using jump-aware interpolation to recover the boundary traces.
 
 ## 3. Boundary Integral Operators
@@ -145,7 +266,7 @@ The volume potential $\mathcal{V}f$ that appears in the BIE right-hand sides is 
 
 ### Interior Dirichlet BVP
 
-Find $u$ such that $-\Delta u = f$ in $\Omega_{int}$ with $u|_\Gamma = g$.
+Find $u$ such that $-\Delta u + \lambda^2 u = f$ in $\Omega_{int}$ with $u|_\Gamma = g$.
 
 **Representation.** Write $u$ using the general representation formula $u = \mathcal{S}\sigma - \mathcal{D}\mu + \mathcal{V}f$ with $\sigma = 0$ and an unknown double-layer density $\mu = \phi$:
 
@@ -179,7 +300,7 @@ The right-hand side $g - \mathcal{V}f|_\Gamma$ is assembled by computing $\mathc
 
 ### Interior Neumann BVP
 
-Find $u$ such that $-\Delta u = f$ in $\Omega_{int}$ with $\partial_n u|_\Gamma = g$.
+Find $u$ such that $-\Delta u + \lambda^2 u = f$ in $\Omega_{int}$ with $\partial_n u|_\Gamma = g$.
 
 **Representation.** Use the single-layer ansatz ($\sigma = \psi$, $\mu = 0$):
 
@@ -214,7 +335,7 @@ In practice, the nullspace is handled by fixing the density at one point or by p
 
 ### Exterior Dirichlet BVP
 
-Find $u$ such that $-\Delta u = f$ in $\Omega_{ext}$ with $u|_\Gamma = g$.
+Find $u$ such that $-\Delta u + \lambda^2 u = f$ in $\Omega_{ext}$ with $u|_\Gamma = g$.
 
 **Representation.** Same double-layer ansatz as the interior case ($\sigma = 0$, $\mu = \phi$):
 
@@ -241,7 +362,7 @@ $$
 
 ### Exterior Neumann BVP
 
-Find $u$ such that $-\Delta u = f$ in $\Omega_{ext}$ with $\partial_n u|_\Gamma = g$.
+Find $u$ such that $-\Delta u + \lambda^2 u = f$ in $\Omega_{ext}$ with $\partial_n u|_\Gamma = g$.
 
 **Representation.** Single-layer ansatz ($\sigma = \psi$, $\mu = 0$):
 
@@ -307,7 +428,7 @@ $$
 
 This reduces to the constant-coefficient interface problem (Section 2) when $\beta_{int} = \beta_{ext} = 1$ and $\kappa_{int} = \kappa_{ext} = 0$.
 
-## 7. BIE for Generic Interface Problems
+### 7. BIE for Generic Interface Problems
 
 We now consider the generic interface problem from Section 6:
 $$
@@ -315,7 +436,7 @@ $$
 $$
 with jump conditions $[u] = \mu$ and $[\beta \partial_n u] = \sigma$.
 
-### Constant $\beta/\kappa^2$ Ratio
+#### Constant $\beta/\kappa^2$ Ratio
 
 First, we consider the special case where the ratio of $\kappa^2$ to $\beta$ is the same on both sides of the interface. Let this constant ratio be $\lambda^2$:
 $$
