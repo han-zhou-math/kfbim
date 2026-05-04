@@ -9,34 +9,103 @@ This note documents the mathematical framework for the elliptic PDE solvers in t
 - [4. Interface Solver Outputs (KFBIM Operator Evaluation)](#4-interface-solver-outputs-kfbim-operator-evaluation)
 - [5. Boundary Value Problems (BVPs) to BIEs](#5-boundary-value-problems-bvps-to-bies)
 - [6. Generic Interface Problems (Variable Coefficients)](#6-generic-interface-problems-variable-coefficients)
-  - [7. BIE for Generic Interface Problems](#7-bie-for-generic-interface-problems)
+  - [6.1 Common Ratio](#61-common-ratio)
+  - [6.2 Different Ratios](#62-different-ratios)
+
+**Notation conventions.** Throughout this note, $\Omega_{int}$ denotes the
+interior domain, $\Omega_{ext}$ denotes the exterior domain, and the unit normal
+$n$ points from $\Omega_{int}$ to $\Omega_{ext}$. For a piecewise smooth
+quantity $u$, write
+
+$$
+\gamma_{int}u=u_{int}|_\Gamma,\qquad
+\gamma_{ext}u=u_{ext}|_\Gamma,
+$$
+
+and
+
+$$
+\gamma_{n,int}u=(\partial_n u_{int})|_\Gamma,\qquad
+\gamma_{n,ext}u=(\partial_n u_{ext})|_\Gamma.
+$$
+
+Jumps are always interior minus exterior:
+
+$$
+[u]=\gamma_{int}u-\gamma_{ext}u,\qquad
+[\partial_n u]=\gamma_{n,int}u-\gamma_{n,ext}u.
+$$
+
+The adjoint double-layer operator is denoted throughout by $K^*$. The
+hypersingular operator, namely the averaged normal derivative of a double-layer
+potential, is denoted by $H$ (or $H_s$ for phase-dependent kernels in Section 6.2).
 
 ## 1. Geometry Representation
 
 The domain $\Omega \subset \mathbb{R}^d$ is partitioned by an interface $\Gamma$ into an interior region $\Omega_{int}$ and an exterior region $\Omega_{ext}$.
 
-*   **Interface $\Gamma$**: Represented by a collection of panels.
+*   **Interface $\Gamma$**: Represented by a collection of curved panels in 2D
+    and curved triangle patches in 3D.
 
 ### 2D: Curve Panels
 
-In 2D, $\Gamma$ is a closed curve represented by isoparametric polynomial panel
-segments. Each panel maps the reference interval $[-1,1]$ to $\mathbb{R}^2$. The
-panel nodes serve simultaneously as geometry definition and DOF/quadrature
-locations. New 2D Laplace work uses Chebyshev-Lobatto panel nodes
-$s=\{-1,0,1\}$ by default. The local correction path generates four expansion
-centers per panel at $s=\{-0.75,-0.25,0.25,0.75\}$. The older 3-point
-Gauss-Legendre panel layout remains available only as an explicit legacy
-regression path.
+In 2D, $\Gamma$ is a closed curve represented by polynomial panels. Panel $m$
+is a map
+
+$$
+X_m:[-1,1]\to\mathbb{R}^2
+$$
+
+defined by polynomial interpolation from Chebyshev-Lobatto nodes on the
+reference interval. For degree $p$, let
+
+$$
+-1=s_0<s_1<\cdots<s_p=1
+$$
+
+be the Chebyshev-Lobatto points, and let $L_j$ be the corresponding Lagrange
+basis polynomials. If $\mathbf{P}_{m,j}\in\mathbb{R}^2$ are the physical panel
+nodes, then
+
+$$
+X_m(s)=\sum_{j=0}^{p}\mathbf{P}_{m,j}L_j(s).
+$$
+
+The current 2D Laplace path uses the quadratic Chebyshev-Lobatto panel
+($p=2$), with nodes
+
+$$
+s=\{-1,0,1\}.
+$$
+
+The two endpoints of adjacent panels represent the same physical interface
+point and are allocated as one global DOF. Thus a closed curve with $N_p$
+quadratic panels has $2N_p$ interface DOFs: $N_p$ shared endpoints and $N_p$
+panel midpoints.
+
+Expansion centers for the local correction functions are not additional
+geometry DOFs. They are sample points on the already-curved panel,
+
+$$
+\mathbf{c}_{m,q}=X_m(\xi_q),
+\qquad
+\xi_q\in\{-0.75,-0.25,0.25,0.75\},
+$$
+
+so the current 2D correction path uses four expansion centers per panel. The
+normal at each center is computed from the panel tangent $X_m'(\xi_q)$ and
+oriented from $\Omega_{int}$ to $\Omega_{ext}$.
 
 ### 3D: Curved Triangle Patches
 
-In 3D, $\Gamma$ is partitioned into curved triangle patches. The design mirrors
-the 2D Lobatto-panel pattern: each patch is defined by Lobatto interpolation
-nodes on a reference triangle, and local Cauchy corrections are computed at a
-set of uniform expansion centers in the patch interior.
+In 3D, $\Gamma$ is represented similarly, but panels are replaced by curved
+triangle patches. Patch $m$ is a polynomial map
 
-**Reference triangle.** Let $\mathcal{T} \subset \mathbb{R}^2$ be the reference
-triangle in barycentric coordinates:
+$$
+X_m:\mathcal{T}\to\mathbb{R}^3,
+$$
+
+where $\mathcal{T}$ is the reference triangle in barycentric coordinates:
 
 $$\mathcal{T} = \{(\lambda_1, \lambda_2, \lambda_3) \mid \lambda_1 + \lambda_2 + \lambda_3 = 1,\; \lambda_i \ge 0\}.$$
 
@@ -44,83 +113,40 @@ Equivalently, in Cartesian coordinates on the reference plane:
 $\mathcal{T} = \{(u, v) \mid u \ge 0,\; v \ge 0,\; u+v \le 1\}$ with
 $\lambda_1 = 1-u-v$, $\lambda_2 = u$, $\lambda_3 = v$.
 
-**Lobatto geometry nodes.** The Chebyshev-Lobatto distribution on the interval
-does not have a unique generalization to the triangle. We use a **warped/blended
-Chebyshev-Lobatto** construction that directly parallels the 2D case:
-
-*   **Edge nodes.** On each edge of the reference triangle, place the standard
-    1D Chebyshev-Lobatto points (degree $p$): $p+1$ points including both
-    endpoints, clustering near vertices as $\cos(k\pi/p)$.
-*   **Interior nodes.** Blend the three edge distributions into the triangle
-    interior using a Gordon-Hall (transfinite) warp. For each candidate point
-    with barycentric coordinates $(\lambda_1, \lambda_2, \lambda_3)$, the warp
-    corrects the naive bilinear blend to match the Chebyshev-Lobatto edge data
-    exactly.
-
-For the **quadratic** default $p=2$, the 1D Chebyshev-Lobatto nodes are
-$\{-1, 0, 1\}$ on each edge, yielding the same 6 nodes as the equidistant set:
-3 vertices $(1,0,0)$, $(0,1,0)$, $(0,0,1)$ and 3 edge midpoints
-$(\tfrac12,\tfrac12,0)$, $(\tfrac12,0,\tfrac12)$,
-$(0,\tfrac12,\tfrac12)$. The warp is nontrivial only for $p \ge 3$, where
-the Chebyshev-Lobatto edge clustering differs from the equidistant distribution.
-
-Total nodes per patch: $(p+1)(p+2)/2$.
-
-**Curved patch mapping.** Patch $m$ is a mapping
-$X_m : \mathcal{T} \to \mathbb{R}^3$ given by Lagrange interpolation through its
-$N_L = (p+1)(p+2)/2$ Lobatto control points
-$\{\mathbf{P}_{m,\ell}\}_{\ell=1}^{N_L} \subset \mathbb{R}^3$:
+The patch map is defined by polynomial interpolation from Lobatto-type nodes on
+$\mathcal{T}$. If the interpolation nodes are
+$\{\boldsymbol{\lambda}_\ell\}_{\ell=1}^{N_L}$, the physical patch nodes are
+$\mathbf{P}_{m,\ell}\in\mathbb{R}^3$, and $L_\ell$ are the triangular Lagrange
+basis polynomials, then
 
 $$X_m(\boldsymbol{\lambda}) = \sum_{\ell=1}^{N_L} \mathbf{P}_{m,\ell}\,
 L_\ell(\boldsymbol{\lambda}),$$
 
-where $L_\ell$ is the bivariate Lagrange basis polynomial equal to 1 at Lobatto
-node $\ell$ and 0 at all others. The control points $\mathbf{P}_{m,\ell}$ at the
-patch vertices and edge midpoints are shared with neighboring patches to ensure
-$C^0$ continuity of $\Gamma$.
+with $L_\ell(\boldsymbol{\lambda}_r)=\delta_{\ell r}$. Patch nodes on shared
+vertices and shared edges are allocated as one global interface DOF, exactly as
+shared endpoints are allocated once for neighboring 2D panels.
 
-**Uniform expansion centers.** Following the 2D pattern (4 uniform centers per
-panel), the reference triangle $\mathcal{T}$ is first uniformly subdivided and
-the centroids of the subtriangles are taken as expansion centers on the curved
-patch surface.
+Expansion centers for 3D correction functions are sampled from the curved patch.
+One natural choice, parallel to the four 2D centers per panel, is to subdivide
+the reference triangle at level $L=2$, take the four subtriangle centroids
+$\boldsymbol{\xi}_q$, and map them to the physical surface:
 
-**Uniform subdivision.** Partition $\mathcal{T}$ at level $L \ge 2$ by dividing
-each edge into $L$ equal segments and connecting the subdivision points with
-lines parallel to the edges. This yields $L^2$ small congruent triangles, each
-similar to $\mathcal{T}$ with side length $1/L$.
+$$
+\mathbf{c}_{m,q}=X_m(\boldsymbol{\xi}_q),
+\qquad q=1,\dots,4.
+$$
 
-**Expansion centers as subtriangle centroids.** The $N_c = L^2$ expansion
-centers per patch are the centroids (in reference coordinates) of these $L^2$
-subtriangles. In barycentric coordinates, each centroid is the arithmetic mean
-of its three subtriangle vertices (which lie on the reference grid with spacing
-$1/L$). Every centroid has strictly positive barycentric coordinates (all
-$\lambda_i > 0$), so expansion centers lie strictly in the interior of
-$\mathcal{T}$, away from the Lobatto boundary nodes — exactly as in 2D where
-centers occupy $s \in \{-0.75, -0.25, 0.25, 0.75\}$ while Chebyshev-Lobatto
-nodes are at $s \in \{-1, 0, 1\}$.
-
-The default subdivision level $L = 2$ gives $N_c = 4$ expansion centers per
-patch, directly matching the 2D panel. Finer levels ($L = 3, 4, \dots$) give
-$9, 16, \dots$ centers for higher-order local corrections.
-
-The Cartesian image in $\mathbb{R}^3$ follows from the patch mapping:
-$\mathbf{c}_{m,q} = X_m(\boldsymbol{\lambda}_q)$ for each centroid
-$\boldsymbol{\lambda}_q$. The outward unit normal $\mathbf{n}_{m,q}$ at each
-center is obtained from the parametric tangent vectors:
+Finer subdivisions give $L^2$ centers per patch. The outward unit normal at an
+expansion center is computed from the patch tangent vectors:
 
 $$\mathbf{n} = \frac{\partial_u X_m \times \partial_v X_m}
 {\|\partial_u X_m \times \partial_v X_m\|}.$$
 
-**Panel-major storage.** Expansion centers are stored in patch-major order.
-Patch $m$ occupies global indices $[m N_c,\,(m+1) N_c)$. The global index of
-expansion center $q$ on patch $m$ is
+Expansion centers are stored in patch-major order. If each patch has $N_c$
+centers, patch $m$ occupies global indices $[mN_c,(m+1)N_c)$, and the global
+index of expansion center $q$ on patch $m$ is
 
 $$i(m, q) = m N_c + q, \qquad m = 0,\dots,N_p-1,\;\; q = 0,\dots,N_c-1.$$
-
-The jump DOFs $( \mu, \sigma )$ are defined at the expansion centers. To
-evaluate jump data at an arbitrary point on the patch (e.g., for spread
-operations or for the Lobatto node interpolation), polynomial interpolation from
-the expansion centers to the target point is used.
 
 **Multi-component surfaces.** Disconnected parts of $\Gamma$ (e.g., multiple
 immersed bodies) are supported by assigning each panel a component ID
@@ -155,7 +181,10 @@ subject to:
 - **Jump conditions on the interface** $\Gamma$:
 
 $$
-[u]_\Gamma = u_{int} - u_{ext} = \mu, \qquad [\partial_n u]_\Gamma = \partial_n u_{int} - \partial_n u_{ext} = \sigma
+[u]_\Gamma = \gamma_{int}u-\gamma_{ext}u = \mu,
+\qquad
+[\partial_n u]_\Gamma
+=\gamma_{n,int}u-\gamma_{n,ext}u = \sigma
 $$
 
 where $u_{int}$ and $u_{ext}$ are the smooth extensions of the solution from either side.
@@ -168,11 +197,11 @@ $$
 where:
 *   $\mathcal{S}$ is the **Single-Layer Potential**: $(\mathcal{S}\sigma)(\mathbf{x}) = \int_\Gamma G(\mathbf{x}, \mathbf{y}) \sigma(\mathbf{y}) ds_y$
 *   $\mathcal{D}$ is the **Double-Layer Potential**: $(\mathcal{D}\mu)(\mathbf{x}) = \int_\Gamma \frac{\partial G}{\partial n_y}(\mathbf{x}, \mathbf{y}) \mu(\mathbf{y}) ds_y$
-*   $\mathcal{V}$ is the **Volume Potential**: $(\mathcal{V}f)(\mathbf{x}) = \int_\Omega G(\mathbf{x}, \mathbf{y}) f(\mathbf{y}) dy$
+*   $\mathcal{V}$ is the **Volume Potential**: $(\mathcal{V}f)(\mathbf{x}) = \int_B G(\mathbf{x}, \mathbf{y}) f(\mathbf{y}) dy$
 *   $G$ is the Green's function of the rectangular box domain $B$ with homogeneous boundary conditions, satisfying:
     $$(-\Delta_{\mathbf{x}} + \lambda^2) G(\mathbf{x}, \mathbf{y}) = \delta(\mathbf{x} - \mathbf{y}) \quad \text{in } B, \qquad G(\mathbf{x}, \mathbf{y}) = 0 \quad \text{on } \partial B$$
     For the unit box $B = [0,1]^2$ with homogeneous Dirichlet BC, the eigenfunction expansion is:
-    $$G(x,y; \xi,\eta) = 4\sum_{m=1}^{\infty}\sum_{n=1}^{\infty} \frac{\sin(m\pi x)\sin(n\pi y)\sin(m\pi \xi)\sin(n\pi \eta)}{\pi^2(m^2 + n^2)}$$
+    $$G(x,y; \xi,\eta) = 4\sum_{m=1}^{\infty}\sum_{n=1}^{\infty} \frac{\sin(m\pi x)\sin(n\pi y)\sin(m\pi \xi)\sin(n\pi \eta)}{\pi^2(m^2 + n^2)+\lambda^2}$$
 
 ### Interface Problems Satisfied by Each Potential
 
@@ -184,9 +213,14 @@ Each potential is itself the solution to a specific interface problem on the box
 | $\mathcal{D}\mu$    | $-\Delta u + \lambda^2 u = 0$ | $u = 0$ | $-\mu$ | $0$ |
 | $\mathcal{V}f$      | $-\Delta u + \lambda^2 u = f$ | $u = 0$ | $0$ | $0$ |
 
-The double-layer sign $[u] = -\mu$ follows from the jump relation of the normal derivative of $G$:
-$$\lim_{\mathbf{x}\to\Gamma^{\pm}} \int_\Gamma \frac{\partial G}{\partial n_y}(\mathbf{x},\mathbf{y})\,\mu(\mathbf{y})\,ds_y = \mp\frac{1}{2}\mu + \int_\Gamma \frac{\partial G}{\partial n_y}(\mathbf{x},\mathbf{y})\,\mu(\mathbf{y})\,ds_y$$
-so that $[\mathcal{D}\mu] = \mathcal{D}\mu|_{\Gamma^+} - \mathcal{D}\mu|_{\Gamma^-} = -\mu$ (with normal $\mathbf{n}$ pointing from $\Omega^+$ to $\Omega^-$).
+The double-layer sign $[u] = -\mu$ follows from the trace relations
+
+$$
+\gamma_{int}\mathcal{D}\mu=K\mu-\frac12\mu,\qquad
+\gamma_{ext}\mathcal{D}\mu=K\mu+\frac12\mu,
+$$
+
+so $[\mathcal{D}\mu]=\gamma_{int}\mathcal{D}\mu-\gamma_{ext}\mathcal{D}\mu=-\mu$.
 
 By linearity, the full representation $u = \mathcal{S}\sigma - \mathcal{D}\mu + \mathcal{V}f$ satisfies:
 $$-\Delta u + \lambda^2 u = f \quad \text{in } B\setminus\Gamma, \qquad u = 0 \quad \text{on } \partial B, \qquad [u] = \mu, \qquad [\partial_n u] = \sigma$$
@@ -195,7 +229,7 @@ which recovers the constant interface problem of Section 2.
 ### KFBIM Approach
 Instead of evaluating the layer-potential integrals (or the eigenfunction expansion) directly, KFBIM solves the interface problem on a uniform Cartesian grid using the **Immersed Interface Method (IIM)**. The box Green's function $G$ is never explicitly formed; applying it is equivalent to solving $-\Delta u + \lambda^2 u = f$ with homogeneous BCs on $B$, which is done efficiently via FFT.
 1.  **Spread**: Convert jumps $(\mu, \sigma)$ into a defect correction for the bulk RHS $f$.
-2.  **Bulk Solve**: Solve the corrected elliptic system $-\Delta_h u = F$ using a fast solver (FFT/ZFFT).
+2.  **Bulk Solve**: Solve the corrected elliptic system $(-\Delta_h+\lambda^2 I)u = F$ using a fast solver (FFT/ZFFT).
 3.  **Restrict**: Interpolate the bulk solution $u$ back to $\Gamma$ using jump-aware interpolation to recover the boundary traces.
 
 ## 3. Boundary Integral Operators
@@ -203,15 +237,24 @@ Instead of evaluating the layer-potential integrals (or the eigenfunction expans
 The traces of the potentials on $\Gamma$ define the boundary integral operators:
 *   **Single-layer operator $S$**: $S\sigma = (\mathcal{S}\sigma)|_\Gamma$
 *   **Double-layer operator $K$**: $K\mu = \text{avg}(\mathcal{D}\mu)|_\Gamma$
+*   **Adjoint double-layer operator $K^*$**:
+    $K^*\sigma=\text{avg}(\partial_n\mathcal{S}\sigma)|_\Gamma$
+*   **Hypersingular operator $H$**:
+    $H\mu=\text{avg}(\partial_n\mathcal{D}\mu)|_\Gamma$
+*   **Volume trace operators**:
+    $V_\Gamma f=\gamma_{int}\mathcal{V}f=\gamma_{ext}\mathcal{V}f$ and
+    $V_{n,\Gamma}f=\gamma_{n,int}\mathcal{V}f=\gamma_{n,ext}\mathcal{V}f$
 
 Using the jump relations of layer potentials:
 $$
-u_{int}|_\Gamma = S\sigma - (K - \tfrac{1}{2}I)\mu + V f
+\gamma_{int}u = S\sigma - (K - \tfrac{1}{2}I)\mu + V_\Gamma f
 $$
 $$
-u_{ext}|_\Gamma = S\sigma - (K + \tfrac{1}{2}I)\mu + V f
+\gamma_{ext}u = S\sigma - (K + \tfrac{1}{2}I)\mu + V_\Gamma f
 $$
-The KFBIM "Interface Solver" effectively acts as a black-box evaluator for these operators. For example, by setting $\mu=0, f=0$, the solver returns $u_{int}|_\Gamma = S\sigma$.
+The KFBIM "Interface Solver" effectively acts as a black-box evaluator for
+these operators. For example, by setting $\mu=0$ and $f=0$, the solver returns
+$\gamma_{int}u=S\sigma$.
 
 ## 4. Interface Solver Outputs (KFBIM Operator Evaluation)
 
@@ -220,20 +263,20 @@ and returns the volume solution $u_{bulk}$ together with averaged interface
 quantities:
 
 $$
-u_{avg} = \frac{u^+ + u^-}{2}, \qquad
-(\partial_n u)_{avg} = \frac{\partial_n u^+ + \partial_n u^-}{2}.
+u_{avg} = \frac{\gamma_{int}u + \gamma_{ext}u}{2}, \qquad
+u_{n,avg} = \frac{\gamma_{n,int}u + \gamma_{n,ext}u}{2}.
 $$
 
 Interior and exterior traces are recovered by the jump relations:
 
 $$
-u^+ = u_{avg} + \frac{\mu}{2}, \qquad
-u^- = u_{avg} - \frac{\mu}{2},
+\gamma_{int}u = u_{avg} + \frac{\mu}{2}, \qquad
+\gamma_{ext}u = u_{avg} - \frac{\mu}{2},
 $$
 
 $$
-\partial_n u^+ = (\partial_n u)_{avg} + \frac{\sigma}{2}, \qquad
-\partial_n u^- = (\partial_n u)_{avg} - \frac{\sigma}{2}.
+\gamma_{n,int}u = u_{n,avg} + \frac{\sigma}{2}, \qquad
+\gamma_{n,ext}u = u_{n,avg} - \frac{\sigma}{2}.
 $$
 
 `LaplacePotentialEval2D` wraps the same pipeline and exposes reusable averaged
@@ -241,9 +284,9 @@ operators:
 
 | Primitive | $(\mu, \sigma)$ | RHS data | Returned outputs |
 |:----------|:---------------|:---------|:-----------------|
-| Double-layer jump primitive | $(\phi, 0)$ | $0$ | $K\phi = u_{avg}$, $H\phi = (\partial_n u)_{avg}$ |
-| Single-layer primitive | $(0, \psi)$ | $0$ | $S\psi = u_{avg}$, $K'\psi = (\partial_n u)_{avg}$ |
-| Interface forcing primitive | $(0, 0)$ | $[f]=q$ | $Nq = u_{avg}$, $\partial_n Nq = (\partial_n u)_{avg}$ |
+| Double-layer jump primitive | $(\phi, 0)$ | $0$ | $K\phi = u_{avg}$, $H\phi = u_{n,avg}$ |
+| Single-layer primitive | $(0, \psi)$ | $0$ | $S\psi = u_{avg}$, $K^*\psi = u_{n,avg}$ |
+| Volume-forcing primitive | $(0, 0)$ | $q$ | $V_\Gamma q = u_{avg}$, $V_{n,\Gamma}q = u_{n,avg}$ |
 
 The double-layer primitive follows the implementation convention $[u]=\phi$.
 Relative to the classical representation $-\mathcal{D}\phi$, this is the sign
@@ -262,11 +305,15 @@ f(\mathbf{x}) & \mathbf{x} \in \Omega_{int} \text{ (or } \Omega_{ext}\text{)} \\
 \end{cases}
 $$
 
-The volume potential $\mathcal{V}f$ that appears in the BIE right-hand sides is then understood as $\mathcal{V}\tilde{f}$ — integrating $\tilde{f}$ over $B$. In the KFBIM interface solver, this corresponds to passing $f_{bulk} = \tilde{f}$ (the zero-extended $f$ on the full box).
+The volume-potential traces $V_\Gamma f$ and $V_{n,\Gamma}f$ that appear in
+the BIE right-hand sides are then understood as traces of
+$\mathcal{V}\tilde{f}$, integrating $\tilde{f}$ over $B$. In the KFBIM
+interface solver, this corresponds to passing $f_{bulk} = \tilde{f}$ (the
+zero-extended $f$ on the full box).
 
 ### Interior Dirichlet BVP
 
-Find $u$ such that $-\Delta u + \lambda^2 u = f$ in $\Omega_{int}$ with $u|_\Gamma = g$.
+Find $u$ such that $-\Delta u + \lambda^2 u = f$ in $\Omega_{int}$ with $\gamma_{int}u = g$.
 
 **Representation.** Write $u$ using the general representation formula $u = \mathcal{S}\sigma - \mathcal{D}\mu + \mathcal{V}f$ with $\sigma = 0$ and an unknown double-layer density $\mu = \phi$:
 
@@ -274,33 +321,36 @@ $$
 u(\mathbf{x}) = -\mathcal{D}\phi(\mathbf{x}) + \mathcal{V}f(\mathbf{x}), \qquad \mathbf{x} \in \Omega_{int}
 $$
 
-**Derivation of the BIE.** Take the limit $\mathbf{x} \to \Gamma$ from the interior ($\Gamma^+$). Using the jump relation $\mathcal{D}\phi|_{\Gamma^+} = K\phi - \tfrac{1}{2}\phi$:
+**Derivation of the BIE.** Take the interior trace. Using the jump relation
+$\gamma_{int}\mathcal{D}\phi = K\phi - \tfrac{1}{2}\phi$:
 
 $$
 \begin{aligned}
-g = u|_{\Gamma^+} &= -\mathcal{D}\phi|_{\Gamma^+} + \mathcal{V}f|_\Gamma \\
-&= -(K\phi - \tfrac{1}{2}\phi) + \mathcal{V}f|_\Gamma \\
-&= (\tfrac{1}{2}I - K)\phi + \mathcal{V}f|_\Gamma
+g = \gamma_{int}u &= -\gamma_{int}\mathcal{D}\phi + V_\Gamma f \\
+&= -(K\phi - \tfrac{1}{2}\phi) + V_\Gamma f \\
+&= (\tfrac{1}{2}I - K)\phi + V_\Gamma f
 \end{aligned}
 $$
 
 Rearranging gives the **boundary integral equation**:
 
 $$
-\boxed{(\tfrac{1}{2}I - K)\phi = g - \mathcal{V}f|_\Gamma}
+\boxed{(\tfrac{1}{2}I - K)\phi = g - V_\Gamma f}
 $$
 
-**KFBIM evaluation.** In each GMRES iteration, the left-hand operator $(\tfrac{1}{2}I - K)$ applied to a density $\phi$ is evaluated by calling the interface solver with jumps $(\mu = \phi,\; \sigma = 0)$ and $f_{bulk} = 0$. The solver returns the averaged trace; the interior trace is recovered as $u^+ = u_{avg} + \tfrac{1}{2}\phi$ and equals $(\tfrac{1}{2}I - K)\phi$:
+**KFBIM evaluation.** In each GMRES iteration, the left-hand operator $(\tfrac{1}{2}I - K)$ applied to a density $\phi$ is evaluated by calling the interface solver with jumps $(\mu = \phi,\; \sigma = 0)$ and $f_{bulk} = 0$. The solver returns the averaged trace; the interior trace is recovered as $\gamma_{int}u = u_{avg} + \tfrac{1}{2}\phi$ and equals $(\tfrac{1}{2}I - K)\phi$:
 
 $$
-(\tfrac{1}{2}I - K)\phi = -(\mathcal{D}\phi)|_{\Gamma^+} = u_{int} \quad \text{(from interface solver with } \mu=\phi,\; \sigma=0,\; f=0\text{)}
+(\tfrac{1}{2}I - K)\phi = -\gamma_{int}\mathcal{D}\phi
+\quad \text{(from interface solver with } \mu=\phi,\; \sigma=0,\; f=0\text{)}
 $$
 
-The right-hand side $g - \mathcal{V}f|_\Gamma$ is assembled by computing $\mathcal{V}f|_\Gamma$ once via the interface solver with jumps $(0, 0)$ and $f_{bulk} = f$.
+The right-hand side $g - V_\Gamma f$ is assembled by computing $V_\Gamma f$
+once via the interface solver with jumps $(0, 0)$ and $f_{bulk} = f$.
 
 ### Interior Neumann BVP
 
-Find $u$ such that $-\Delta u + \lambda^2 u = f$ in $\Omega_{int}$ with $\partial_n u|_\Gamma = g$.
+Find $u$ such that $-\Delta u + \lambda^2 u = f$ in $\Omega_{int}$ with $\gamma_{n,int}u = g$.
 
 **Representation.** Use the single-layer ansatz ($\sigma = \psi$, $\mu = 0$):
 
@@ -308,22 +358,23 @@ $$
 u(\mathbf{x}) = \mathcal{S}\psi(\mathbf{x}) + \mathcal{V}f(\mathbf{x}), \qquad \mathbf{x} \in \Omega_{int}
 $$
 
-**Derivation of the BIE.** Take the interior normal derivative $\mathbf{x} \to \Gamma^+$. Using the jump relation $\partial_n (\mathcal{S}\psi)|_{\Gamma^+} = K'\psi + \tfrac{1}{2}\psi$ where $K'$ is the adjoint double-layer operator:
+**Derivation of the BIE.** Take the interior normal trace. Using the jump
+relation $\gamma_{n,int}\mathcal{S}\psi = K^*\psi + \tfrac{1}{2}\psi$:
 
 $$
 \begin{aligned}
-g = \partial_n u|_{\Gamma^+} &= \partial_n(\mathcal{S}\psi)|_{\Gamma^+} + \partial_n(\mathcal{V}f)|_\Gamma \\
-&= (K'\psi + \tfrac{1}{2}\psi) + \partial_n(\mathcal{V}f)|_\Gamma
+g = \gamma_{n,int}u &= \gamma_{n,int}\mathcal{S}\psi + V_{n,\Gamma}f \\
+&= (K^*\psi + \tfrac{1}{2}\psi) + V_{n,\Gamma}f
 \end{aligned}
 $$
 
 Rearranging:
 
 $$
-\boxed{(\tfrac{1}{2}I + K')\psi = g - \partial_n(\mathcal{V}f)|_\Gamma}
+\boxed{(\tfrac{1}{2}I + K^*)\psi = g - V_{n,\Gamma}f}
 $$
 
-**Nullspace ($\kappa = 0$).** For the Laplace equation, the operator $(\tfrac{1}{2}I + K')$ has a one-dimensional nullspace (the constant density). This reflects the fact that the interior Neumann problem determines $u$ only up to an additive constant. A solution exists only when the solvability condition holds:
+**Nullspace ($\kappa = 0$).** For the Laplace equation, the operator $(\tfrac{1}{2}I + K^*)$ has a one-dimensional nullspace (the constant density). This reflects the fact that the interior Neumann problem determines $u$ only up to an additive constant. A solution exists only when the solvability condition holds:
 
 $$
 \int_\Gamma g\,ds + \int_{\Omega_{int}} f\,d\mathbf{x} = 0
@@ -331,11 +382,11 @@ $$
 
 In practice, the nullspace is handled by fixing the density at one point or by projecting out the constant mode during GMRES.
 
-**KFBIM evaluation.** $(\tfrac{1}{2}I + K')\psi$ is the interior normal derivative of $\mathcal{S}\psi$. Call the interface solver with jumps $(\mu = 0,\; \sigma = \psi)$ and $f_{bulk} = 0$; recover $un^+ = un_{avg} + \tfrac{1}{2}\psi$ to get $(\tfrac{1}{2}I + K')\psi$. The volume contribution $\partial_n(\mathcal{V}f)|_\Gamma$ is obtained via the interface solver with jumps $(0, 0)$ and $f_{bulk} = f$.
+**KFBIM evaluation.** $(\tfrac{1}{2}I + K^*)\psi$ is the interior normal derivative of $\mathcal{S}\psi$. Call the interface solver with jumps $(\mu = 0,\; \sigma = \psi)$ and $f_{bulk} = 0$; recover $\gamma_{n,int}u = u_{n,avg} + \tfrac{1}{2}\psi$ to get $(\tfrac{1}{2}I + K^*)\psi$. The volume contribution $V_{n,\Gamma}f$ is obtained via the interface solver with jumps $(0, 0)$ and $f_{bulk} = f$.
 
 ### Exterior Dirichlet BVP
 
-Find $u$ such that $-\Delta u + \lambda^2 u = f$ in $\Omega_{ext}$ with $u|_\Gamma = g$.
+Find $u$ such that $-\Delta u + \lambda^2 u = f$ in $\Omega_{ext}$ with $\gamma_{ext}u = g$.
 
 **Representation.** Same double-layer ansatz as the interior case ($\sigma = 0$, $\mu = \phi$):
 
@@ -343,26 +394,27 @@ $$
 u(\mathbf{x}) = -\mathcal{D}\phi(\mathbf{x}) + \mathcal{V}f(\mathbf{x}), \qquad \mathbf{x} \in \Omega_{ext}
 $$
 
-**Derivation of the BIE.** Take the exterior trace $\mathbf{x} \to \Gamma^-$. Using the jump relation $\mathcal{D}\phi|_{\Gamma^-} = K\phi + \tfrac{1}{2}\phi$:
+**Derivation of the BIE.** Take the exterior trace. Using the jump relation
+$\gamma_{ext}\mathcal{D}\phi = K\phi + \tfrac{1}{2}\phi$:
 
 $$
 \begin{aligned}
-g = u|_{\Gamma^-} &= -\mathcal{D}\phi|_{\Gamma^-} + \mathcal{V}f|_\Gamma \\
-&= -(K\phi + \tfrac{1}{2}\phi) + \mathcal{V}f|_\Gamma
+g = \gamma_{ext}u &= -\gamma_{ext}\mathcal{D}\phi + V_\Gamma f \\
+&= -(K\phi + \tfrac{1}{2}\phi) + V_\Gamma f
 \end{aligned}
 $$
 
 Rearranging:
 
 $$
-\boxed{(K + \tfrac{1}{2}I)\phi = \mathcal{V}f|_\Gamma - g}
+\boxed{(K + \tfrac{1}{2}I)\phi = V_\Gamma f - g}
 $$
 
-**KFBIM evaluation.** Call the interface solver with jumps $(\mu = \phi,\; \sigma = 0)$ and $f_{bulk} = 0$. Recover the exterior trace $u^- = u_{avg} - \tfrac{1}{2}\phi$ of $-\mathcal{D}\phi$. It equals $-(K + \tfrac{1}{2}I)\phi$, so $(K + \tfrac{1}{2}I)\phi = -u^-$.
+**KFBIM evaluation.** Call the interface solver with jumps $(\mu = \phi,\; \sigma = 0)$ and $f_{bulk} = 0$. Recover the exterior trace $\gamma_{ext}u = u_{avg} - \tfrac{1}{2}\phi$ of $-\mathcal{D}\phi$. It equals $-(K + \tfrac{1}{2}I)\phi$, so $(K + \tfrac{1}{2}I)\phi = -\gamma_{ext}u$.
 
 ### Exterior Neumann BVP
 
-Find $u$ such that $-\Delta u + \lambda^2 u = f$ in $\Omega_{ext}$ with $\partial_n u|_\Gamma = g$.
+Find $u$ such that $-\Delta u + \lambda^2 u = f$ in $\Omega_{ext}$ with $\gamma_{n,ext}u = g$.
 
 **Representation.** Single-layer ansatz ($\sigma = \psi$, $\mu = 0$):
 
@@ -370,37 +422,38 @@ $$
 u(\mathbf{x}) = \mathcal{S}\psi(\mathbf{x}) + \mathcal{V}f(\mathbf{x}), \qquad \mathbf{x} \in \Omega_{ext}
 $$
 
-**Derivation of the BIE.** Take the exterior normal derivative $\mathbf{x} \to \Gamma^-$. Using the jump relation $\partial_n(\mathcal{S}\psi)|_{\Gamma^-} = K'\psi - \tfrac{1}{2}\psi$:
+**Derivation of the BIE.** Take the exterior normal trace. Using the jump
+relation $\gamma_{n,ext}\mathcal{S}\psi = K^*\psi - \tfrac{1}{2}\psi$:
 
 $$
 \begin{aligned}
-g = \partial_n u|_{\Gamma^-} &= \partial_n(\mathcal{S}\psi)|_{\Gamma^-} + \partial_n(\mathcal{V}f)|_\Gamma \\
-&= (K'\psi - \tfrac{1}{2}\psi) + \partial_n(\mathcal{V}f)|_\Gamma
+g = \gamma_{n,ext}u &= \gamma_{n,ext}\mathcal{S}\psi + V_{n,\Gamma}f \\
+&= (K^*\psi - \tfrac{1}{2}\psi) + V_{n,\Gamma}f
 \end{aligned}
 $$
 
 Rearranging:
 
 $$
-\boxed{(K' - \tfrac{1}{2}I)\psi = g - \partial_n(\mathcal{V}f)|_\Gamma}
+\boxed{(K^* - \tfrac{1}{2}I)\psi = g - V_{n,\Gamma}f}
 $$
 
-**Nullspace ($\kappa = 0$).** For the Laplace equation, the operator $(K' - \tfrac{1}{2}I)$ also has a one-dimensional nullspace in 2D, corresponding to the constant density. This is handled by the same projection technique as the interior Neumann case.
+**Nullspace ($\kappa = 0$).** For the Laplace equation, the operator $(K^* - \tfrac{1}{2}I)$ also has a one-dimensional nullspace in 2D, corresponding to the constant density. This is handled by the same projection technique as the interior Neumann case.
 
-**KFBIM evaluation.** Call the interface solver with jumps $(\mu = 0,\; \sigma = \psi)$ and $f_{bulk} = 0$; recover the exterior normal derivative $un^- = un_{avg} - \tfrac{1}{2}\psi$, which gives $(K' - \tfrac{1}{2}I)\psi$.
+**KFBIM evaluation.** Call the interface solver with jumps $(\mu = 0,\; \sigma = \psi)$ and $f_{bulk} = 0$; recover the exterior normal trace $\gamma_{n,ext}u = u_{n,avg} - \tfrac{1}{2}\psi$, which gives $(K^* - \tfrac{1}{2}I)\psi$.
 
 ### BIE Summary
 
 | BVP | Representation | BIE |
 |:----|:---------------|:----|
-| Interior Dirichlet | $u = -\mathcal{D}\phi + \mathcal{V}f$ | $(\tfrac{1}{2}I - K)\phi = g - \mathcal{V}f\|_\Gamma$ |
-| Interior Neumann   | $u = \mathcal{S}\psi + \mathcal{V}f$  | $(\tfrac{1}{2}I + K')\psi = g - \partial_n(\mathcal{V}f)\|_\Gamma$ |
-| Exterior Dirichlet | $u = -\mathcal{D}\phi + \mathcal{V}f$ | $(K + \tfrac{1}{2}I)\phi = \mathcal{V}f\|_\Gamma - g$ |
-| Exterior Neumann   | $u = \mathcal{S}\psi + \mathcal{V}f$  | $(K' - \tfrac{1}{2}I)\psi = g - \partial_n(\mathcal{V}f)\|_\Gamma$ |
+| Interior Dirichlet | $u = -\mathcal{D}\phi + \mathcal{V}f$ | $(\tfrac{1}{2}I - K)\phi = g - V_\Gamma f$ |
+| Interior Neumann   | $u = \mathcal{S}\psi + \mathcal{V}f$  | $(\tfrac{1}{2}I + K^*)\psi = g - V_{n,\Gamma}f$ |
+| Exterior Dirichlet | $u = -\mathcal{D}\phi + \mathcal{V}f$ | $(K + \tfrac{1}{2}I)\phi = V_\Gamma f - g$ |
+| Exterior Neumann   | $u = \mathcal{S}\psi + \mathcal{V}f$  | $(K^* - \tfrac{1}{2}I)\psi = g - V_{n,\Gamma}f$ |
 
 ## 6. Generic Interface Problems (Variable Coefficients)
 
-The generic second-order elliptic interface problem is:
+The generic second-order elliptic interface problem is
 
 $$
 \boxed{-\nabla \cdot (\beta(\mathbf{x}) \nabla u) + \kappa^2(\mathbf{x})\, u = f(\mathbf{x}) \quad \text{in } \Omega_{int} \cup \Omega_{ext}}
@@ -420,75 +473,328 @@ $$
 \end{cases}
 $$
 
-The jump conditions on $\Gamma$ become:
+We keep the KFBIM sign convention from the previous sections: the normal $n$
+points from $\Omega_{int}$ to $\Omega_{ext}$ and jumps are interior minus
+exterior. In this section write the prescribed interface data as
 
 $$
-[u]_\Gamma = \mu, \qquad [\beta\,\partial_n u]_\Gamma = \sigma
+[u]_\Gamma = a, \qquad [\beta\,\partial_n u]_\Gamma = b.
 $$
 
-This reduces to the constant-coefficient interface problem (Section 2) when $\beta_{int} = \beta_{ext} = 1$ and $\kappa_{int} = \kappa_{ext} = 0$.
+Since $\beta$ is constant in each phase, division by $\beta$ gives
 
-### 7. BIE for Generic Interface Problems
-
-We now consider the generic interface problem from Section 6:
 $$
--\nabla \cdot (\beta(\mathbf{x}) \nabla u) + \kappa^2(\mathbf{x})\, u = f(\mathbf{x}) \quad \text{in } \Omega_{int} \cup \Omega_{ext}
-$$
-with jump conditions $[u] = \mu$ and $[\beta \partial_n u] = \sigma$.
-
-#### Constant $\beta/\kappa^2$ Ratio
-
-First, we consider the special case where the ratio of $\kappa^2$ to $\beta$ is the same on both sides of the interface. Let this constant ratio be $\lambda^2$:
-$$
-\frac{\kappa^2_{int}}{\beta_{int}} = \frac{\kappa^2_{ext}}{\beta_{ext}} \equiv \lambda^2
+\left(-\Delta+\lambda_s^2\right)u_s=q_s,\qquad
+\lambda_s^2=\frac{\kappa_s^2}{\beta_s},\qquad
+q_s=\frac{f_s}{\beta_s},
+\qquad s\in\{int,ext\}.
 $$
 
-Since $\beta$ is piecewise constant, we can divide the PDE in each subdomain by its respective $\beta$ value. This yields the modified Helmholtz equation on the entire domain $B \setminus \Gamma$:
+The key distinction is whether the screened ratio $\kappa^2/\beta$ has the
+same value on the two sides. The current 2D API for both cases is
+`LaplaceTransmission2D`, selected by `LaplaceTransmissionMode2D::CommonRatio`
+or `LaplaceTransmissionMode2D::DifferentRatios`.
+
+### 6.1 Common Ratio
+
+First consider the case handled by `LaplaceTransmission2D` in `CommonRatio`
+mode:
+
 $$
--\Delta u + \lambda^2 u = \frac{f}{\beta}
+\frac{\kappa^2_{int}}{\beta_{int}}
+=
+\frac{\kappa^2_{ext}}{\beta_{ext}}
+\equiv \lambda^2.
 $$
 
-**Representation.** We can express the solution using the representation formula for the operator $-\Delta + \lambda^2$:
+Then both phases use the same scalar operator:
+
 $$
-u(\mathbf{x}) = \mathcal{S}\psi(\mathbf{x}) - \mathcal{D}\mu(\mathbf{x}) + \mathcal{V}(f/\beta)(\mathbf{x})
-$$
-where $\psi$ is an unknown single-layer density. By construction, the double-layer density is chosen to be exactly $\mu$ to satisfy the Dirichlet jump condition:
-$$
-[u] = [\mathcal{S}\psi] - [\mathcal{D}\mu] + [\mathcal{V}(f/\beta)] = 0 - (-\mu) + 0 = \mu
+\left(-\Delta+\lambda^2\right)u=q,\qquad q=\frac{f}{\beta}.
 $$
 
-**Derivation of the BIE.** To find the unknown density $\psi$, we use the flux jump condition $[\beta \partial_n u] = \sigma$. First, we take the normal derivative of the representation formula from both the interior and exterior:
-$$
-\partial_n u_{int} = (K' + \tfrac{1}{2}I)\psi - \partial_n(\mathcal{D}\mu)|_\Gamma + \partial_n \mathcal{V}(f/\beta)|_\Gamma
-$$
-$$
-\partial_n u_{ext} = (K' - \tfrac{1}{2}I)\psi - \partial_n(\mathcal{D}\mu)|_\Gamma + \partial_n \mathcal{V}(f/\beta)|_\Gamma
-$$
-Note that the normal derivatives of the double-layer potential and the volume potential are continuous across the interface.
+Because the operator is common, the trace jump can be imposed directly with the
+double-layer jump primitive:
 
-Substituting these into the flux jump condition $\beta_{int} \partial_n u_{int} - \beta_{ext} \partial_n u_{ext} = \sigma$:
 $$
-\beta_{int} \left( (K' + \tfrac{1}{2}I)\psi - \partial_n(\mathcal{D}\mu) + \partial_n \mathcal{V}(f/\beta) \right) - \beta_{ext} \left( (K' - \tfrac{1}{2}I)\psi - \partial_n(\mathcal{D}\mu) + \partial_n \mathcal{V}(f/\beta) \right) = \sigma
+u = \mathcal{S}_\lambda\psi-\mathcal{D}_\lambda a+\mathcal{V}_\lambda q.
 $$
 
-Grouping the terms with $\psi$:
+Indeed,
+
 $$
-\beta_{int}(K' + \tfrac{1}{2}I)\psi - \beta_{ext}(K' - \tfrac{1}{2}I)\psi = \frac{\beta_{int} + \beta_{ext}}{2}\psi + (\beta_{int} - \beta_{ext})K'\psi
+[u]
+=
+[\mathcal{S}_\lambda\psi]
+-[\mathcal{D}_\lambda a]
++[\mathcal{V}_\lambda q]
+=0-(-a)+0
+=a.
 $$
 
-For the continuous potential terms, we get a factor of $(\beta_{int} - \beta_{ext})$:
+The unknown single-layer density $\psi$ is determined by the flux jump. Using
+
 $$
--(\beta_{int} - \beta_{ext})\partial_n(\mathcal{D}\mu)|_\Gamma + (\beta_{int} - \beta_{ext})\partial_n \mathcal{V}(f/\beta)|_\Gamma
+\partial_n u_{int}
+=
+\left(K_\lambda^*+\tfrac12 I\right)\psi
+-\partial_n\mathcal{D}_\lambda a
++\partial_n\mathcal{V}_\lambda q,
 $$
 
-Equating the sum to $\sigma$ and rearranging yields the Boundary Integral Equation for $\psi$:
 $$
-\frac{\beta_{int} + \beta_{ext}}{2}\psi + (\beta_{int} - \beta_{ext})K'\psi = \sigma + (\beta_{int} - \beta_{ext}) \Big( \partial_n(\mathcal{D}\mu)|_\Gamma - \partial_n \mathcal{V}(f/\beta)|_\Gamma \Big)
-$$
-
-Dividing by the average $\bar{\beta} = \frac{\beta_{int} + \beta_{ext}}{2}$, this can be written as a standard Fredholm integral equation of the second kind:
-$$
-\boxed{ (I + 2\frac{\beta_{int} - \beta_{ext}}{\beta_{int} + \beta_{ext}} K')\psi = \frac{2}{\beta_{int} + \beta_{ext}}\sigma + 2\frac{\beta_{int} - \beta_{ext}}{\beta_{int} + \beta_{ext}} \Big( \partial_n(\mathcal{D}\mu)|_\Gamma - \partial_n \mathcal{V}(f/\beta)|_\Gamma \Big) }
+\partial_n u_{ext}
+=
+\left(K_\lambda^*-\tfrac12 I\right)\psi
+-\partial_n\mathcal{D}_\lambda a
++\partial_n\mathcal{V}_\lambda q,
 $$
 
-This BIE can be solved for $\psi$, after which the full solution $u$ can be evaluated using the representation formula.
+the condition
+$\beta_{int}\partial_n u_{int}-\beta_{ext}\partial_n u_{ext}=b$
+becomes
+
+$$
+\frac{\beta_{int}+\beta_{ext}}{2}\psi
++(\beta_{int}-\beta_{ext})K_\lambda^*\psi
+=
+b
++(\beta_{int}-\beta_{ext})
+\left(
+\partial_n\mathcal{D}_\lambda a
+-\partial_n\mathcal{V}_\lambda q
+\right).
+$$
+
+Equivalently,
+
+$$
+\boxed{
+\left(
+I+
+2\frac{\beta_{int}-\beta_{ext}}{\beta_{int}+\beta_{ext}}
+K_\lambda^*
+\right)\psi
+=
+\frac{2b}{\beta_{int}+\beta_{ext}}
++
+2\frac{\beta_{int}-\beta_{ext}}{\beta_{int}+\beta_{ext}}
+\left(
+\partial_n\mathcal{D}_\lambda a
+-\partial_n\mathcal{V}_\lambda q
+\right).
+}
+$$
+
+This scalar second-kind BIE is the natural KFBIM reduction: after division by
+$\beta$, the same screened bulk operator applies everywhere. If
+$\beta_{int}=\beta_{ext}$, it reduces to $\psi=b/\beta_{int}$.
+
+### 6.2 Different Ratios
+
+When
+
+$$
+\lambda_{int}^2
+\ne
+\lambda_{ext}^2,
+$$
+
+there is no single Green's function or single KFBIM bulk solve that represents
+both phases. One instead uses phase-dependent layer potentials. Let
+$G_s$ solve
+
+$$
+\left(-\Delta_x+\lambda_s^2\right)G_s(x,y)=\delta(x-y),
+\qquad s\in\{int,ext\},
+$$
+
+and define the potentials $\mathcal{S}_s,\mathcal{D}_s$ and boundary operators $S_s,K_s,K_s^*,H_s$ from $G_s$ using the same normal $n$ from
+interior to exterior.
+
+Nonzero forcing is handled by splitting off phase-specific volume potentials.
+Let
+
+$$
+v_s=\mathcal{V}_s q_s,\qquad
+\left(-\Delta+\lambda_s^2\right)v_s=q_s
+\quad\text{in }\Omega_s,\qquad s\in\{int,ext\}.
+$$
+
+The particular solutions $v_s$ need not satisfy the interface jump conditions.
+Only their traces enter the BIE. Write
+
+$$
+\gamma_s v_s=v_s|_\Gamma,\qquad
+\gamma_{n,s}v_s=(\partial_n v_s)|_\Gamma,
+$$
+
+where the same normal $n$ from interior to exterior is used in both normal
+traces. The full representation is
+
+$$
+u_{int}=v_{int}+\mathcal{S}_{int}\psi-\alpha_{int}\mathcal{D}_{int}\phi,
+\qquad
+u_{ext}=v_{ext}+\mathcal{S}_{ext}\psi-\alpha_{ext}\mathcal{D}_{ext}\phi.
+$$
+
+The coefficients are chosen to cancel the hypersingular principal part in the
+flux equation:
+
+$$
+\boxed{
+\alpha_{int}
+=
+\frac{2\beta_{ext}}{\beta_{int}+\beta_{ext}},
+\qquad
+\alpha_{ext}
+=
+\frac{2\beta_{int}}{\beta_{int}+\beta_{ext}}.
+}
+$$
+
+With this normalization, the forced second-kind BIE is
+
+$$
+\boxed{
+\begin{aligned}
+\left[
+I
+-
+\frac{2\beta_{ext}}{\beta_{int}+\beta_{ext}}K_{int}
++
+\frac{2\beta_{int}}{\beta_{int}+\beta_{ext}}K_{ext}
+\right]\phi
++
+\left(S_{int}-S_{ext}\right)\psi
+&=
+a-\left(\gamma_{int}v_{int}-\gamma_{ext}v_{ext}\right),
+\\[6pt]
+\frac{2\beta_{int}\beta_{ext}}{\beta_{int}+\beta_{ext}}
+\left(H_{ext}-H_{int}\right)\phi
++
+\left[
+\frac{\beta_{int}+\beta_{ext}}{2}I
++
+\beta_{int}K_{int}^*
+-
+\beta_{ext}K_{ext}^*
+\right]\psi
+&=
+b-\left(
+\beta_{int}\gamma_{n,int}v_{int}
+-\beta_{ext}\gamma_{n,ext}v_{ext}
+\right).
+\end{aligned}
+}
+$$
+
+Equivalently, define the forcing-corrected jumps
+
+$$
+a_h
+=
+a-\left(\gamma_{int}v_{int}-\gamma_{ext}v_{ext}\right),
+\qquad
+b_h
+=
+b-\left(
+\beta_{int}\gamma_{n,int}v_{int}
+-\beta_{ext}\gamma_{n,ext}v_{ext}
+\right).
+$$
+
+Then the same operator acts on the homogeneous unknown densities
+$(\phi,\psi)$:
+
+$$
+\boxed{
+\begin{aligned}
+\left[
+I
+-
+\frac{2\beta_{ext}}{\beta_{int}+\beta_{ext}}K_{int}
++
+\frac{2\beta_{int}}{\beta_{int}+\beta_{ext}}K_{ext}
+\right]\phi
++
+\left(S_{int}-S_{ext}\right)\psi
+&=a_h,\\[6pt]
+\frac{2\beta_{int}\beta_{ext}}{\beta_{int}+\beta_{ext}}
+\left(H_{ext}-H_{int}\right)\phi
++
+\left[
+\frac{\beta_{int}+\beta_{ext}}{2}I
++
+\beta_{int}K_{int}^*
+-
+\beta_{ext}K_{ext}^*
+\right]\psi
+&=b_h.
+\end{aligned}
+}
+$$
+
+Equivalently, scaling the second row to have identity leading coefficient gives
+
+$$
+\boxed{
+\begin{aligned}
+\left[
+I
+-
+\frac{2\beta_{ext}}{\beta_{int}+\beta_{ext}}K_{int}
++
+\frac{2\beta_{int}}{\beta_{int}+\beta_{ext}}K_{ext}
+\right]\phi
++
+\left(S_{int}-S_{ext}\right)\psi
+&=a_h,\\[6pt]
+\frac{4\beta_{int}\beta_{ext}}{(\beta_{int}+\beta_{ext})^2}
+\left(H_{ext}-H_{int}\right)\phi
++
+\left[
+I
++
+\frac{2\beta_{int}}{\beta_{int}+\beta_{ext}}K_{int}^*
+-
+\frac{2\beta_{ext}}{\beta_{int}+\beta_{ext}}K_{ext}^*
+\right]\psi
+&=
+\frac{2b_h}{\beta_{int}+\beta_{ext}}.
+\end{aligned}
+}
+$$
+
+The choice of $\alpha_{int}$ and $\alpha_{ext}$ enforces
+$\beta_{int}\alpha_{int}=\beta_{ext}\alpha_{ext}$, so the leading
+hypersingular pieces of $H_{int}$ and $H_{ext}$ cancel. The remaining
+$H_{ext}-H_{int}$ term is lower order for a smooth interface, giving a
+Fredholm second-kind system for the two unknown densities $(\phi,\psi)$. If
+$q_{int}=q_{ext}=0$, then $v_{int}=v_{ext}=0$ and the system reduces to the
+homogeneous BIE derived in `generic_if_bie.md`. For nonzero forcing, the
+matrix-free BIE operator is unchanged; the phase-specific volume potentials
+only shift the right-hand side.
+
+In the C++ implementation, `LaplacePotentialEval2D` uses the jump primitive
+`[u]=\phi`, which is the negative of the classical double-layer sign used in
+the formulas above. Therefore `LaplaceTransmission2D::DifferentRatios` applies
+the equivalent matrix-free rows
+
+$$
+\left(I+\alpha_{int}K_{int}-\alpha_{ext}K_{ext}\right)\phi
++(S_{int}-S_{ext})\psi=a_h,
+$$
+
+and
+
+$$
+\frac{4\beta_{int}\beta_{ext}}{(\beta_{int}+\beta_{ext})^2}
+\left(H_{int}-H_{ext}\right)\phi
++
+\left[
+I+\frac{2\beta_{int}}{\beta_{int}+\beta_{ext}}K_{int}^*
+-\frac{2\beta_{ext}}{\beta_{int}+\beta_{ext}}K_{ext}^*
+\right]\psi
+=\frac{2b_h}{\beta_{int}+\beta_{ext}}.
+$$

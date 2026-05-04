@@ -29,7 +29,7 @@
 #include "src/geometry/curve_resampler_2d.hpp"
 #include "src/geometry/grid_pair_2d.hpp"
 #include "src/grid/cartesian_grid_2d.hpp"
-#include "src/problems/laplace_interior.hpp"
+#include "src/operators/laplace_bvp_2d.hpp"
 
 using namespace kfbim;
 
@@ -244,12 +244,14 @@ ConvergenceData solve_and_measure(int N, const std::filesystem::path& out_dir)
         u_exact[n] = exact_u(x, y);
     }
 
-    LaplaceInteriorDirichlet2D problem(
-        grid, iface, g, f_bulk, rhs_derivs,
-        LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter,
-        kEta);
+    LaplaceBvpOptions2D options;
+    options.panel_method = LaplaceBvpPanelMethod2D::ChebyshevLobattoCenter;
+    options.eta = kEta;
 
-    auto result = problem.solve(800, 1e-8, 200);
+    LaplaceBvp2D problem(
+        grid, iface, LaplaceBvpType2D::InteriorDirichlet, options);
+
+    auto result = problem.solve(g, f_bulk, rhs_derivs, 800, 1e-8, 200);
     REQUIRE(result.converged);
 
     double bulk_err = 0.0;

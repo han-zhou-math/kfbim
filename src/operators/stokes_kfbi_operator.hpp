@@ -5,7 +5,7 @@
 #include "i_kfbi_operator.hpp"
 #include "../transfer/i_spread.hpp"
 #include "../transfer/i_restrict.hpp"
-#include "../solver/i_bulk_solver.hpp"
+#include "../bulk_solvers/i_bulk_solver.hpp"
 
 namespace kfbim {
 

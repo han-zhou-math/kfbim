@@ -7,8 +7,7 @@
 
 #include "../gmres/gmres.hpp"
 #include "../local_cauchy/jump_data.hpp"
-#include "../operator/laplace_potential.hpp"
-#include "../solver/zfft_bc_type.hpp"
+#include "../bulk_solvers/zfft_bc_type.hpp"
 
 namespace kfbim {
 
@@ -32,15 +31,26 @@ bool is_boundary_node(int i, int j, int nx, int ny)
     return i == 0 || i == nx - 1 || j == 0 || j == ny - 1;
 }
 
-bool is_neumann_mode(LaplaceKFBIMode mode)
+bool is_neumann_type(LaplaceBvpType2D type)
 {
-    return mode == LaplaceKFBIMode::InteriorNeumann
-        || mode == LaplaceKFBIMode::ExteriorNeumann;
+    return type == LaplaceBvpType2D::InteriorNeumann
+        || type == LaplaceBvpType2D::ExteriorNeumann;
 }
 
-bool uses_neumann_nullspace_projection(LaplaceKFBIMode mode, double eta)
+bool is_exterior_type(LaplaceBvpType2D type)
 {
-    return mode == LaplaceKFBIMode::InteriorNeumann && std::abs(eta) < 1.0e-14;
+    return type == LaplaceBvpType2D::ExteriorDirichlet
+        || type == LaplaceBvpType2D::ExteriorNeumann;
+}
+
+double side_jump_sign(LaplaceBvpType2D type)
+{
+    return is_exterior_type(type) ? -1.0 : 1.0;
+}
+
+bool uses_neumann_nullspace_projection(LaplaceBvpType2D type, double eta)
+{
+    return type == LaplaceBvpType2D::InteriorNeumann && std::abs(eta) < 1.0e-14;
 }
 
 void project_mean_zero(Eigen::VectorXd& v)
@@ -76,26 +86,39 @@ private:
 };
 
 std::unique_ptr<ILaplaceSpread2D> make_laplace_spread_2d(
-    LaplaceInteriorPanelMethod2D method,
-    const GridPair2D&            grid_pair,
-    double                       eta)
+    LaplaceBvpPanelMethod2D method,
+    const GridPair2D&       grid_pair,
+    double                  eta)
 {
     switch (method) {
-    case LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter:
+    case LaplaceBvpPanelMethod2D::ChebyshevLobattoCenter:
         return std::make_unique<LaplaceLobattoCenterSpread2D>(grid_pair, eta);
     }
     throw std::invalid_argument("unsupported Laplace BVP panel method");
 }
 
 std::unique_ptr<ILaplaceRestrict2D> make_laplace_restrict_2d(
-    LaplaceInteriorPanelMethod2D method,
-    const GridPair2D&            grid_pair)
+    LaplaceBvpPanelMethod2D method,
+    const GridPair2D&       grid_pair)
 {
     switch (method) {
-    case LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter:
+    case LaplaceBvpPanelMethod2D::ChebyshevLobattoCenter:
         return std::make_unique<LaplaceLobattoCenterRestrict2D>(grid_pair);
     }
     throw std::invalid_argument("unsupported Laplace BVP panel method");
+}
+
+double rhs_deriv_sign_for_type(LaplaceBvpType2D type)
+{
+    switch (type) {
+    case LaplaceBvpType2D::InteriorDirichlet:
+    case LaplaceBvpType2D::InteriorNeumann:
+        return 1.0;
+    case LaplaceBvpType2D::ExteriorDirichlet:
+    case LaplaceBvpType2D::ExteriorNeumann:
+        return -1.0;
+    }
+    throw std::invalid_argument("unsupported Laplace BVP type");
 }
 
 std::vector<Eigen::VectorXd> signed_rhs_derivs(
@@ -118,12 +141,12 @@ std::vector<Eigen::VectorXd> signed_rhs_derivs(
 std::vector<LaplaceJumpData2D> make_jumps(
     const Interface2D&                 iface,
     const Eigen::VectorXd&             density,
-    LaplaceKFBIMode                    mode,
+    LaplaceBvpType2D                   type,
     const std::vector<Eigen::VectorXd>& rhs_derivs)
 {
     const int n_iface = iface.num_points();
     std::vector<LaplaceJumpData2D> jumps(n_iface);
-    const bool neumann = is_neumann_mode(mode);
+    const bool neumann = is_neumann_type(type);
     for (int q = 0; q < n_iface; ++q) {
         jumps[q].u_jump = neumann ? 0.0 : density[q];
         jumps[q].un_jump = neumann ? density[q] : 0.0;
@@ -134,40 +157,47 @@ std::vector<LaplaceJumpData2D> make_jumps(
 
 } // namespace
 
-LaplaceBvpPipeline2D::LaplaceBvpPipeline2D(
-    const CartesianGrid2D&              grid,
-    const Interface2D&                  iface,
-    const Eigen::VectorXd&              g,
-    const Eigen::VectorXd&              f_bulk,
-    const std::vector<Eigen::VectorXd>& rhs_derivs,
-    LaplaceKFBIMode                     mode,
-    double                              rhs_deriv_sign,
-    LaplaceBvpOptions2D                 options)
+LaplaceBvp2D::LaplaceBvp2D(
+    const CartesianGrid2D& grid,
+    const Interface2D&     iface,
+    LaplaceBvpType2D       type,
+    LaplaceBvpOptions2D    options)
     : grid_pair_(grid, iface)
     , spread_(make_laplace_spread_2d(options.panel_method, grid_pair_, options.eta))
     , bulk_solver_(grid, ZfftBcType::Dirichlet, options.eta)
     , restrict_op_(make_laplace_restrict_2d(options.panel_method, grid_pair_))
-    , mode_(mode)
+    , potentials_(*spread_, bulk_solver_, *restrict_op_)
+    , type_(type)
+    , rhs_deriv_sign_(rhs_deriv_sign_for_type(type))
     , eta_(options.eta)
-    , g_(g)
-    , f_bulk_(f_bulk)
-    , rhs_derivs_(signed_rhs_derivs("LaplaceBvpPipeline2D",
-                                    rhs_derivs,
-                                    iface.num_points(),
-                                    rhs_deriv_sign))
     , outer_dirichlet_values_(std::move(options.outer_dirichlet_values))
 {
-    require_vector_size("LaplaceBvpPipeline2D", "g", g_.size(), iface.num_points());
-    require_vector_size("LaplaceBvpPipeline2D", "f_bulk", f_bulk_.size(), grid.num_dofs());
     if (outer_dirichlet_values_.size() != 0) {
-        require_vector_size("LaplaceBvpPipeline2D",
+        require_vector_size("LaplaceBvp2D",
                             "outer_dirichlet_values",
                             outer_dirichlet_values_.size(),
                             grid.num_dofs());
     }
 }
 
-Eigen::VectorXd LaplaceBvpPipeline2D::apply_dirichlet_boundary_elimination(
+void LaplaceBvp2D::apply(const Eigen::VectorXd& x, Eigen::VectorXd& y) const
+{
+    const int n_iface = grid_pair_.interface().num_points();
+    require_vector_size("LaplaceBvp2D", "operator input", x.size(), n_iface);
+
+    const Eigen::VectorXd zero_rhs =
+        Eigen::VectorXd::Zero(grid_pair_.grid().num_dofs());
+    const std::vector<Eigen::VectorXd> zero_derivs(
+        n_iface, Eigen::VectorXd::Zero(1));
+    apply_with_rhs(x, zero_rhs, zero_derivs, y);
+}
+
+int LaplaceBvp2D::problem_size() const
+{
+    return grid_pair_.interface().num_points();
+}
+
+Eigen::VectorXd LaplaceBvp2D::apply_dirichlet_boundary_elimination(
     const Eigen::VectorXd& rhs) const
 {
     if (outer_dirichlet_values_.size() == 0)
@@ -208,7 +238,7 @@ Eigen::VectorXd LaplaceBvpPipeline2D::apply_dirichlet_boundary_elimination(
     return modified;
 }
 
-void LaplaceBvpPipeline2D::restore_dirichlet_boundary(Eigen::VectorXd& u_bulk) const
+void LaplaceBvp2D::restore_dirichlet_boundary(Eigen::VectorXd& u_bulk) const
 {
     if (outer_dirichlet_values_.size() == 0)
         return;
@@ -224,38 +254,66 @@ void LaplaceBvpPipeline2D::restore_dirichlet_boundary(Eigen::VectorXd& u_bulk) c
                 u_bulk[grid.index(i, j)] = outer_dirichlet_values_[grid.index(i, j)];
 }
 
-LaplaceBvpSolveResult2D LaplaceBvpPipeline2D::solve(
+void LaplaceBvp2D::apply_with_rhs(
+    const Eigen::VectorXd&              density,
+    const Eigen::VectorXd&              rhs,
+    const std::vector<Eigen::VectorXd>& rhs_derivs,
+    Eigen::VectorXd&                    y) const
+{
+    const int n_iface = grid_pair_.interface().num_points();
+    require_vector_size("LaplaceBvp2D", "operator input", density.size(), n_iface);
+    require_vector_size("LaplaceBvp2D", "rhs", rhs.size(), grid_pair_.grid().num_dofs());
+
+    auto jumps = make_jumps(grid_pair_.interface(), density, type_, rhs_derivs);
+    auto res = potentials_.evaluate(jumps, rhs);
+
+    y.resize(n_iface);
+    const double sign = side_jump_sign(type_);
+    if (!is_neumann_type(type_)) {
+        for (int q = 0; q < n_iface; ++q)
+            y[q] = res.u_avg[q] + sign * 0.5 * jumps[q].u_jump;
+    } else {
+        for (int q = 0; q < n_iface; ++q)
+            y[q] = res.un_avg[q] + sign * 0.5 * jumps[q].un_jump;
+    }
+}
+
+LaplaceBvpSolveResult2D LaplaceBvp2D::solve(
+    const Eigen::VectorXd&              boundary_data,
+    const Eigen::VectorXd&              f_bulk,
+    const std::vector<Eigen::VectorXd>& rhs_derivs,
     int max_iter,
     double tol,
     int restart) const
 {
     const int n_iface = grid_pair_.interface().num_points();
-    const Eigen::VectorXd rhs = apply_dirichlet_boundary_elimination(f_bulk_);
+    require_vector_size("LaplaceBvp2D", "boundary_data", boundary_data.size(), n_iface);
+    require_vector_size("LaplaceBvp2D", "f_bulk", f_bulk.size(), grid_pair_.grid().num_dofs());
 
-    LaplaceKFBIOperator2D op(
-        *spread_, bulk_solver_, *restrict_op_, rhs, rhs_derivs_, mode_);
+    const auto signed_derivs = signed_rhs_derivs(
+        "LaplaceBvp2D", rhs_derivs, n_iface, rhs_deriv_sign_);
+    const Eigen::VectorXd rhs = apply_dirichlet_boundary_elimination(f_bulk);
 
     Eigen::VectorXd volume_gamma;
-    op.apply_full(Eigen::VectorXd::Zero(n_iface), volume_gamma);
+    apply_with_rhs(Eigen::VectorXd::Zero(n_iface), rhs, signed_derivs, volume_gamma);
 
-    Eigen::VectorXd b = g_ - volume_gamma;
+    Eigen::VectorXd b = boundary_data - volume_gamma;
 
     GMRES gmres(max_iter, tol, restart);
     Eigen::VectorXd density = Eigen::VectorXd::Zero(n_iface);
     int iterations = 0;
-    if (uses_neumann_nullspace_projection(mode_, eta_)) {
+    if (uses_neumann_nullspace_projection(type_, eta_)) {
         project_mean_zero(b);
 
-        MeanProjectedOperator projected_op(op);
+        MeanProjectedOperator projected_op(*this);
         iterations = gmres.solve(projected_op, b, density);
         project_mean_zero(density);
     } else {
-        iterations = gmres.solve(op, b, density);
+        iterations = gmres.solve(*this, b, density);
     }
 
-    LaplacePotentialEval2D potentials(*spread_, bulk_solver_, *restrict_op_);
-    auto jumps = make_jumps(grid_pair_.interface(), density, mode_, rhs_derivs_);
-    auto full_res = potentials.evaluate(jumps, rhs);
+    auto jumps = make_jumps(grid_pair_.interface(), density, type_, signed_derivs);
+    auto full_res = potentials_.evaluate(jumps, rhs);
     restore_dirichlet_boundary(full_res.u_bulk);
 
     auto residuals = gmres.residuals();
@@ -264,81 +322,6 @@ LaplaceBvpSolveResult2D LaplaceBvpPipeline2D::solve(
             std::move(residuals),
             iterations,
             gmres.converged()};
-}
-
-LaplaceExteriorDirichlet2D::LaplaceExteriorDirichlet2D(
-    const CartesianGrid2D&              grid,
-    const Interface2D&                  iface,
-    const Eigen::VectorXd&              g,
-    const Eigen::VectorXd&              f_bulk,
-    const std::vector<Eigen::VectorXd>& rhs_derivs,
-    LaplaceBvpOptions2D                 options)
-    : pipeline_(grid,
-                iface,
-                g,
-                f_bulk,
-                rhs_derivs,
-                LaplaceKFBIMode::ExteriorDirichlet,
-                -1.0,
-                std::move(options))
-{}
-
-LaplaceBvpSolveResult2D LaplaceExteriorDirichlet2D::solve(
-    int max_iter,
-    double tol,
-    int restart) const
-{
-    return pipeline_.solve(max_iter, tol, restart);
-}
-
-LaplaceInteriorNeumann2D::LaplaceInteriorNeumann2D(
-    const CartesianGrid2D&              grid,
-    const Interface2D&                  iface,
-    const Eigen::VectorXd&              g,
-    const Eigen::VectorXd&              f_bulk,
-    const std::vector<Eigen::VectorXd>& rhs_derivs,
-    LaplaceBvpOptions2D                 options)
-    : pipeline_(grid,
-                iface,
-                g,
-                f_bulk,
-                rhs_derivs,
-                LaplaceKFBIMode::InteriorNeumann,
-                1.0,
-                std::move(options))
-{}
-
-LaplaceBvpSolveResult2D LaplaceInteriorNeumann2D::solve(
-    int max_iter,
-    double tol,
-    int restart) const
-{
-    return pipeline_.solve(max_iter, tol, restart);
-}
-
-LaplaceExteriorNeumann2D::LaplaceExteriorNeumann2D(
-    const CartesianGrid2D&              grid,
-    const Interface2D&                  iface,
-    const Eigen::VectorXd&              g,
-    const Eigen::VectorXd&              f_bulk,
-    const std::vector<Eigen::VectorXd>& rhs_derivs,
-    LaplaceBvpOptions2D                 options)
-    : pipeline_(grid,
-                iface,
-                g,
-                f_bulk,
-                rhs_derivs,
-                LaplaceKFBIMode::ExteriorNeumann,
-                -1.0,
-                std::move(options))
-{}
-
-LaplaceBvpSolveResult2D LaplaceExteriorNeumann2D::solve(
-    int max_iter,
-    double tol,
-    int restart) const
-{
-    return pipeline_.solve(max_iter, tol, restart);
 }
 
 } // namespace kfbim

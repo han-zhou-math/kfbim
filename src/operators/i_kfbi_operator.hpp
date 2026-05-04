@@ -13,7 +13,8 @@ namespace kfbim {
 // The flat-vector API keeps Layer 4 (GMRES) PDE- and dimension-agnostic.
 // Concrete subclasses handle packing/unpacking of PDE-specific jump unknowns.
 //
-// Implementations: LaplaceKFBIOperator2D/3D, StokesKFBIOperator2D/3D
+// Implementations include problem wrappers such as LaplaceBvp2D and
+// LaplaceTransmission2D, plus PDE-specific operator scaffolding.
 // ---------------------------------------------------------------------------
 
 class IKFBIOperator {

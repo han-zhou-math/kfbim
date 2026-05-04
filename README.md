@@ -25,18 +25,17 @@ Implemented:
 - 2D Laplace panel Cauchy solver for local jump reconstruction
 - 2D Laplace spread and restrict transfer operators
 - 2D and 3D zFFT-backed Laplace bulk solvers
-- Matrix-free `LaplaceKFBIOperator`
+- Matrix-free `IKFBIOperator` interface implemented by Laplace problem wrappers
 - Restarted GMRES outer solver
 - Modular `LaplacePotentialEval2D` operators for D/S/N jump primitives
-- End-to-end 2D Laplace interface and interior Dirichlet tests with current
-  Chebyshev-Lobatto convergence coverage, including a 5-fold star boundary
-- Current concrete boundary-value problem API: `LaplaceInteriorDirichlet2D`
+- End-to-end 2D Laplace BVP and transmission tests with current
+  Chebyshev-Lobatto convergence coverage, including star boundaries
+- Current concrete problem APIs: `LaplaceBvp2D` and `LaplaceTransmission2D`
 
 In progress / planned:
 
-- Stable Layer 5 APIs for additional Laplace BVPs
-- Interior/exterior Dirichlet and Neumann wrappers built on the verified
-  potential operators
+- Richer forcing/nonzero-volume-potential APIs and diagnostics for Laplace
+  problem wrappers
 - Variable-coefficient, 3D KFBI-pipeline, Stokes, and elasticity extensions
 - Python and MATLAB bindings
 
@@ -51,10 +50,10 @@ src/
   geometry/       GridPair queries and domain labels
   local_cauchy/   Local panel Cauchy reconstruction
   transfer/       Laplace spread/restrict operators
-  solver/         FFT and zFFT bulk solvers
-  operator/       Matrix-free KFBI operator interfaces
+  bulk_solvers/   FFT and zFFT bulk solvers
+  potentials/     Reusable potential evaluators
+  operators/      Matrix-free KFBI interface and problem wrappers
   gmres/          Restarted GMRES outer solver
-  problems/       Current problem-level pipeline utilities and BVP wrappers
 tests/            Catch2 test suite
 python/           Visualization and diagnostics
 third_party/zfft/ Vendored zFFT backend
@@ -151,5 +150,5 @@ Most current tests exercise individual layers plus the full 2D Laplace
 interface pipeline. When adding a new component, prefer a focused component test
 and one integration test that verifies convergence or conservation behavior.
 For new 2D Laplace work, use `CurveResampler2D::discretize()` and
-`LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter`; keep the legacy
+`LaplaceBvpPanelMethod2D::ChebyshevLobattoCenter`; keep the legacy
 Gauss path only for explicit regression or comparison tests.

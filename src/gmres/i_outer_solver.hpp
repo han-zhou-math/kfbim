@@ -2,7 +2,7 @@
 
 #include <vector>
 #include <Eigen/Dense>
-#include "../operator/i_kfbi_operator.hpp"
+#include "../operators/i_kfbi_operator.hpp"
 
 namespace kfbim {
 

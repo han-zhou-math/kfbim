@@ -1,15 +1,12 @@
 // ---------------------------------------------------------------------------
-// Full-pipeline test: constant-ratio discontinuous-coefficient interface PDE
+// Full-pipeline tests for piecewise-constant coefficient interface PDEs.
 //
-// Solves: -div(beta grad u) + kappa^2 u = f in Omega_int/Omega_ext
-// with piecewise constant beta and kappa^2 / beta = lambda^2 on both sides.
+// Solves: -div(beta grad u) + kappa^2 u = f in Omega_int/Omega_ext.
+// The solver API takes q=f/beta, so each phase uses
+//   -Delta u + lambda^2 u = q, lambda^2 = kappa^2 / beta.
 //
-// After division by beta, both subdomains use the same screened operator:
-//   -Delta u + lambda^2 u = q, q=f/beta.
-//
-// The manufactured solution uses different smooth branches across a 3-fold
-// 5-fold star.  This gives prescribed jumps [u] and [beta du/dn], and a nonzero
-// Dirichlet condition on the outer Cartesian box.
+// The manufactured solutions prescribe [u] and [beta du/dn] on a 3-fold star,
+// with nonzero Dirichlet data on the outer Cartesian box.
 // ---------------------------------------------------------------------------
 
 #include <catch2/catch_test_macros.hpp>
@@ -18,7 +15,6 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -30,35 +26,25 @@
 #include "src/geometry/curve_resampler_2d.hpp"
 #include "src/geometry/grid_pair_2d.hpp"
 #include "src/grid/cartesian_grid_2d.hpp"
-#include "src/problems/laplace_transmission_constant_ratio_2d.hpp"
+#include "src/operators/laplace_transmission_2d.hpp"
 
 using namespace kfbim;
 
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
-constexpr double kBetaInt = 2.0;
-constexpr double kBetaExt = 1.0;
-constexpr double kLambdaSq = 1.1;
-constexpr double kTargetPanelLengthOverH = 4.0;
+constexpr double kTargetNodeSpacingOverH = 1.5;
+constexpr double kTargetPanelLengthOverH = 2.0 * kTargetNodeSpacingOverH;
 
 constexpr double kStarCx = 0.07;
 constexpr double kStarCy = -0.04;
-constexpr double kStarRadius = 0.65;
-constexpr double kStarAmplitude = 0.20;
-constexpr int    kStarFolds = 5;
-constexpr double kBoxMargin = 0.35;
+constexpr double kStarRadius = 0.75;
+constexpr double kStarAmplitude = 0.25;
+constexpr int    kStarFolds = 3;
+constexpr double kBoxMargin = 0.30;
 
 #ifndef KFBIM_TEST_OUTPUT_DIR
 #define KFBIM_TEST_OUTPUT_DIR "output"
-#endif
-
-#ifndef KFBIM_PYTHON_EXECUTABLE
-#define KFBIM_PYTHON_EXECUTABLE "python3"
-#endif
-
-#ifndef KFBIM_TRANSMISSION_VIS_SCRIPT
-#define KFBIM_TRANSMISSION_VIS_SCRIPT "python/visualize_transmission_constant_ratio_2d.py"
 #endif
 
 class Star3Curve2D final : public ICurve2D {
@@ -92,6 +78,21 @@ private:
 struct Box2D {
     std::array<double, 2> lower;
     double                side_length;
+};
+
+struct TransmissionCaseConfig {
+    const char*                         label;
+    const char*                         output_leaf;
+    const char*                         file_prefix;
+    LaplaceTransmissionMode2D           mode;
+    LaplaceTransmissionCoefficients2D   coefficients;
+    int                                 max_iter;
+    double                              final_error_threshold;
+};
+
+struct ConvergenceData {
+    double bulk_err;
+    int    iterations;
 };
 
 Box2D make_outer_box(const ICurve2D& curve)
@@ -128,6 +129,16 @@ bool is_outer_boundary_node(int idx, int nx, int ny)
     return i == 0 || i == nx - 1 || j == 0 || j == ny - 1;
 }
 
+double lambda_sq_int(const TransmissionCaseConfig& config)
+{
+    return config.coefficients.kappa_sq_int / config.coefficients.beta_int;
+}
+
+double lambda_sq_ext(const TransmissionCaseConfig& config)
+{
+    return config.coefficients.kappa_sq_ext / config.coefficients.beta_ext;
+}
+
 double u_int(double x, double y)
 {
     return std::exp(0.35 * x + 0.15 * y)
@@ -142,12 +153,12 @@ Eigen::Vector2d grad_u_int(double x, double y)
             0.15 * e + 0.06 * std::sin(p)};
 }
 
-double q_int(double x, double y)
+double q_int(double x, double y, double lambda_sq)
 {
     const double e = std::exp(0.35 * x + 0.15 * y);
     const double p = 1.7 * x - 0.3 * y;
-    return (kLambdaSq - 0.145) * e
-           + 0.2 * (kLambdaSq + 2.98) * std::cos(p);
+    return (lambda_sq - 0.145) * e
+           + 0.2 * (lambda_sq + 2.98) * std::cos(p);
 }
 
 double u_ext(double x, double y)
@@ -163,16 +174,16 @@ Eigen::Vector2d grad_u_ext(double x, double y)
             0.24 * c - 0.15 + 0.1 * x};
 }
 
-double q_ext(double x, double y)
+double q_ext(double x, double y, double lambda_sq)
 {
-    return 0.48 * std::sin(0.8 * x + 0.4 * y) + kLambdaSq * u_ext(x, y);
+    return 0.48 * std::sin(0.8 * x + 0.4 * y)
+           + lambda_sq * u_ext(x, y);
 }
 
-std::filesystem::path output_dir()
+std::filesystem::path output_dir(const char* leaf)
 {
     std::filesystem::path dir =
-        std::filesystem::path(KFBIM_TEST_OUTPUT_DIR)
-        / "laplace_transmission_constant_ratio_2d";
+        std::filesystem::path(KFBIM_TEST_OUTPUT_DIR) / leaf;
     std::filesystem::create_directories(dir);
     return dir;
 }
@@ -233,21 +244,9 @@ void write_interface_points_csv(const std::filesystem::path& path,
     }
 }
 
-int run_python_visualization(const std::filesystem::path& out_dir)
-{
-    const std::string command =
-        std::string("\"") + KFBIM_PYTHON_EXECUTABLE + "\" "
-        + "\"" + KFBIM_TRANSMISSION_VIS_SCRIPT + "\" "
-        + "\"" + out_dir.string() + "\"";
-    return std::system(command.c_str());
-}
-
-struct ConvergenceData {
-    double bulk_err;
-    int    iterations;
-};
-
-ConvergenceData solve_and_measure(int N, const std::filesystem::path& out_dir)
+ConvergenceData solve_and_measure(int N,
+                                  const std::filesystem::path& out_dir,
+                                  const TransmissionCaseConfig& config)
 {
     Star3Curve2D star;
     const Box2D box = make_outer_box(star);
@@ -263,9 +262,15 @@ ConvergenceData solve_and_measure(int N, const std::filesystem::path& out_dir)
         CurveResampler2D::discretize(star, h, kTargetPanelLengthOverH);
     const int n_iface = iface.num_points();
 
+    const double lambda_int = lambda_sq_int(config);
+    const double lambda_ext = lambda_sq_ext(config);
+
     Eigen::VectorXd mu(n_iface);
     Eigen::VectorXd sigma(n_iface);
-    std::vector<Eigen::VectorXd> rhs_derivs(n_iface);
+    LaplaceTransmissionRhsData2D rhs_data;
+    rhs_data.reduced_rhs_int_derivs.resize(n_iface);
+    rhs_data.reduced_rhs_ext_derivs.resize(n_iface);
+
     const auto& points = iface.points();
     const auto& normals = iface.normals();
     for (int q = 0; q < n_iface; ++q) {
@@ -273,14 +278,17 @@ ConvergenceData solve_and_measure(int N, const std::filesystem::path& out_dir)
         const double y = points(q, 1);
         const Eigen::Vector2d normal(normals(q, 0), normals(q, 1));
         mu[q] = u_int(x, y) - u_ext(x, y);
-        sigma[q] = kBetaInt * grad_u_int(x, y).dot(normal)
-                   - kBetaExt * grad_u_ext(x, y).dot(normal);
-        rhs_derivs[q] = Eigen::VectorXd::Constant(1, q_int(x, y) - q_ext(x, y));
+        sigma[q] = config.coefficients.beta_int * grad_u_int(x, y).dot(normal)
+                   - config.coefficients.beta_ext * grad_u_ext(x, y).dot(normal);
+        rhs_data.reduced_rhs_int_derivs[q] =
+            Eigen::VectorXd::Constant(1, q_int(x, y, lambda_int));
+        rhs_data.reduced_rhs_ext_derivs[q] =
+            Eigen::VectorXd::Constant(1, q_ext(x, y, lambda_ext));
     }
 
     GridPair2D gp(grid, iface);
     std::vector<int> labels(n_dof);
-    Eigen::VectorXd q_bulk = Eigen::VectorXd::Zero(n_dof);
+    rhs_data.reduced_rhs_bulk = Eigen::VectorXd::Zero(n_dof);
     Eigen::VectorXd u_exact = Eigen::VectorXd::Zero(n_dof);
     Eigen::VectorXd abs_error = Eigen::VectorXd::Zero(n_dof);
     Eigen::VectorXd outer_bc = Eigen::VectorXd::Zero(n_dof);
@@ -297,20 +305,24 @@ ConvergenceData solve_and_measure(int N, const std::filesystem::path& out_dir)
             continue;
         }
 
-        if (labels[n] == 1) {
-            q_bulk[n] = q_int(x, y);
+        if (labels[n] > 0) {
+            rhs_data.reduced_rhs_bulk[n] = q_int(x, y, lambda_int);
             u_exact[n] = u_int(x, y);
         } else {
-            q_bulk[n] = q_ext(x, y);
+            rhs_data.reduced_rhs_bulk[n] = q_ext(x, y, lambda_ext);
             u_exact[n] = u_ext(x, y);
         }
     }
 
-    LaplaceTransmissionConstantRatio2D problem(
-        grid, iface, kBetaInt, kBetaExt, kLambdaSq);
+    LaplaceTransmission2D problem(grid, iface, config.mode, config.coefficients);
 
-    auto result = problem.solve(mu, sigma, q_bulk, rhs_derivs, outer_bc,
-                                250, 1.0e-8, 100);
+    auto result = problem.solve(mu,
+                                sigma,
+                                rhs_data,
+                                outer_bc,
+                                config.max_iter,
+                                1.0e-8,
+                                100);
     REQUIRE(result.converged);
 
     double bulk_err = 0.0;
@@ -320,63 +332,114 @@ ConvergenceData solve_and_measure(int N, const std::filesystem::path& out_dir)
     }
 
     char fname[128];
-    std::snprintf(fname, sizeof(fname), "transmission_constant_ratio_N%04d.csv", N);
+    std::snprintf(fname, sizeof(fname), "%s_N%04d.csv", config.file_prefix, N);
     write_sampled_grid_csv(out_dir / fname, grid, result.u_bulk, u_exact, abs_error, labels);
 
     char iface_fname[128];
     std::snprintf(iface_fname, sizeof(iface_fname),
-                  "transmission_constant_ratio_interface_N%04d.csv", N);
+                  "%s_interface_N%04d.csv", config.file_prefix, N);
     write_interface_points_csv(out_dir / iface_fname, iface);
 
     return {bulk_err, result.iterations};
 }
 
-} // namespace
-
-TEST_CASE("Constant-ratio transmission 2D: Chebyshev-Lobatto convergence on 5-fold star",
-          "[transmission][laplace][interface][lobatto][convergence][2d]")
+double tail_average_order(const std::vector<double>& rates, int count = 3)
 {
-    const int Ns[] = {32, 64, 128, 256, 512, 1024};
-    constexpr int n_levels = static_cast<int>(sizeof(Ns) / sizeof(Ns[0]));
+    REQUIRE(rates.size() > 1);
+    const int end = static_cast<int>(rates.size());
+    const int begin = std::max(1, end - count);
+    double sum = 0.0;
+    int used = 0;
+    for (int i = begin; i < end; ++i) {
+        REQUIRE(std::isfinite(rates[i]));
+        sum += rates[i];
+        ++used;
+    }
+    REQUIRE(used > 0);
+    return sum / static_cast<double>(used);
+}
 
-    const std::filesystem::path out_dir = output_dir();
+void run_convergence_case(const TransmissionCaseConfig& config,
+                          const std::vector<int>&       levels)
+{
+    const std::filesystem::path out_dir = output_dir(config.output_leaf);
     std::ofstream csv(out_dir / "convergence.csv");
     csv << "N,max_err,order,GMRES\n";
 
-    ConvergenceData data[n_levels];
+    std::vector<ConvergenceData> data(levels.size());
+    std::vector<double> rates(levels.size(), 0.0);
 
-    std::printf("\n  Constant-ratio transmission: -div(beta grad u)+kappa^2 u=f\n");
-    std::printf("  beta_int=%.3f beta_ext=%.3f, kappa^2/beta=lambda^2=%.3f\n",
-                kBetaInt, kBetaExt, kLambdaSq);
-    std::printf("  Interface: 5-fold star; panels=Chebyshev-Lobatto; nonzero box Dirichlet BC\n");
-    std::printf("  Target Chebyshev-node spacing / h ≈ %.2f\n",
-                0.5 * kTargetPanelLengthOverH);
+    std::printf("\n  %s\n", config.label);
+    std::printf("  beta_int=%.3f beta_ext=%.3f, lambda_int^2=%.3f lambda_ext^2=%.3f\n",
+                config.coefficients.beta_int,
+                config.coefficients.beta_ext,
+                lambda_sq_int(config),
+                lambda_sq_ext(config));
+    std::printf("  Interface: 3-fold star; panels=Chebyshev-Lobatto; nonzero box Dirichlet BC\n");
+    std::printf("  Target Chebyshev-node spacing / h = %.2f (panel_length/h = %.2f)\n",
+                kTargetNodeSpacingOverH, kTargetPanelLengthOverH);
     std::printf("  Output: %s\n", out_dir.string().c_str());
     std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "order", "GMRES");
 
-    for (int l = 0; l < n_levels; ++l) {
-        data[l] = solve_and_measure(Ns[l], out_dir);
+    for (std::size_t l = 0; l < levels.size(); ++l) {
+        data[l] = solve_and_measure(levels[l], out_dir, config);
 
         if (l == 0) {
             std::printf("  %6d  %12.4e  %8s  %6d\n",
-                        Ns[l], data[l].bulk_err, "-", data[l].iterations);
-            csv << Ns[l] << "," << std::setprecision(16) << data[l].bulk_err
+                        levels[l], data[l].bulk_err, "-", data[l].iterations);
+            csv << levels[l] << "," << std::setprecision(16) << data[l].bulk_err
                 << ",," << data[l].iterations << "\n";
         } else {
-            const double rate = std::log2(data[l - 1].bulk_err / data[l].bulk_err);
+            rates[l] = std::log2(data[l - 1].bulk_err / data[l].bulk_err);
             std::printf("  %6d  %12.4e  %8.3f  %6d\n",
-                        Ns[l], data[l].bulk_err, rate, data[l].iterations);
-            csv << Ns[l] << "," << std::setprecision(16) << data[l].bulk_err
-                << "," << rate << "," << data[l].iterations << "\n";
+                        levels[l], data[l].bulk_err, rates[l], data[l].iterations);
+            csv << levels[l] << "," << std::setprecision(16) << data[l].bulk_err
+                << "," << rates[l] << "," << data[l].iterations << "\n";
         }
 
         REQUIRE(std::isfinite(data[l].bulk_err));
     }
 
-    REQUIRE(data[n_levels - 1].bulk_err < data[0].bulk_err);
-    REQUIRE(data[n_levels - 1].bulk_err < 5.0e-2);
+    REQUIRE(data.back().bulk_err < data.front().bulk_err);
+    REQUIRE(tail_average_order(rates) > 1.5);
+    REQUIRE(data.back().bulk_err < config.final_error_threshold);
+}
 
-    csv.close();
-    const int vis_rc = run_python_visualization(out_dir);
-    REQUIRE(vis_rc == 0);
+TransmissionCaseConfig common_ratio_case()
+{
+    constexpr double beta_int = 2.0;
+    constexpr double beta_ext = 1.0;
+    constexpr double lambda_sq = 1.1;
+    return {"Common-ratio transmission: -div(beta grad u)+kappa^2 u=f",
+            "laplace_transmission_common_ratio_2d",
+            "transmission_common_ratio",
+            LaplaceTransmissionMode2D::CommonRatio,
+            {beta_int, beta_ext, beta_int * lambda_sq, beta_ext * lambda_sq},
+            250,
+            5.0e-2};
+}
+
+TransmissionCaseConfig different_ratios_case()
+{
+    return {"Different-ratio transmission: generic two-density KFBI operator",
+            "laplace_transmission_different_ratios_2d",
+            "transmission_different_ratios",
+            LaplaceTransmissionMode2D::DifferentRatios,
+            {10.0, 1.0, 11.0, 0.7},
+            400,
+            5.0e-2};
+}
+
+} // namespace
+
+TEST_CASE("Common-ratio transmission 2D: Chebyshev-Lobatto convergence on 3-fold star",
+          "[transmission][laplace][interface][lobatto][convergence][2d]")
+{
+    run_convergence_case(common_ratio_case(), {32, 64, 128, 256, 512, 1024});
+}
+
+TEST_CASE("Different-ratio transmission 2D: Chebyshev-Lobatto convergence on 3-fold star",
+          "[transmission][laplace][interface][different-ratio][lobatto][convergence][2d]")
+{
+    run_convergence_case(different_ratios_case(), {32, 64, 128, 256, 512});
 }

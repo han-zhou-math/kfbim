@@ -24,6 +24,12 @@ $$N_\Gamma = 2N_p,$$
 
 namely $N_p$ shared endpoints plus $N_p$ panel midpoints.
 
+The current active convergence programs use a common off-center 3-fold star.
+They set the target adjacent Chebyshev-node spacing over the Cartesian grid
+spacing to $1.5$, equivalently
+
+$$\frac{\text{panel length}}{h}=3.0.$$
+
 ## 2. Restriction Returns the Average Branch
 
 Let $C$ be the local correction polynomial produced by the panel Cauchy solve,
@@ -88,6 +94,12 @@ code sign. It is the opposite of the classical double-layer sign if the
 classical density is defined so that the double-layer potential has jump
 $-\phi$.
 
+The active direct interface convergence program, `tests/test_interface.cpp`,
+uses this general prescribed-jump path without a GMRES outer solve. It
+manufactures distinct interior and exterior sine-mode solutions that vanish on
+the outer Cartesian box, prescribes $[u]$, $[\partial_n u]$, and
+$[f]=f^+-f^-$ on $\Gamma$, and reports `GMRES=0`.
+
 ## 4. Dirichlet BVPs
 
 The Dirichlet wrappers solve
@@ -151,13 +163,13 @@ the implementation projects the RHS, the operator input/output, and the final
 density to mean zero using the plain vector mean. This is not quadrature
 weighted.
 
-## 6. Constant-Ratio Discontinuous-Coefficient Transmission
+## 6. Discontinuous-Coefficient Transmission
 
-The implemented first transmission case solves
+Both transmission modes solve
 
 $$-\nabla\cdot(\beta\nabla u)+\kappa^2u=f,$$
 
-with piecewise constant positive $\beta$ and
+with piecewise constant positive $\beta$. In common-ratio mode,
 
 $$\frac{\kappa_+^2}{\beta_+}
 =\frac{\kappa_-^2}{\beta_-}
@@ -182,7 +194,7 @@ Let
 $$\gamma=\frac{2(\beta_+-\beta_-)}{\beta_++\beta_-}.$$
 
 Using the screened potential primitives for the reduced operator, the GMRES
-equation implemented in `LaplaceTransmissionConstantRatio2D` is
+equation implemented by `LaplaceTransmission2D::CommonRatio` is
 
 $$\left(I+\gamma K'\right)\psi
 =\frac{2}{\beta_++\beta_-}\sigma_\beta
@@ -191,6 +203,50 @@ $$\left(I+\gamma K'\right)\psi
 Here $[q]=q^+-q^-$ is supplied through `rhs_derivs`, while the grid RHS stores
 the piecewise reduced RHS $q$. After $\psi$ is solved, the full jump problem
 $[u]=\mu$, $[\partial_n u]=\psi$ is run once to recover the bulk solution.
+
+### Different Screened Ratios
+
+`LaplaceTransmission2D::DifferentRatios` handles the piecewise-constant case
+where
+
+$$\lambda_+^2=\frac{\kappa_+^2}{\beta_+},\qquad
+\lambda_-^2=\frac{\kappa_-^2}{\beta_-}$$
+
+may differ. It uses separate reduced screened potential evaluators for the
+interior and exterior phases and solves for two densities $(\phi,\psi)$.
+
+Let
+
+$$\alpha_+ = \frac{2\beta_-}{\beta_+ + \beta_-},\qquad
+\alpha_- = \frac{2\beta_+}{\beta_+ + \beta_-},\qquad
+c_\beta = \frac{2\beta_+\beta_-}{\beta_+ + \beta_-}.$$
+
+With phase-specific operators $K_\pm,H_\pm,S_\pm,K'_\pm$, the homogeneous
+two-density operator is
+
+$$A_u(\phi,\psi)
+= \phi+\alpha_+K_+[\phi]-\alpha_-K_-[\phi]
+  +S_+[\psi]-S_-[\psi],$$
+
+and
+
+$$A_\beta(\phi,\psi)
+= \psi+\frac{2}{\beta_+ + \beta_-}
+\left(c_\beta(H_+[\phi]-H_-[\phi])
+      +\beta_+K'_+[\psi]-\beta_-K'_-[\psi]\right).$$
+
+Volume terms are evaluated separately on each side. If $V_\pm$ denotes the
+phase-specific reduced volume solution, GMRES solves
+
+$$A_u(\phi,\psi)=\mu-(V_+-V_-),$$
+
+$$A_\beta(\phi,\psi)
+=\frac{2}{\beta_+ + \beta_-}
+\left(\sigma_\beta
+      -(\beta_+\partial_n V_+ - \beta_-\partial_n V_-)\right).$$
+
+After the densities are found, the code performs separate interior and exterior
+potential evaluations and selects the grid value from the matching domain.
 
 ## 7. Nonzero Outer Cartesian Dirichlet Data
 
@@ -206,17 +262,37 @@ eliminate them into the finite-difference RHS:
 This keeps the bulk solver interface homogeneous while allowing manufactured
 tests with nonzero outer boundary conditions.
 
-## 8. Current Operator Modes
+## 8. Implementation Source Map
+
+The current C++ implementation is split by algorithmic layer:
+
+| Directory | Main responsibility |
+|-----------|---------------------|
+| `src/grid/` | Cartesian and MAC grid data structures |
+| `src/interface/` | 2D/3D interface containers and panel node-layout metadata |
+| `src/geometry/` | curve resampling and grid/interface pairing |
+| `src/local_cauchy/` | jump data, local polynomials, and Laplace panel Cauchy solver |
+| `src/transfer/` | Laplace Lobatto spread and restrict transfer operators |
+| `src/bulk_solvers/` | bulk-solver interface, FFT/zFFT engines, Laplace bulk solvers, and IIM helpers |
+| `src/potentials/` | `LaplacePotentialEval2D` and reusable potential-evaluation pipeline |
+| `src/operators/` | `IKFBIOperator`, `LaplaceBvp2D`, `LaplaceTransmission2D`, and Stokes scaffold |
+| `src/gmres/` | matrix-free outer Krylov solver |
+
+The former `src/solver/`, `src/operator/`, and `src/problems/` locations have
+been replaced by `src/bulk_solvers/`, `src/potentials/`, and `src/operators/`.
+
+## 9. Current Operator Modes
 
 | Mode/API | Unknown | Applied operator |
 |----------|---------|------------------|
-| `LaplaceKFBIMode::InteriorDirichlet` | $[u]=\phi$ | $K[\phi]+\frac12\phi$ |
-| `LaplaceKFBIMode::ExteriorDirichlet` | $[u]=\phi$ | $K[\phi]-\frac12\phi$ |
-| `LaplaceKFBIMode::InteriorNeumann` | $[\partial_n u]=\psi$ | $K'[\psi]+\frac12\psi$ |
-| `LaplaceKFBIMode::ExteriorNeumann` | $[\partial_n u]=\psi$ | $K'[\psi]-\frac12\psi$ |
-| `LaplaceTransmissionConstantRatio2D` | $\psi=[\partial_n u]$ | $(I+\gamma K')\psi$ |
+| `LaplaceBvpType2D::InteriorDirichlet` | $[u]=\phi$ | $K[\phi]+\frac12\phi$ |
+| `LaplaceBvpType2D::ExteriorDirichlet` | $[u]=\phi$ | $K[\phi]-\frac12\phi$ |
+| `LaplaceBvpType2D::InteriorNeumann` | $[\partial_n u]=\psi$ | $K'[\psi]+\frac12\psi$ |
+| `LaplaceBvpType2D::ExteriorNeumann` | $[\partial_n u]=\psi$ | $K'[\psi]-\frac12\psi$ |
+| `LaplaceTransmission2D::CommonRatio` | $\psi=[\partial_n u]$ | $(I+\gamma K')\psi$ |
+| `LaplaceTransmission2D::DifferentRatios` | $(\phi,\psi)$ | $(A_u(\phi,\psi),A_\beta(\phi,\psi))$ |
 
-The active convergence test for the four BVP modes is `tests/test_bvp.cpp`.
-It uses the unit circle centered at the origin, box `(-1.7,1.7)^2`,
-target interface spacing/h about `1.5`, and a nontrivial sine/cosine exact
-solution for the screened equation.
+The active convergence programs are `tests/test_interface.cpp`,
+`tests/test_bvp.cpp`, and `tests/test_transmission.cpp`. All three use the
+same off-center 3-fold star, a sampled-bounds outer box plus margin, and target
+adjacent Chebyshev-node spacing/h `1.5` (`panel_length/h = 3.0`).

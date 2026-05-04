@@ -30,19 +30,15 @@ add_library(kfbim_core STATIC
     transfer/laplace_restrict_2d.cpp
 
     # Layer 2 — Bulk Solver
-    solver/laplace_fft_bulk_solver_2d.cpp
-    solver/zfft_engine_2d.cpp
-    solver/laplace_zfft_bulk_solver_2d.cpp
-    solver/laplace_zfft_bulk_solver_3d.cpp
+    bulk_solvers/laplace_fft_bulk_solver_2d.cpp
+    bulk_solvers/zfft_engine_2d.cpp
+    bulk_solvers/laplace_zfft_bulk_solver_2d.cpp
+    bulk_solvers/laplace_zfft_bulk_solver_3d.cpp
 
-    # Layer 3 — KFBI Operator
-    operator/laplace_kfbi_operator.cpp
-    operator/laplace_potential.cpp
-
-    # Layer 3 utility — Potential/pipeline evaluation
-    problems/laplace_interior.cpp
-    problems/laplace_bvp_2d.cpp
-    problems/laplace_transmission_constant_ratio_2d.cpp
+    # Layer 3 — potential pipeline, operators, and problem wrappers
+    potentials/laplace_potential.cpp
+    operators/laplace_bvp_2d.cpp
+    operators/laplace_transmission_2d.cpp
 
     # Layer 4 — Outer Solver
     gmres/gmres.cpp
@@ -61,7 +57,7 @@ if(CGAL_FOUND)
 endif()
 
 if(FFTW3_FOUND)
-    target_sources(kfbim_core PRIVATE solver/fftw3_engine.cpp)
+    target_sources(kfbim_core PRIVATE bulk_solvers/fftw3_engine.cpp)
     # Library is PRIVATE (only kfbim_core links against libfftw3); include dir is
     # PUBLIC so callers that #include "fftw3_engine.hpp" can find fftw3.h.
     target_link_libraries(kfbim_core PRIVATE FFTW3::FFTW3)

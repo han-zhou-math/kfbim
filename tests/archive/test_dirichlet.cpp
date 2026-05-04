@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Full-pipeline test: LaplaceInteriorDirichlet2D
+// Full-pipeline test: LaplaceBvp2D interior Dirichlet mode
 //
 // Solves: -Δu = f in Ω_int
 //           u = g on Γ
@@ -23,7 +23,7 @@
 #include "src/grid/cartesian_grid_2d.hpp"
 #include "src/interface/interface_2d.hpp"
 #include "src/geometry/grid_pair_2d.hpp"
-#include "src/problems/laplace_interior.hpp"
+#include "src/operators/laplace_bvp_2d.hpp"
 #include "src/geometry/curve_resampler_2d.hpp"
 
 using namespace kfbim;
@@ -132,8 +132,8 @@ static ConvergenceData solve_and_measure(int N)
     }
 
     // 3. Solve using the high-level API
-    LaplaceInteriorDirichlet2D problem(grid, iface, g, f_bulk, rhs_derivs);
-    auto res = problem.solve(800, 1.0e-8, 200);
+    LaplaceBvp2D problem(grid, iface, LaplaceBvpType2D::InteriorDirichlet);
+    auto res = problem.solve(g, f_bulk, rhs_derivs, 800, 1.0e-8, 200);
 
     REQUIRE(res.converged);
 
@@ -166,7 +166,7 @@ static ConvergenceData solve_lobatto_and_measure(int N)
     return solve_and_measure(N);
 }
 
-TEST_CASE("LaplaceInteriorDirichlet2D: Lobatto-center KFBIM path runs on 5-fold star",
+TEST_CASE("LaplaceBvp2D interior Dirichlet: Lobatto-center KFBIM path runs on 5-fold star",
           "[laplace][bvp][interior][dirichlet][lobatto][2d]")
 {
     const int N = 64;
@@ -199,8 +199,8 @@ TEST_CASE("LaplaceInteriorDirichlet2D: Lobatto-center KFBIM path runs on 5-fold 
             u_exact[n] = sol_u_int(c[0], c[1]);
     }
 
-    LaplaceInteriorDirichlet2D problem(grid, iface, g, f_bulk, rhs_derivs);
-    auto res = problem.solve(800, 1.0e-8, 200);
+    LaplaceBvp2D problem(grid, iface, LaplaceBvpType2D::InteriorDirichlet);
+    auto res = problem.solve(g, f_bulk, rhs_derivs, 800, 1.0e-8, 200);
 
     REQUIRE(res.converged);
 
@@ -214,14 +214,14 @@ TEST_CASE("LaplaceInteriorDirichlet2D: Lobatto-center KFBIM path runs on 5-fold 
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-TEST_CASE("LaplaceInteriorDirichlet2D: Chebyshev-Lobatto DOF convergence on 5-fold star",
+TEST_CASE("LaplaceBvp2D interior Dirichlet: Chebyshev-Lobatto DOF convergence on 5-fold star",
           "[laplace][bvp][interior][dirichlet][lobatto][convergence][2d]")
 {
     const int Ns[]     = {32, 64, 128, 256, 512, 1024};
     const int n_levels = 6;
     ConvergenceData data[n_levels];
 
-    std::printf("\n  LaplaceInteriorDirichlet2D: Chebyshev-Lobatto DOF convergence\n");
+    std::printf("\n  LaplaceBvp2D interior Dirichlet: Chebyshev-Lobatto DOF convergence\n");
     std::printf("  Manufactured: u_int=exp(x)cos(y) inside 5-fold star centered at (%.2f, %.2f), domain [-%.1f,%.1f]^2\n",
                 kStarCx, kStarCy, kBoxHalfWidth, kBoxHalfWidth);
     std::printf("  Panel DOFs: Chebyshev-Lobatto s={-1,0,1}; correction expansion centers: s={-0.75,-0.25,0.25,0.75}\n");

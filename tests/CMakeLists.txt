@@ -18,7 +18,6 @@ endif()
 
 include(CTest)
 include(Catch)
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 # ---------------------------------------------------------------------------
 # kfbim_add_test(<target> <sources...>)
@@ -34,43 +33,15 @@ function(kfbim_add_test target)
     )
     target_compile_definitions(${target} PRIVATE
         KFBIM_TEST_OUTPUT_DIR="${PROJECT_SOURCE_DIR}/output"
-        KFBIM_PYTHON_EXECUTABLE="${Python3_EXECUTABLE}"
-        KFBIM_SCREENED_VIS_SCRIPT="${PROJECT_SOURCE_DIR}/python/visualize_screened_star3.py"
-        KFBIM_TRANSMISSION_VIS_SCRIPT="${PROJECT_SOURCE_DIR}/python/visualize_transmission_constant_ratio_2d.py"
     )
     catch_discover_tests(${target})
 endfunction()
 
 # ---------------------------------------------------------------------------
-# Test executables
-# Each file focuses on one layer or component; add new ones as they are built.
+# Active PDE-level convergence programs.
+# Component and legacy tests live in tests/archive/ and are not registered here.
 # ---------------------------------------------------------------------------
 
-# Layer 0 utilities (header-only inline functions): always compilable.
-kfbim_add_test(test_core test_core.cpp)
-
-kfbim_add_test(test_grid test_grid.cpp)
-
-# Layer 2 bulk solver (FFT)
-kfbim_add_test(test_fft test_fft.cpp)
-
-# Layer 0 geometry (GridPair)
-kfbim_add_test(test_pair test_pair.cpp)
-
-# IIM defect correction + FFT solve (Layer 0 + 2 integration)
-kfbim_add_test(test_iim test_iim.cpp)
-
-# Modular Layer 3 potential evaluator
-kfbim_add_test(test_potential test_potential.cpp)
-
-# Full pipeline — interior Dirichlet, Chebyshev-Lobatto panels.
-kfbim_add_test(test_dirichlet test_dirichlet.cpp)
-
-# Full pipeline — screened Poisson interior Dirichlet, 3-fold star
-kfbim_add_test(test_screened test_screened.cpp)
-
-# Full pipeline — screened Dirichlet/Neumann BVP wrappers, unit circle
+kfbim_add_test(test_interface test_interface.cpp)
 kfbim_add_test(test_bvp test_bvp.cpp)
-
-# Full pipeline — constant-ratio discontinuous coefficient transmission problem
 kfbim_add_test(test_transmission test_transmission.cpp)

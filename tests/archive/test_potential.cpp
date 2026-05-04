@@ -8,9 +8,9 @@
 #include "src/geometry/grid_pair_2d.hpp"
 #include "src/grid/cartesian_grid_2d.hpp"
 #include "src/local_cauchy/jump_data.hpp"
-#include "src/operator/laplace_potential.hpp"
-#include "src/solver/laplace_zfft_bulk_solver_2d.hpp"
-#include "src/solver/zfft_bc_type.hpp"
+#include "src/potentials/laplace_potential.hpp"
+#include "src/bulk_solvers/laplace_zfft_bulk_solver_2d.hpp"
+#include "src/bulk_solvers/zfft_bc_type.hpp"
 #include "src/transfer/laplace_restrict_2d.hpp"
 #include "src/transfer/laplace_spread_2d.hpp"
 

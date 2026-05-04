@@ -7,8 +7,8 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
 ## Current Status
 - Branch `main`; run `git log --oneline -n 3` for the exact current commit.
 - This guide reflects the 2026-05-04 2D Laplace Chebyshev-Lobatto,
-  screened-Poisson, constant-ratio transmission, merged potential-evaluation,
-  and screened BVP wrapper work.
+  screened-Poisson, merged potential-evaluation, screened BVP wrapper,
+  transmission, and three-program PDE convergence-test reorganization work.
 - **Completed modules** (active tests passing):
   - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
     - `Interface2D` tracks panel node layout: `ChebyshevLobatto`, `LegacyGaussLegendre`, or `Raw`.
@@ -23,27 +23,26 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     - Chebyshev-Lobatto Cauchy solve at four generated expansion centers per panel, `s={-0.75,-0.25,0.25,0.75}`.
     - Current collocation offset is `0.05`.
   - Layer 2: `LaplaceFftBulkSolverZfft2D` (DST, Dirichlet BC, optional screened shift)
-  - Layer 3: `LaplaceKFBIOperator2D`, backed by `LaplacePotentialEval2D`
+  - Layer 3: `IKFBIOperator`, implemented directly by active Laplace problem
+    wrappers; `LaplacePotentialEval2D` backs reusable potential evaluation
     (Spread → BulkSolve → Restrict pipeline, arc_h_ratio check)
   - Layer 3 modular potentials: `LaplacePotentialEval2D`
     - Evaluates arbitrary jumps/RHS and returns bulk values plus averaged trace/flux.
     - Specialized D/S/N helpers are thin calls into the same general pipeline.
     - Uses the current restrict convention: restrict returns averaged trace/flux directly.
-    - Covered by `tests/test_potential.cpp`.
+    - Covered by archived component tests; active top-level tests now exercise it
+      through PDE-level manufactured problems.
   - Layer 4: GMRES outer solver
-  - Layer 5: 2D Laplace BVP APIs
-    - `LaplaceInteriorDirichlet2D`
-    - `LaplaceExteriorDirichlet2D`
-    - `LaplaceInteriorNeumann2D`
-    - `LaplaceExteriorNeumann2D`
+  - Layer 5: 2D Laplace BVP API
+    - `LaplaceBvp2D`
     - Solves `-Delta u + eta*u = f` in the selected interior/exterior domain.
     - Default panel method is `ChebyshevLobattoCenter`.
     - Interior Neumann uses an unweighted mean-zero vector projection only for
       the pure Laplace nullspace case `eta=0`; screened cases do not project.
-  - Constant-ratio discontinuous coefficient interface utility:
-    - `LaplaceTransmissionConstantRatio2D`
-    - Solves `-div(beta grad u)+kappa^2 u=f` when `kappa^2/beta=lambda_sq`
-      is the same on both sides.
+  - Discontinuous coefficient interface utility:
+    - `LaplaceTransmission2D`
+    - Solves `-div(beta grad u)+kappa^2 u=f` with common-ratio and
+      different-ratio modes for `kappa^2/beta`.
     - Divides by `beta` to use a common screened operator
       `-Delta u + lambda_sq u=q`.
     - Eliminates optional nonzero outer Cartesian Dirichlet data into the RHS,
@@ -51,21 +50,23 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
 - **Recent implementation notes:**
   - Chebyshev-Lobatto panel/expansion-center path is implemented and verified.
   - Gauss-point restrictor/problem-wrapper paths were removed from active code.
-  - `LaplacePotentialEval2D` has direct D/S/N jump-relation tests.
-  - Existing star-domain convergence tests target adjacent Chebyshev-node
-    spacing of about `2h` (`panel_length/h ~= 4`) and GMRES tolerance `1e-8`.
-  - `tests/test_bvp.cpp` covers all four screened Dirichlet/Neumann BVP
-    wrappers on the unit circle centered at the origin in the box
-    `(-1.7,1.7)^2`, with `eta=kappa^2=1.1`, a sinusoidal/cosine manufactured
-    solution, target interface spacing/h about `1.5`, and N = 32..512.
-  - `tests/test_dirichlet.cpp` solves the harmonic interior
-    Dirichlet problem on a 5-fold star curve centered at `(0.07,-0.04)`.
-  - `tests/test_screened.cpp` solves
-    `-Delta u + u = f` with manufactured solution `exp(sin(x))+cos(y)` on a
-    3-fold star.
-  - `tests/test_transmission.cpp` solves the first
-    discontinuous-coefficient interface problem on a 5-fold star.
-  - Legacy Gauss tests were moved to `tests/archive/`.
+  - Archived component tests include direct D/S/N jump-relation coverage for
+    `LaplacePotentialEval2D`.
+  - Active convergence tests use the same off-center 3-fold star convention:
+    center `(0.07,-0.04)`, Chebyshev-Lobatto panels, outer box from sampled
+    interface bounds plus margin, target adjacent Chebyshev-node spacing
+    `1.5h`, and `panel_length/h = 3.0`.
+  - `tests/test_interface.cpp` solves a direct prescribed-jump constant-
+    coefficient screened interface problem using `LaplacePotentialEval2D`;
+    it reports `GMRES=0` because there is no outer Krylov solve.
+  - `tests/test_bvp.cpp` covers all four screened `LaplaceBvp2D` modes:
+    interior/exterior Dirichlet and interior/exterior Neumann, with `eta=1.1`
+    and exact outer Cartesian Dirichlet elimination/restoration for exterior
+    manufactured solutions.
+  - `tests/test_transmission.cpp` covers both `LaplaceTransmission2D` modes:
+    `CommonRatio` and `DifferentRatios`.
+  - Component/basic/top-level legacy tests were moved to `tests/archive/` and
+    are preserved as source files but are not registered in active CMake/CTest.
   - Legacy reference code was moved from `old-codes/` to `third_party/old-codes/`.
   - Runtime CSV/PNG output is written under `output/` and should not be committed.
   - `build/` is disposable generated output. Recreate it with CMake when tests
@@ -73,16 +74,11 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - The C++ source tree is `src/` and the compiled library target remains
     `kfbim_core`.
   - Current concrete problem-level utilities and wrappers live in
-    `src/problems/`; the placeholder top-level `problems/` directory was
-    removed.
+    `src/operators/`.
   - Visualization and diagnostic Python scripts live in `python/`.
-- **Current convergence test status:** the active convergence binaries passed on 2026-05-04 after the BVP/potential-evaluation update:
-  - `build/tests/test_fft -s`
-  - `build/tests/test_iim -s`
-  - `build/tests/test_potential -s`
+- **Current convergence test status:** the active convergence binaries passed on 2026-05-04 after the three-program PDE test update and grid-ratio change:
+  - `build/tests/test_interface -s`
   - `build/tests/test_bvp -s`
-  - `build/tests/test_dirichlet -s`
-  - `build/tests/test_screened -s`
   - `build/tests/test_transmission -s`
 
 ## Next Agent Handoff — Continue This Plan
@@ -90,31 +86,28 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
 When resuming this project, continue the 2D Laplace public-API plan rather than branching into 3D, Stokes, variable coefficients, or bindings.
 
 1. **Keep the foundation stable first.**
-   - Preserve `LaplaceInteriorDirichlet2D` behavior and the default `ChebyshevLobattoCenter` panel method.
+   - Preserve `LaplaceBvp2D` behavior and the default `ChebyshevLobattoCenter` panel method.
    - Keep the active 2D Laplace path on Chebyshev-Lobatto panels.
-   - Keep current concrete problem-level utilities and wrappers in `src/problems/`.
+   - Keep current concrete problem-level utilities and wrappers in `src/operators/`.
    - Do not keep placeholder top-level problem API declarations; create a separate public API directory only when wrappers are implemented.
 
 2. **Next implementation target.**
    - Harden the stable 2D Laplace BVP wrappers from concrete implementations.
    - Next priority is richer forcing/nonzero-volume-potential APIs, plus
      compatibility handling and diagnostics for pure Laplace Neumann cases.
-   - Continue discontinuous-coefficient work from the verified constant-ratio
-     case; defer the general case where `kappa^2/beta` differs across the
-     interface.
+   - Continue discontinuous-coefficient work from the verified
+     `LaplaceTransmission2D` common-ratio and different-ratio cases.
    - Use `LaplacePotentialEval2D` as the verified modular building block for D/S/N operator combinations.
 
 3. **Testing requirements for the next change.**
    - Add one focused BVP test at a time with manufactured exact solutions.
    - Avoid exact grid/interface alignment by offsetting the interface center or choosing an incommensurate box size.
    - Run at least:
-     - `build/tests/test_fft -s`
-     - `build/tests/test_iim -s`
-     - `build/tests/test_potential -s`
+     - `cmake --build build`
+     - `build/tests/test_interface -s`
      - `build/tests/test_bvp -s`
-     - `build/tests/test_dirichlet -s`
-     - `build/tests/test_screened -s`
      - `build/tests/test_transmission -s`
+     - `git diff --check`
 
 4. **Deferred work.**
    - Do not start Python/MATLAB bindings until the C++ problem API is stable.
@@ -131,62 +124,62 @@ Use Chebyshev-Lobatto panels for new 2D Laplace work.
   midpoints.
 - Correction expansion centers per panel: `s={-0.75,-0.25,0.25,0.75}`.
 - `CurveResampler2D::discretize()` now returns Chebyshev-Lobatto panels.
-- Current star-domain convergence tests set `panel_length/h ~= 4`, so adjacent
-  Chebyshev-node spacing is about `2h`. The all-BVP circle test currently uses
-  target interface spacing/h about `1.5` (`panel_length/h ~= 3`).
-- `LaplaceInteriorDirichlet2D` defaults to `LaplaceInteriorPanelMethod2D::ChebyshevLobattoCenter`.
+- Current active convergence tests set target adjacent Chebyshev-node spacing
+  over grid spacing to `1.5`, so `panel_length/h = 3.0`.
+- `LaplaceBvp2D` defaults to `LaplaceBvpPanelMethod2D::ChebyshevLobattoCenter`.
 - Legacy Gauss comparison code belongs in `tests/archive/`, not active problem wrappers.
 
 ### Latest convergence snapshot
 
-`test_dirichlet`, 5-fold star, Chebyshev-Lobatto path:
+All active tests use the same off-center 3-fold star and target adjacent
+Chebyshev-node spacing/h of `1.5` (`panel_length/h = 3.0`).
+
+`test_interface`, direct prescribed-jump screened interface problem,
+`eta=1.1`, homogeneous outer Cartesian Dirichlet data:
 
 | N | max err | order | GMRES |
 |---:|--------:|------:|------:|
-| 32 | 8.7805e-02 | - | 16 |
-| 64 | 1.1313e-02 | 2.956 | 15 |
-| 128 | 3.9885e-03 | 1.504 | 14 |
-| 256 | 4.4891e-04 | 3.151 | 12 |
-| 512 | 4.7746e-05 | 3.233 | 12 |
-| 1024 | 5.4540e-06 | 3.130 | 11 |
+| 32 | 2.8477e-03 | - | 0 |
+| 64 | 6.0155e-04 | 2.243 | 0 |
+| 128 | 1.5419e-04 | 1.964 | 0 |
+| 256 | 3.6192e-05 | 2.091 | 0 |
+| 512 | 9.5274e-06 | 1.926 | 0 |
 
-`test_screened`, 3-fold star,
-`u=exp(sin(x))+cos(y)`, `-Delta u + u=f`:
-
-| N | max err | order | GMRES |
-|---:|--------:|------:|------:|
-| 32 | 2.7659e-03 | - | 9 |
-| 64 | 4.9287e-04 | 2.488 | 10 |
-| 128 | 1.0949e-04 | 2.170 | 8 |
-| 256 | 1.7159e-05 | 2.674 | 8 |
-| 512 | 2.2353e-06 | 2.940 | 8 |
-| 1024 | 2.2198e-07 | 3.332 | 8 |
-
-`test_transmission`, 5-fold star,
-`beta_int=2`, `beta_ext=1`, `kappa^2/beta=lambda_sq=1.1`:
-
-| N | max err | order | GMRES |
-|---:|--------:|------:|------:|
-| 32 | 8.3314e-03 | - | 9 |
-| 64 | 9.4386e-04 | 3.142 | 8 |
-| 128 | 1.9480e-04 | 2.277 | 8 |
-| 256 | 1.8549e-05 | 3.393 | 8 |
-| 512 | 1.4424e-06 | 3.685 | 8 |
-| 1024 | 8.2628e-07 | 0.804 | 8 |
-
-`test_bvp`, unit circle centered at origin, box `(-1.7,1.7)^2`,
-`eta=kappa^2=1.1`, target interface spacing/h about `1.5`:
+`test_bvp`, all four screened `LaplaceBvp2D` modes, `eta=1.1`:
 
 | BVP | N=32 | N=64 | N=128 | N=256 | N=512 |
 |-----|-----:|-----:|------:|------:|------:|
-| Interior Dirichlet error | 1.7037e-03 | 1.3275e-04 | 1.9113e-05 | 2.6885e-06 | 4.4836e-07 |
-| Interior Dirichlet GMRES | 10 | 9 | 9 | 8 | 6 |
-| Exterior Dirichlet error | 1.8697e-04 | 2.3980e-05 | 3.5066e-06 | 7.0953e-07 | 1.8515e-07 |
-| Exterior Dirichlet GMRES | 12 | 10 | 10 | 9 | 8 |
-| Interior Neumann error | 8.2754e-03 | 2.0068e-03 | 6.3105e-04 | 1.9425e-04 | 4.9580e-05 |
-| Interior Neumann GMRES | 10 | 9 | 9 | 8 | 7 |
-| Exterior Neumann error | 1.2825e-03 | 3.5106e-04 | 9.1097e-05 | 2.2758e-05 | 5.8315e-06 |
-| Exterior Neumann GMRES | 8 | 8 | 7 | 7 | 6 |
+| Interior Dirichlet error | 1.4467e-03 | 3.5812e-04 | 4.1393e-05 | 7.5059e-06 | 9.6317e-07 |
+| Interior Dirichlet GMRES | 13 | 12 | 10 | 10 | 8 |
+| Exterior Dirichlet error | 1.3045e-03 | 2.2355e-04 | 2.8239e-05 | 3.3656e-06 | 5.4422e-07 |
+| Exterior Dirichlet GMRES | 15 | 14 | 14 | 13 | 12 |
+| Interior Neumann error | 6.0970e-02 | 7.8588e-03 | 1.1521e-03 | 2.0021e-04 | 6.4093e-05 |
+| Interior Neumann GMRES | 14 | 13 | 12 | 11 | 11 |
+| Exterior Neumann error | 1.9263e-03 | 6.1171e-04 | 2.1360e-04 | 2.3042e-05 | 7.4770e-06 |
+| Exterior Neumann GMRES | 11 | 10 | 10 | 9 | 9 |
+
+`test_transmission`, `LaplaceTransmission2D::CommonRatio`,
+`beta_int=2`, `beta_ext=1`, `lambda^2=1.1`:
+
+| N | max err | order | GMRES |
+|---:|--------:|------:|------:|
+| 32 | 8.6829e-04 | - | 8 |
+| 64 | 1.4075e-04 | 2.625 | 8 |
+| 128 | 3.8581e-05 | 1.867 | 7 |
+| 256 | 3.6765e-06 | 3.391 | 7 |
+| 512 | 1.2467e-06 | 1.560 | 7 |
+| 1024 | 2.7389e-07 | 2.186 | 7 |
+
+`test_transmission`, `LaplaceTransmission2D::DifferentRatios`,
+`beta_int=10`, `beta_ext=1`, `kappa_int^2=11`, `kappa_ext^2=0.7`:
+
+| N | max err | order | GMRES |
+|---:|--------:|------:|------:|
+| 32 | 2.3241e-02 | - | 15 |
+| 64 | 2.9657e-03 | 2.970 | 14 |
+| 128 | 5.5521e-04 | 2.417 | 14 |
+| 256 | 1.1830e-04 | 2.231 | 13 |
+| 512 | 3.3862e-05 | 1.805 | 12 |
 
 ### Known numerical pitfall — grid/interface alignment
 When a Cartesian grid node lands exactly on the interface, the IIM correction stencil has zero distance to the interface, making the local polynomial fit degenerate. This produces erratic convergence rates. **Rule:** for convergence tests, ensure no grid node is exactly on the interface by either offsetting the interface center or using a domain size incommensurate with the interface geometry. See `tests/archive/test_laplace_interior_circle_2d_legacy_gauss.cpp` for the archived regression that exposed this pitfall.
@@ -302,26 +295,39 @@ Higher layers depend only on the abstractions of lower layers, not their impleme
   `∂n u⁺ = un_avg + [∂n u]/2`, and
   `∂n u⁻ = un_avg - [∂n u]/2`.
 
+## Current Source Layout
+
+The current compiled C++ source tree is:
+
 ```
 src/
-  grid/           # CartesianGrid2D/3D, MACGrid2D/3D, DofLayout
-  interface/      # Interface2D, Interface3D
-  geometry/       # GridPair2D/3D  (CGAL-dependent; pimpl hides CGAL headers)
-  transfer/       # Spread, Restrict  (Layer 1)
-  local_cauchy/   # LaplacePanelCauchySolver2D, jump_data, local_poly  (Layer 1.5)
-  solver/         # BulkSolver and impls  (Layer 2)
-  operator/       # KFBIOperator  (Layer 3)
-  problems/       # Current problem-level utilities and BVP wrappers
-  gmres/          # outer solver  (Layer 4)
-python/           # Python visualization/diagnostic scripts
+  CMakeLists.txt
+  grid/           # CartesianGrid2D/3D, MACGrid2D/3D, DofLayout, grid interfaces
+  interface/      # Interface2D, Interface3D and panel node-layout metadata
+  geometry/       # Curve2D, CurveResampler2D, GridPair2D/3D
+  transfer/       # ISpread/IRestrict plus Laplace Lobatto spread/restrict
+  local_cauchy/   # Local Cauchy interfaces, jump data, Laplace panel solver, local polynomials
+  bulk_solvers/   # BulkSolver API, FFT/zFFT engines, Laplace FFT/zFFT solvers, IIM helpers
+  potentials/     # LaplacePotentialEval2D reusable potential pipeline
+  operators/      # IKFBIOperator, LaplaceBvp2D, LaplaceTransmission2D, Stokes scaffold
+  gmres/          # GMRES and outer-solver interface
+```
+
+The old `src/solver/`, `src/operator/`, and `src/problems/` paths have been
+replaced by `src/bulk_solvers/`, `src/potentials/`, and `src/operators/`.
+New concrete 2D Laplace problem code should live in `src/operators/`; reusable
+potential-building code should live in `src/potentials/`.
+
+Other repository paths:
+
+```
+python/           # visualization/diagnostic scripts
 bindings/         # pybind11 wrappers (future)
-tests/
-tests/archive/    # legacy Gauss/reference tests
+tests/            # active PDE convergence programs only
+tests/archive/    # archived component/basic/legacy top-level tests
 output/           # generated runtime output, gitignored
 examples/
 ```
-
-## Directory Layout (planned)
 
 ## Coding Conventions
 <!-- Fill in as decided -->
