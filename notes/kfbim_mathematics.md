@@ -2,9 +2,10 @@
 
 This note documents the mathematical framework used by the current 2D elliptic
 solvers in this repository. It follows the code conventions, which define
-potential primitives by their imposed jumps.
+potential primitives by imposed jumps and use the active Chebyshev-Lobatto
+transfer path.
 
-## 1. Geometry Representation
+## 1. Geometry, Traces, and Jumps
 
 The computational box is partitioned by an interface $\Gamma$ into an interior
 region $\Omega^+$ (domain label 1) and an exterior region $\Omega^-$ (domain
@@ -15,13 +16,47 @@ label 0).
   $$[u] = u^+ - u^-,$$
   $$[\partial_n u] = \partial_n u^+ - \partial_n u^-.$$
 
-`LaplaceInterfaceSolver2D` restricts the bulk solution to the interior side and
-then reports averages:
+The active 2D panel discretization uses Chebyshev-Lobatto nodes
+$s=\{-1,0,1\}$ on each panel. Adjacent panels share endpoint DOFs. Therefore,
+for a closed curve with $N_p$ panels, the interface vector length is
 
-$$u_{avg}=u^+-\frac12[u], \qquad
-(\partial_n u)_{avg}=\partial_n u^+-\frac12[\partial_n u].$$
+$$N_\Gamma = 2N_p,$$
 
-## 2. Constant-Coefficient Poisson/Screened Interface Problem
+namely $N_p$ shared endpoints plus $N_p$ panel midpoints.
+
+## 2. Restriction Returns the Average Branch
+
+Let $C$ be the local correction polynomial produced by the panel Cauchy solve,
+with
+
+$$C=[u],\qquad \partial_n C=[\partial_n u]\quad\text{on }\Gamma.$$
+
+The active restrictor no longer interpolates an interior-side trace and then
+post-processes it. Instead, it first maps each side-specific grid sample to the
+average branch:
+
+$$u_{\mathrm{avg}} =
+\begin{cases}
+u_{\mathrm{grid}}-\frac12 C, & \text{interior-side sample},\\
+u_{\mathrm{grid}}+\frac12 C, & \text{exterior-side sample}.
+\end{cases}$$
+
+The same rule is applied to the local derivative data. Interpolation of these
+shifted samples returns the averaged trace and averaged normal derivative
+directly:
+
+$$u_{avg}=\frac{u^+ + u^-}{2},\qquad
+(\partial_n u)_{avg}=\frac{\partial_n u^+ + \partial_n u^-}{2}.$$
+
+Selected-side values are reconstructed only after restriction:
+
+$$u^\pm = u_{avg}\pm\frac12[u],\qquad
+\partial_n u^\pm = (\partial_n u)_{avg}\pm\frac12[\partial_n u].$$
+
+The plus sign is for the interior side and the minus sign is for the exterior
+side.
+
+## 3. Constant-Coefficient Poisson/Screened Interface Problem
 
 The active 2D KFBI pipeline solves interface problems for
 
@@ -31,7 +66,16 @@ with jumps
 
 $$[u]=\mu,\qquad [\partial_n u]=\sigma.$$
 
-The current potential evaluator exposes the following jump primitives:
+Here $\eta$ is the screened coefficient. In the BVP tests this is written as
+$\kappa^2$ and currently set to $\eta=\kappa^2=1.1$.
+
+`LaplacePotentialEval2D::evaluate()` is the general pipeline:
+
+1. spread arbitrary jumps and RHS derivative data into a corrected bulk RHS;
+2. solve the homogeneous-box bulk problem;
+3. restrict the bulk solution to averaged trace/flux values.
+
+The specialized potential helpers are thin wrappers:
 
 | Primitive | Imposed jumps | Returned trace/flux operators |
 |-----------|---------------|-------------------------------|
@@ -44,38 +88,70 @@ code sign. It is the opposite of the classical double-layer sign if the
 classical density is defined so that the double-layer potential has jump
 $-\phi$.
 
-## 3. Interior Dirichlet BVP
+## 4. Dirichlet BVPs
 
-`LaplaceInteriorDirichlet2D` solves
+The Dirichlet wrappers solve
 
-$$-\Delta u+\eta u=f\quad\text{in}\quad \Omega^+,\qquad
-u=g\quad\text{on}\quad \Gamma.$$
+$$-\Delta u+\eta u=f,\qquad u=g\quad\text{on }\Gamma,$$
 
-It uses a double-layer jump unknown $[u]=\phi$, $[\partial_n u]=0$. The matrix
-free operator applied by GMRES is the interior trace of this jump primitive,
+in the selected physical domain.
 
-$$A_D\phi = K[\phi]+\frac12\phi.$$
+They use the double-layer jump unknown $[u]=\phi$, $[\partial_n u]=0$. With
+$s=+1$ for the interior side and $s=-1$ for the exterior side, the selected-side
+Dirichlet operator is
 
-For nonzero volume forcing, the code first evaluates the interface trace
-contribution $V_f$ from `apply_full(0)`, then solves
+$$A_D^{(s)}\phi = K[\phi]+\frac{s}{2}\phi.$$
 
-$$A_D\phi = g - V_f.$$
+Thus
 
-For $\eta=0$ this is the harmonic interior Dirichlet solver. For $\eta>0$ it is
-the screened Poisson version used by `test_laplace_interior_screened_2d.cpp`.
+$$A_D^{(+)}\phi = K[\phi]+\frac12\phi
+\quad\text{(interior Dirichlet)},$$
 
-## 4. Interior Neumann BVP Operator
+and
 
-The current operator mode for an interior Neumann formulation uses the
-single-layer jump unknown $[\partial_n u]=\psi$, $[u]=0$ and applies
+$$A_D^{(-)}\phi = K[\phi]-\frac12\phi
+\quad\text{(exterior Dirichlet)}.$$
 
-$$A_N\psi = K'[\psi]+\frac12\psi,$$
+For nonzero volume forcing, the code evaluates the selected-side contribution
+of the volume problem, denoted $V_f^{(s)}$, by applying the full affine operator
+with zero density. GMRES solves
 
-the interior normal derivative of the single-layer jump primitive. A stable
-public Neumann wrapper with compatibility/nullspace handling is still future
-work.
+$$A_D^{(s)}\phi = g - V_f^{(s)}.$$
 
-## 5. Constant-Ratio Discontinuous-Coefficient Transmission
+If the physical domain is exterior, the supplied RHS derivative data represent
+the exterior branch and are inserted with a negative jump sign because
+$[f]=f^+ - f^-$.
+
+## 5. Neumann BVPs
+
+The Neumann wrappers solve
+
+$$-\Delta u+\eta u=f,\qquad \partial_n u=g\quad\text{on }\Gamma,$$
+
+using the single-layer jump unknown $[\partial_n u]=\psi$, $[u]=0$.
+
+With $s=+1$ for interior and $s=-1$ for exterior, the selected-side Neumann
+operator is
+
+$$A_N^{(s)}\psi = K'[\psi]+\frac{s}{2}\psi.$$
+
+That is,
+
+$$A_N^{(+)}\psi = K'[\psi]+\frac12\psi
+\quad\text{(interior Neumann)},$$
+
+and
+
+$$A_N^{(-)}\psi = K'[\psi]-\frac12\psi
+\quad\text{(exterior Neumann)}.$$
+
+For screened problems ($\eta>0$) there is no constant nullspace and no
+projection is applied. For the pure Laplace interior Neumann case ($\eta=0$),
+the implementation projects the RHS, the operator input/output, and the final
+density to mean zero using the plain vector mean. This is not quadrature
+weighted.
+
+## 6. Constant-Ratio Discontinuous-Coefficient Transmission
 
 The implemented first transmission case solves
 
@@ -116,11 +192,11 @@ Here $[q]=q^+-q^-$ is supplied through `rhs_derivs`, while the grid RHS stores
 the piecewise reduced RHS $q$. After $\psi$ is solved, the full jump problem
 $[u]=\mu$, $[\partial_n u]=\psi$ is run once to recover the bulk solution.
 
-## 6. Nonzero Outer Cartesian Dirichlet Data
+## 7. Nonzero Outer Cartesian Dirichlet Data
 
 The FFT/DST bulk solver uses homogeneous Dirichlet data on the Cartesian box.
-When a problem has nonzero box values $b$, the transmission solver eliminates
-them into the finite-difference RHS:
+When a problem has nonzero box values $b$, the BVP/transmission wrappers
+eliminate them into the finite-difference RHS:
 
 * for interior grid nodes adjacent to the box boundary, add neighboring
   boundary values divided by the corresponding $h^2$;
@@ -130,10 +206,17 @@ them into the finite-difference RHS:
 This keeps the bulk solver interface homogeneous while allowing manufactured
 tests with nonzero outer boundary conditions.
 
-## 7. Summary of Current Operator Modes
+## 8. Current Operator Modes
 
 | Mode/API | Unknown | Applied operator |
 |----------|---------|------------------|
-| `LaplaceKFBIMode::Dirichlet` | $[u]=\phi$ | $K[\phi]+\frac12\phi$ |
-| `LaplaceKFBIMode::Neumann` | $[\partial_n u]=\psi$ | $K'[\psi]+\frac12\psi$ |
+| `LaplaceKFBIMode::InteriorDirichlet` | $[u]=\phi$ | $K[\phi]+\frac12\phi$ |
+| `LaplaceKFBIMode::ExteriorDirichlet` | $[u]=\phi$ | $K[\phi]-\frac12\phi$ |
+| `LaplaceKFBIMode::InteriorNeumann` | $[\partial_n u]=\psi$ | $K'[\psi]+\frac12\psi$ |
+| `LaplaceKFBIMode::ExteriorNeumann` | $[\partial_n u]=\psi$ | $K'[\psi]-\frac12\psi$ |
 | `LaplaceTransmissionConstantRatio2D` | $\psi=[\partial_n u]$ | $(I+\gamma K')\psi$ |
+
+The active convergence test for the four BVP modes is `tests/test_bvp.cpp`.
+It uses the unit circle centered at the origin, box `(-1.7,1.7)^2`,
+target interface spacing/h about `1.5`, and a nontrivial sine/cosine exact
+solution for the screened equation.

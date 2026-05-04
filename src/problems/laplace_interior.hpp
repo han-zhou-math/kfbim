@@ -14,11 +14,9 @@
 namespace kfbim {
 
 enum class LaplaceInteriorPanelMethod2D {
-    LegacyGaussPanel,
     ChebyshevLobattoCenter,
 
-    // Backward-compatible aliases for older call sites.
-    GaussPanel = LegacyGaussPanel,
+    // Backward-compatible alias for older Lobatto call sites.
     LobattoCenter = ChebyshevLobattoCenter
 };
 
@@ -27,6 +25,7 @@ struct LaplaceInteriorSolveResult2D {
     Eigen::VectorXd density;      // Solved density phi
     int             iterations;   // GMRES inner iterations taken
     bool            converged;    // Whether GMRES converged
+    std::vector<double> residuals; // Relative GMRES residual history
 };
 
 // ---------------------------------------------------------------------------
@@ -37,7 +36,10 @@ struct LaplaceInteriorSolveResult2D {
 //     u = g   on Γ
 //
 // Uses the KFBIM 2nd-kind boundary integral formulation:
-//   (1/2 I - K) φ = g - V f|_Γ
+//   (K + 1/2 I) φ = g - V f|_Γ
+//
+// Here K is the code-convention averaged trace for the jump primitive
+// [u]=φ, [∂ₙu]=0.
 // ---------------------------------------------------------------------------
 class LaplaceInteriorDirichlet2D {
 public:

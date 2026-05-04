@@ -341,7 +341,7 @@ TEST_CASE("Constant-ratio transmission 2D: Chebyshev-Lobatto convergence on 5-fo
 
     const std::filesystem::path out_dir = output_dir();
     std::ofstream csv(out_dir / "convergence.csv");
-    csv << "N,max_err,rate,iters\n";
+    csv << "N,max_err,order,GMRES\n";
 
     ConvergenceData data[n_levels];
 
@@ -352,7 +352,7 @@ TEST_CASE("Constant-ratio transmission 2D: Chebyshev-Lobatto convergence on 5-fo
     std::printf("  Target Chebyshev-node spacing / h ≈ %.2f\n",
                 0.5 * kTargetPanelLengthOverH);
     std::printf("  Output: %s\n", out_dir.string().c_str());
-    std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "rate", "iters");
+    std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "order", "GMRES");
 
     for (int l = 0; l < n_levels; ++l) {
         data[l] = solve_and_measure(Ns[l], out_dir);

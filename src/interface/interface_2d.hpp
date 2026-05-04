@@ -20,17 +20,18 @@ enum class PanelNodeLayout2D {
 // the geometric nodes (defining a degree k-1 polynomial curve segment) and the
 // DOF/quadrature locations.
 //
-// Points are stored panel-major: panel p occupies global indices [p*k, (p+1)*k).
-// point_index(p, q) = p * points_per_panel + q.
+// Panels reference point rows through panel_point_indices. The legacy
+// constructor builds panel-major connectivity, while Lobatto panels may share
+// endpoint point rows between adjacent panels.
 //
 // Supports multiple disconnected components (e.g. several circles) via
 // panel_components: one integer component id per panel.
 class Interface2D {
 public:
-    // points:           Nq x 2, all quadrature/DOF coordinates, panel-major order
+    // points:           Nq x 2, all quadrature/DOF coordinates
     // normals:          Nq x 2, outward unit normals at each point
     // weights:          Nq,     quadrature weights (arc-length-weighted)
-    // points_per_panel: k,      uniform across all panels; Np = Nq / k
+    // points_per_panel: k,      uniform across all panels; Np inferred from Nq/k here
     // panel_components: Np,     0-indexed component id; all-zeros for single interface
     Interface2D(Eigen::MatrixX2d points,
                 Eigen::MatrixX2d normals,
@@ -39,19 +40,30 @@ public:
                 Eigen::VectorXi  panel_components,
                 PanelNodeLayout2D panel_node_layout = PanelNodeLayout2D::LegacyGaussLegendre);
 
+    // Explicit-connectivity constructor. panel_point_indices is Np x k and
+    // maps each panel-local point to a row in points/normals/weights.
+    Interface2D(Eigen::MatrixX2d points,
+                Eigen::MatrixX2d normals,
+                Eigen::VectorXd  weights,
+                int              points_per_panel,
+                Eigen::MatrixXi  panel_point_indices,
+                Eigen::VectorXi  panel_components,
+                PanelNodeLayout2D panel_node_layout = PanelNodeLayout2D::LegacyGaussLegendre);
+
     int num_points()       const { return static_cast<int>(points_.rows()); }
     int points_per_panel() const { return points_per_panel_; }
-    int num_panels()       const { return num_points() / points_per_panel_; }
+    int num_panels()       const { return static_cast<int>(panel_point_indices_.rows()); }
     int num_components()   const { return panel_components_.maxCoeff() + 1; }
 
     // global index of the q-th local point on panel p
     int point_index(int panel, int local_q) const {
-        return panel * points_per_panel_ + local_q;
+        return panel_point_indices_(panel, local_q);
     }
 
     const Eigen::MatrixX2d& points()           const { return points_; }
     const Eigen::MatrixX2d& normals()          const { return normals_; }
     const Eigen::VectorXd&  weights()          const { return weights_; }
+    const Eigen::MatrixXi&  panel_point_indices() const { return panel_point_indices_; }
     const Eigen::VectorXi&  panel_components() const { return panel_components_; }
     PanelNodeLayout2D       panel_node_layout() const { return panel_node_layout_; }
 
@@ -60,6 +72,7 @@ private:
     Eigen::MatrixX2d normals_;
     Eigen::VectorXd  weights_;
     int              points_per_panel_;
+    Eigen::MatrixXi  panel_point_indices_;
     Eigen::VectorXi  panel_components_;
     PanelNodeLayout2D panel_node_layout_;
 };

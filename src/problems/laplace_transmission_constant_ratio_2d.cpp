@@ -10,7 +10,6 @@
 #include "../operator/i_kfbi_operator.hpp"
 #include "../operator/laplace_potential.hpp"
 #include "../solver/zfft_bc_type.hpp"
-#include "laplace_interface_solver_2d.hpp"
 
 namespace kfbim {
 
@@ -50,17 +49,26 @@ std::vector<LaplaceJumpData2D> make_jumps(
 class ConstantRatioFluxOperator2D final : public IKFBIOperator {
 public:
     ConstantRatioFluxOperator2D(const LaplacePotentialEval2D& potentials,
+                                Eigen::VectorXd               zero_rhs,
                                 double                        gamma)
         : potentials_(potentials)
+        , zero_rhs_(std::move(zero_rhs))
+        , zero_rhs_derivs_(potentials.problem_size(), Eigen::VectorXd::Zero(1))
         , gamma_(gamma)
     {}
 
     void apply(const Eigen::VectorXd& x, Eigen::VectorXd& y) const override
     {
-        Eigen::VectorXd s_x;
-        Eigen::VectorXd kt_x;
-        potentials_.eval_single_layer(x, s_x, kt_x);
-        y = x + gamma_ * kt_x;
+        const int n_iface = potentials_.problem_size();
+        std::vector<LaplaceJumpData2D> jumps(n_iface);
+        for (int q = 0; q < n_iface; ++q) {
+            jumps[q].u_jump = 0.0;
+            jumps[q].un_jump = x[q];
+            jumps[q].rhs_derivs = zero_rhs_derivs_[q];
+        }
+
+        auto result = potentials_.evaluate(jumps, zero_rhs_);
+        y = x + gamma_ * result.un_avg;
     }
 
     int problem_size() const override
@@ -70,6 +78,8 @@ public:
 
 private:
     const LaplacePotentialEval2D& potentials_;
+    Eigen::VectorXd               zero_rhs_;
+    std::vector<Eigen::VectorXd>  zero_rhs_derivs_;
     double                        gamma_;
 };
 
@@ -191,16 +201,19 @@ LaplaceTransmissionConstantRatioResult2D LaplaceTransmissionConstantRatio2D::sol
     const Eigen::VectorXd rhs =
         apply_dirichlet_boundary_elimination(reduced_rhs_bulk, outer_dirichlet_values);
 
-    LaplaceInterfaceSolver2D iface_solver(spread_, bulk_solver_, restrict_op_);
     LaplacePotentialEval2D potentials(spread_, bulk_solver_, restrict_op_);
 
-    Eigen::VectorXd k_mu;
-    Eigen::VectorXd h_mu;
-    potentials.eval_double_layer(u_jump, k_mu, h_mu);
-
     const Eigen::VectorXd zeros = Eigen::VectorXd::Zero(n_iface);
+    const Eigen::VectorXd zero_rhs = Eigen::VectorXd::Zero(n_dof);
+    const std::vector<Eigen::VectorXd> zero_rhs_derivs(
+        n_iface, Eigen::VectorXd::Zero(1));
+
+    auto double_jumps = make_jumps(iface, u_jump, zeros, zero_rhs_derivs);
+    auto double_res = potentials.evaluate(double_jumps, zero_rhs);
+    const Eigen::VectorXd& h_mu = double_res.un_avg;
+
     auto volume_jumps = make_jumps(iface, zeros, zeros, rhs_derivs);
-    auto volume_res = iface_solver.solve(volume_jumps, rhs);
+    auto volume_res = potentials.evaluate(volume_jumps, rhs);
     const Eigen::VectorXd& volume_normal = volume_res.un_avg;
 
     const double beta_sum = beta_int_ + beta_ext_;
@@ -208,13 +221,13 @@ LaplaceTransmissionConstantRatioResult2D LaplaceTransmissionConstantRatio2D::sol
     Eigen::VectorXd bie_rhs =
         (2.0 / beta_sum) * beta_flux_jump - gamma * (h_mu + volume_normal);
 
-    ConstantRatioFluxOperator2D op(potentials, gamma);
+    ConstantRatioFluxOperator2D op(potentials, zero_rhs, gamma);
     GMRES gmres(max_iter, tol, restart);
     Eigen::VectorXd psi = Eigen::VectorXd::Zero(n_iface);
     const int iterations = gmres.solve(op, bie_rhs, psi);
 
     auto jumps = make_jumps(iface, u_jump, psi, rhs_derivs);
-    auto full_res = iface_solver.solve(jumps, rhs);
+    auto full_res = potentials.evaluate(jumps, rhs);
     restore_dirichlet_boundary(full_res.u_bulk, outer_dirichlet_values);
 
     return {std::move(full_res.u_bulk),

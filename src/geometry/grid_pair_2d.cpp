@@ -83,7 +83,7 @@ static std::vector<CPoly2> build_raw_label_polygons(const Interface2D& iface) {
     for (int p = 0; p < Np; ++p) {
         int c = iface.panel_components()(p);
         for (int qi = 0; qi < k; ++qi) {
-            int idx = p * k + qi;
+            int idx = iface.point_index(p, qi);
             polys[c].push_back(CPoint2(iface.points()(idx, 0), iface.points()(idx, 1)));
         }
     }

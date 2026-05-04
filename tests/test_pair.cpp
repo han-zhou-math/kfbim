@@ -7,6 +7,8 @@ static constexpr double kPi = 3.14159265358979323846;
 
 #include "src/grid/cartesian_grid_2d.hpp"
 #include "src/grid/cartesian_grid_3d.hpp"
+#include "src/geometry/curve_2d.hpp"
+#include "src/geometry/curve_resampler_2d.hpp"
 #include "src/interface/interface_2d.hpp"
 #include "src/interface/interface_3d.hpp"
 #include "src/geometry/grid_pair_2d.hpp"
@@ -70,6 +72,31 @@ static Interface2D make_circle_lobatto_panels(double cx, double cy, double r, in
 
     return {pts, nml, wts, 3, comp, PanelNodeLayout2D::ChebyshevLobatto};
 }
+
+class CircleCurve2D final : public ICurve2D {
+public:
+    CircleCurve2D(double cx, double cy, double r)
+        : cx_(cx), cy_(cy), r_(r)
+    {}
+
+    Eigen::Vector2d eval(double t) const override
+    {
+        return {cx_ + r_ * std::cos(t), cy_ + r_ * std::sin(t)};
+    }
+
+    Eigen::Vector2d deriv(double t) const override
+    {
+        return {-r_ * std::sin(t), r_ * std::cos(t)};
+    }
+
+    double t_min() const override { return 0.0; }
+    double t_max() const override { return 2.0 * kPi; }
+
+private:
+    double cx_;
+    double cy_;
+    double r_;
+};
 
 // Multi-circle interface: arbitrary number of circles, each its own component.
 struct CircleCfg { double cx, cy, r; };
@@ -198,6 +225,27 @@ TEST_CASE("Interface2D rejects bad arguments", "[interface][2d]")
     Eigen::VectorXi  comp(6);   comp.setZero();
     REQUIRE_THROWS(Interface2D(pts, nml, wts, 0, comp));   // bad k
     REQUIRE_THROWS(Interface2D(pts, nml, wts, 4, comp));   // 6 not divisible by 4
+}
+
+TEST_CASE("CurveResampler2D shares Chebyshev-Lobatto panel endpoints",
+          "[interface][2d][lobatto]")
+{
+    CircleCurve2D curve(0.0, 0.0, 0.3);
+    const double h = 0.05;
+    Interface2D iface = CurveResampler2D::discretize(curve, h, 4.0);
+    const int num_panels = iface.num_panels();
+
+    REQUIRE(iface.panel_node_layout() == PanelNodeLayout2D::ChebyshevLobatto);
+    REQUIRE(iface.points_per_panel() == 3);
+    REQUIRE(iface.num_points() == 2 * num_panels);
+    REQUIRE(iface.weights().sum() == Catch::Approx(2.0 * kPi * 0.3).epsilon(1e-3));
+
+    for (int p = 0; p < num_panels; ++p) {
+        const int next = (p + 1) % num_panels;
+        REQUIRE(iface.point_index(p, 2) == iface.point_index(next, 0));
+        REQUIRE(iface.point_index(p, 0) != iface.point_index(p, 1));
+        REQUIRE(iface.point_index(p, 1) != iface.point_index(p, 2));
+    }
 }
 
 // ============================================================================

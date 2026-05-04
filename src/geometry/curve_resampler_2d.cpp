@@ -81,45 +81,67 @@ Interface2D CurveResampler2D::discretize_chebyshev_lobatto(const ICurve2D& curve
     ArcLengthMap map = build_arc_length_map(curve, 20000);
     double S = map.total_length;
 
-    int num_panels = std::max(1, static_cast<int>(std::round(S / (target_L_h_ratio * h))));
+    int num_panels = std::max(2, static_cast<int>(std::round(S / (target_L_h_ratio * h))));
     double L = S / num_panels;
 
     const int k = 3;
-    const int Nq = k * num_panels;
+    const int Nq = 2 * num_panels;
 
     Eigen::MatrixX2d pts(Nq, 2);
     Eigen::MatrixX2d nml(Nq, 2);
-    Eigen::VectorXd  wts(Nq);
+    Eigen::VectorXd  wts = Eigen::VectorXd::Zero(Nq);
+    Eigen::MatrixXi  panel_point_indices(num_panels, k);
     Eigen::VectorXi  comp = Eigen::VectorXi::Zero(num_panels);
 
     static const double kLobatto_s[3] = {-1.0, 0.0, 1.0};
     static const double kLobatto_w[3] = {1.0/3.0, 4.0/3.0, 1.0/3.0};
 
-    int q = 0;
+    for (int p = 0; p < num_panels; ++p) {
+        const double s_q = p * L;
+        const double t_q = map.get_t(s_q);
+
+        Eigen::Vector2d r = curve.eval(t_q);
+        Eigen::Vector2d drdt = curve.deriv(t_q);
+        double speed = drdt.norm();
+
+        pts(p, 0) = r.x();
+        pts(p, 1) = r.y();
+        nml(p, 0) =  drdt.y() / speed;
+        nml(p, 1) = -drdt.x() / speed;
+    }
+
     for (int p = 0; p < num_panels; ++p) {
         double s_mid = (p + 0.5) * L;
         double half_L = 0.5 * L;
 
+        const int q_left = p;
+        const int q_mid = num_panels + p;
+        const int q_right = (p + 1) % num_panels;
+        panel_point_indices(p, 0) = q_left;
+        panel_point_indices(p, 1) = q_mid;
+        panel_point_indices(p, 2) = q_right;
+
         for (int i = 0; i < k; ++i) {
             double s_q = s_mid + half_L * kLobatto_s[i];
             double t_q = map.get_t(s_q);
+            const int q = panel_point_indices(p, i);
 
             Eigen::Vector2d r = curve.eval(t_q);
             Eigen::Vector2d drdt = curve.deriv(t_q);
             double speed = drdt.norm();
 
-            pts(q, 0) = r.x();
-            pts(q, 1) = r.y();
-
-            nml(q, 0) =  drdt.y() / speed;
-            nml(q, 1) = -drdt.x() / speed;
-            wts(q) = kLobatto_w[i] * half_L;
-
-            ++q;
+            if (i == 1) {
+                pts(q, 0) = r.x();
+                pts(q, 1) = r.y();
+                nml(q, 0) =  drdt.y() / speed;
+                nml(q, 1) = -drdt.x() / speed;
+            }
+            wts(q) += kLobatto_w[i] * half_L;
         }
     }
 
-    return Interface2D(std::move(pts), std::move(nml), std::move(wts), k, std::move(comp),
+    return Interface2D(std::move(pts), std::move(nml), std::move(wts), k,
+                       std::move(panel_point_indices), std::move(comp),
                        PanelNodeLayout2D::ChebyshevLobatto);
 }
 

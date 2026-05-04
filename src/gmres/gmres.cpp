@@ -35,9 +35,11 @@ int GMRES::solve(const IKFBIOperator& op,
     r = rhs - w;
     const double beta0 = r.norm();
     if (beta0 < tol_) {
+        residuals_.push_back(0.0);
         converged_ = true;
         return 0;
     }
+    residuals_.push_back(1.0);
 
     int total_iters = 0;
 
@@ -81,6 +83,7 @@ int GMRES::solve(const IKFBIOperator& op,
                 // Lucky breakdown: exact solution found
                 ++j;
                 ++total_iters;
+                residuals_.push_back(0.0);
                 break;
             }
 
@@ -105,7 +108,10 @@ int GMRES::solve(const IKFBIOperator& op,
 
             ++total_iters;
 
-            if (std::abs(g(j + 1)) / beta0 < tol_) {
+            const double rel_res = std::abs(g(j + 1)) / beta0;
+            residuals_.push_back(rel_res);
+
+            if (rel_res < tol_) {
                 ++j;
                 break;
             }
@@ -123,7 +129,7 @@ int GMRES::solve(const IKFBIOperator& op,
         // Compute true residual and record
         op.apply(x, w);
         r = rhs - w;
-        residuals_.push_back(r.norm() / beta0);
+        residuals_.back() = r.norm() / beta0;
 
         if (residuals_.back() < tol_) {
             converged_ = true;

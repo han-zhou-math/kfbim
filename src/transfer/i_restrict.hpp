@@ -11,21 +11,21 @@ namespace kfbim {
 // ---------------------------------------------------------------------------
 // Restrict (Layer 1): bulk solution → local polynomial at each interface point
 //
-// apply() does two things at each quadrature point x_i on Γ:
+// The active 2D apply() path does two things at each quadrature point x_i on Γ:
 //   1. Fits a local polynomial to the bulk solution using a local stencil of
 //      nearby grid nodes.  In 2D a 6-node stencil recovers the degree-2
 //      expansion: coeffs = [u, u_x, u_y, u_xx, u_xy, u_yy] at x_i.
-//      (3D: 10-node stencil recovers the degree-2 expansion in 3D.)
 //      Higher method orders use correspondingly larger stencils/degree.
-//   2. Subtracts the correction polynomial from the preceding Spread::apply()
-//      to recover the physical solution derivatives from the correct side.
+//   2. Uses the correction polynomial from the preceding Spread::apply() to
+//      map side-specific grid samples onto the interface average branch before
+//      interpolation. Interior samples subtract C/2; exterior samples add C/2.
 //
 // The returned LocalPoly2D for point i is centered at x_i and stores the
-// corrected solution expansion in the standard monomial basis (same ordering
+// averaged solution expansion in the standard monomial basis (same ordering
 // as jump_data.hpp):
 //
-//   poly.coeffs[0]                         = u|_Γ           (trace)
-//   poly.coeffs[1]*n_x + coeffs[2]*n_y     = ∂u/∂n|_Γ      (normal flux)
+//   poly.coeffs[0]                         = (u+ + u-)/2
+//   poly.coeffs[1]*n_x + coeffs[2]*n_y     = (∂ₙu+ + ∂ₙu-)/2
 //
 // where n = Interface2D::normals().row(i).  This unified return type covers
 // both Dirichlet (trace comparison) and Neumann (flux comparison) BVPs
@@ -37,7 +37,7 @@ public:
     virtual ~ILaplaceRestrict2D() = default;
 
     // correction_polys: polys returned by the preceding Spread::apply()
-    // returns:          corrected solution polynomial at each interface point;
+    // returns:          averaged solution polynomial at each interface point;
     //                   length = Interface2D::num_points()
     virtual std::vector<LocalPoly2D> apply(
         const Eigen::VectorXd&          bulk_solution,

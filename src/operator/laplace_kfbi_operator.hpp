@@ -3,25 +3,39 @@
 #include <vector>
 #include <Eigen/Dense>
 #include "i_kfbi_operator.hpp"
-#include "../problems/laplace_interface_solver_2d.hpp"
+#include "laplace_potential.hpp"
 
 namespace kfbim {
 
 // ---------------------------------------------------------------------------
 // BIE mode for Laplace BVPs
 //
-//   Dirichlet  Interior Dirichlet BVP via 2nd-kind BIE:
-//              Ansatz u = D[phi], solve (1/2 I - K) phi = g.
-//              jumps: [u]=phi, [un]=0. Returns u_int.
+//   InteriorDirichlet
+//              Double-layer jump primitive, [u]=phi, [un]=0.
+//              Returns the interior trace K[phi] + 1/2 phi.
 //
-//   Neumann    Interior Neumann BVP via 2nd-kind BIE:
-//              Ansatz u = S[phi], solve (1/2 I + K') phi = g.
-//              jumps: [u]=0, [un]=phi. Returns un_int.
+//   ExteriorDirichlet
+//              Double-layer jump primitive, [u]=phi, [un]=0.
+//              Returns the exterior trace K[phi] - 1/2 phi.
+//
+//   InteriorNeumann
+//              Single-layer jump primitive, [u]=0, [un]=psi.
+//              Returns the interior normal derivative K'[psi] + 1/2 psi.
+//
+//   ExteriorNeumann
+//              Single-layer jump primitive, [u]=0, [un]=psi.
+//              Returns the exterior normal derivative K'[psi] - 1/2 psi.
 // ---------------------------------------------------------------------------
 
 enum class LaplaceKFBIMode {
-    Dirichlet,          // Double Layer [u]=phi, [un]=0 -> returns u_int
-    Neumann             // Single Layer [u]=0, [un]=phi -> returns un_int
+    InteriorDirichlet,
+    ExteriorDirichlet,
+    InteriorNeumann,
+    ExteriorNeumann,
+
+    // Backward-compatible aliases for older call sites.
+    Dirichlet = InteriorDirichlet,
+    Neumann = InteriorNeumann
 };
 
 // ---------------------------------------------------------------------------
@@ -29,18 +43,18 @@ enum class LaplaceKFBIMode {
 //
 // Dirichlet mode packing (problem_size = num_points):
 //   x[i] = [u] at point i,   [∂u/∂n] = 0
-//   y[i] = interior trace u+|_Γ
+//   y[i] = selected-side trace u±|_Γ
 //
 // Neumann mode packing (problem_size = num_points):
 //   x[i] = [∂u/∂n] at point i,   [u] = 0
-//   y[i] = interior normal flux ∂u+/∂n|_Γ
+//   y[i] = selected-side normal flux ∂u±/∂n|_Γ
 //
 // apply() pipeline:
 //   1. Unpack x → LaplaceJumpData (mode determines which field)
 //   2. rhs = base_rhs_ + Spread correction → local polys
 //   3. BulkSolve(rhs) → bulk_solution
-//   4. Restrict(bulk_solution, polys) → solution polys at interface
-//   5. Extract trace or flux from poly → pack into y
+//   4. Restrict(bulk_solution, polys) → averaged solution polys at interface
+//   5. Reconstruct selected-side trace or flux → pack into y
 //
 // base_rhs_:   fixed bulk grid RHS from forcing f (no interface correction)
 // rhs_derivs_: fixed derivative jumps of f at each interface point
@@ -69,7 +83,7 @@ public:
     LaplaceKFBIMode mode() const { return mode_; }
 
 private:
-    LaplaceInterfaceSolver2D    solver_;
+    LaplacePotentialEval2D      potentials_;
     Eigen::VectorXd              base_rhs_;
     std::vector<Eigen::VectorXd> rhs_derivs_;
     LaplaceKFBIMode              mode_;

@@ -1,8 +1,32 @@
 #include "laplace_kfbi_operator.hpp"
 
 #include "../local_cauchy/jump_data.hpp"
+#include "../solver/i_bulk_solver.hpp"
+#include "../transfer/i_restrict.hpp"
+#include "../transfer/i_spread.hpp"
 
 namespace kfbim {
+
+namespace {
+
+bool is_neumann_mode(LaplaceKFBIMode mode)
+{
+    return mode == LaplaceKFBIMode::InteriorNeumann
+        || mode == LaplaceKFBIMode::ExteriorNeumann;
+}
+
+bool is_exterior_mode(LaplaceKFBIMode mode)
+{
+    return mode == LaplaceKFBIMode::ExteriorDirichlet
+        || mode == LaplaceKFBIMode::ExteriorNeumann;
+}
+
+double side_jump_sign(LaplaceKFBIMode mode)
+{
+    return is_exterior_mode(mode) ? -1.0 : 1.0;
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // 2D
@@ -15,7 +39,7 @@ LaplaceKFBIOperator2D::LaplaceKFBIOperator2D(
     Eigen::VectorXd              base_rhs,
     std::vector<Eigen::VectorXd> rhs_derivs,
     LaplaceKFBIMode              mode)
-    : solver_(spread, bulk_solver, restrict_op)
+    : potentials_(spread, bulk_solver, restrict_op)
     , base_rhs_(std::move(base_rhs))
     , rhs_derivs_(std::move(rhs_derivs))
     , mode_(mode)
@@ -24,12 +48,12 @@ LaplaceKFBIOperator2D::LaplaceKFBIOperator2D(
 void LaplaceKFBIOperator2D::apply(const Eigen::VectorXd& x,
                                    Eigen::VectorXd&       y) const
 {
-    const int Nq = solver_.num_points();
+    const int Nq = potentials_.problem_size();
 
     // 1. Unpack x → LaplaceJumpData
     std::vector<LaplaceJumpData2D> jumps(Nq);
     for (int i = 0; i < Nq; ++i) {
-        if (mode_ == LaplaceKFBIMode::Neumann) {
+        if (is_neumann_mode(mode_)) {
             // Single-layer: [u]=0, [un]=phi
             jumps[i].u_jump  = 0.0;
             jumps[i].un_jump = x[i];
@@ -43,29 +67,30 @@ void LaplaceKFBIOperator2D::apply(const Eigen::VectorXd& x,
 
     // 2. Run full pipeline via solver
     Eigen::VectorXd rhs = Eigen::VectorXd::Zero(base_rhs_.size());
-    auto res = solver_.solve(jumps, rhs);
+    auto res = potentials_.evaluate(jumps, rhs);
 
     // 3. Pack y from the appropriate trace
     y.resize(Nq);
-    if (mode_ == LaplaceKFBIMode::Dirichlet) {
-        // Interior trace: u_int = u_avg + [u]/2
+    const double sign = side_jump_sign(mode_);
+    if (!is_neumann_mode(mode_)) {
+        // Side trace: u_side = u_avg +/- [u]/2
         for (int i = 0; i < Nq; ++i)
-            y[i] = res.u_avg[i] + 0.5 * jumps[i].u_jump;
+            y[i] = res.u_avg[i] + sign * 0.5 * jumps[i].u_jump;
     } else {
-        // Interior normal derivative: un_int = un_avg + [un]/2
+        // Side normal derivative: un_side = un_avg +/- [un]/2
         for (int i = 0; i < Nq; ++i)
-            y[i] = res.un_avg[i] + 0.5 * jumps[i].un_jump;
+            y[i] = res.un_avg[i] + sign * 0.5 * jumps[i].un_jump;
     }
 }
 
 void LaplaceKFBIOperator2D::apply_full(const Eigen::VectorXd& x,
                                         Eigen::VectorXd&       y) const
 {
-    const int Nq = solver_.num_points();
+    const int Nq = potentials_.problem_size();
 
     std::vector<LaplaceJumpData2D> jumps(Nq);
     for (int i = 0; i < Nq; ++i) {
-        if (mode_ == LaplaceKFBIMode::Neumann) {
+        if (is_neumann_mode(mode_)) {
             jumps[i].u_jump  = 0.0;
             jumps[i].un_jump = x[i];
         } else {
@@ -75,21 +100,22 @@ void LaplaceKFBIOperator2D::apply_full(const Eigen::VectorXd& x,
         jumps[i].rhs_derivs = rhs_derivs_[i];
     }
 
-    auto res = solver_.solve(jumps, base_rhs_);
+    auto res = potentials_.evaluate(jumps, base_rhs_);
 
     y.resize(Nq);
-    if (mode_ == LaplaceKFBIMode::Dirichlet) {
+    const double sign = side_jump_sign(mode_);
+    if (!is_neumann_mode(mode_)) {
         for (int i = 0; i < Nq; ++i)
-            y[i] = res.u_avg[i] + 0.5 * jumps[i].u_jump;
+            y[i] = res.u_avg[i] + sign * 0.5 * jumps[i].u_jump;
     } else {
         for (int i = 0; i < Nq; ++i)
-            y[i] = res.un_avg[i] + 0.5 * jumps[i].un_jump;
+            y[i] = res.un_avg[i] + sign * 0.5 * jumps[i].un_jump;
     }
 }
 
 int LaplaceKFBIOperator2D::problem_size() const
 {
-    return solver_.num_points();
+    return potentials_.problem_size();
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +145,7 @@ void LaplaceKFBIOperator3D::apply(const Eigen::VectorXd& x,
 
     std::vector<LaplaceJumpData3D> jumps(Nq);
     for (int i = 0; i < Nq; ++i) {
-        if (mode_ == LaplaceKFBIMode::Neumann) {
+        if (is_neumann_mode(mode_)) {
             jumps[i].u_jump  = 0.0;
             jumps[i].un_jump = x[i];
         } else {
@@ -138,15 +164,17 @@ void LaplaceKFBIOperator3D::apply(const Eigen::VectorXd& x,
     auto solution_polys = restrict_op_.apply(u_bulk, correction_polys);
 
     y.resize(Nq);
-    if (mode_ == LaplaceKFBIMode::Dirichlet) {
+    if (!is_neumann_mode(mode_)) {
         for (int i = 0; i < Nq; ++i)
-            y[i] = solution_polys[i].coeffs[0];
+            y[i] = solution_polys[i].coeffs[0]
+                 - (is_exterior_mode(mode_) ? jumps[i].u_jump : 0.0);
     } else {
         const auto& normals = iface.normals();
         for (int i = 0; i < Nq; ++i)
             y[i] = solution_polys[i].coeffs[1] * normals(i, 0)
                  + solution_polys[i].coeffs[2] * normals(i, 1)
-                 + solution_polys[i].coeffs[3] * normals(i, 2);
+                 + solution_polys[i].coeffs[3] * normals(i, 2)
+                 - (is_exterior_mode(mode_) ? jumps[i].un_jump : 0.0);
     }
 }
 
@@ -158,7 +186,7 @@ void LaplaceKFBIOperator3D::apply_full(const Eigen::VectorXd& x,
 
     std::vector<LaplaceJumpData3D> jumps(Nq);
     for (int i = 0; i < Nq; ++i) {
-        if (mode_ == LaplaceKFBIMode::Neumann) {
+        if (is_neumann_mode(mode_)) {
             jumps[i].u_jump  = 0.0;
             jumps[i].un_jump = x[i];
         } else {
@@ -177,15 +205,17 @@ void LaplaceKFBIOperator3D::apply_full(const Eigen::VectorXd& x,
     auto solution_polys = restrict_op_.apply(u_bulk, correction_polys);
 
     y.resize(Nq);
-    if (mode_ == LaplaceKFBIMode::Dirichlet) {
+    if (!is_neumann_mode(mode_)) {
         for (int i = 0; i < Nq; ++i)
-            y[i] = solution_polys[i].coeffs[0];
+            y[i] = solution_polys[i].coeffs[0]
+                 - (is_exterior_mode(mode_) ? jumps[i].u_jump : 0.0);
     } else {
         const auto& normals = iface.normals();
         for (int i = 0; i < Nq; ++i)
             y[i] = solution_polys[i].coeffs[1] * normals(i, 0)
                  + solution_polys[i].coeffs[2] * normals(i, 1)
-                 + solution_polys[i].coeffs[3] * normals(i, 2);
+                 + solution_polys[i].coeffs[3] * normals(i, 2)
+                 - (is_exterior_mode(mode_) ? jumps[i].un_jump : 0.0);
     }
 }
 

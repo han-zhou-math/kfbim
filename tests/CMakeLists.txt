@@ -69,5 +69,8 @@ kfbim_add_test(test_dirichlet test_dirichlet.cpp)
 # Full pipeline — screened Poisson interior Dirichlet, 3-fold star
 kfbim_add_test(test_screened test_screened.cpp)
 
+# Full pipeline — screened Dirichlet/Neumann BVP wrappers, unit circle
+kfbim_add_test(test_bvp test_bvp.cpp)
+
 # Full pipeline — constant-ratio discontinuous coefficient transmission problem
 kfbim_add_test(test_transmission test_transmission.cpp)

@@ -14,8 +14,8 @@ namespace kfbim {
 //
 // Convergence criterion: ||r_k|| / ||r_0|| < tol
 //
-// residuals() returns the relative residual norm at the end of each outer
-// iteration (i.e., each restart cycle), not each Arnoldi step.
+// residuals() returns relative residuals step-by-step:
+// entry 0 is the initial residual, then one entry per Arnoldi/GMRES step.
 // ---------------------------------------------------------------------------
 
 class GMRES : public IOuterSolver {

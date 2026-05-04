@@ -227,12 +227,12 @@ TEST_CASE("LaplaceInteriorDirichlet2D: Chebyshev-Lobatto DOF convergence on 5-fo
     std::printf("  Panel DOFs: Chebyshev-Lobatto s={-1,0,1}; correction expansion centers: s={-0.75,-0.25,0.25,0.75}\n");
     std::printf("  Target Chebyshev-node spacing / h ≈ %.2f (panel arc length / h = %.2f)\n",
                 0.5 * kTargetPanelLengthOverH, kTargetPanelLengthOverH);
-    std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "rate", "iters");
+    std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "order", "GMRES");
 
     for (int l = 0; l < n_levels; ++l) {
         data[l] = solve_lobatto_and_measure(Ns[l]);
         if (l == 0) {
-            std::printf("  %6d  %12.4e  %8s  %6d\n", Ns[l], data[l].bulk_err, "—", data[l].iterations);
+            std::printf("  %6d  %12.4e  %8s  %6d\n", Ns[l], data[l].bulk_err, "-", data[l].iterations);
         } else {
             const double rate = std::log2(data[l-1].bulk_err / data[l].bulk_err);
             std::printf("  %6d  %12.4e  %8.3f  %6d\n", Ns[l], data[l].bulk_err, rate, data[l].iterations);

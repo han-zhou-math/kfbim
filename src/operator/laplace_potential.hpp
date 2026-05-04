@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <Eigen/Dense>
+#include "../local_cauchy/jump_data.hpp"
 
 namespace kfbim {
 
@@ -13,33 +14,22 @@ class ILaplaceSpread3D;
 class ILaplaceBulkSolver3D;
 class ILaplaceRestrict3D;
 
+struct LaplacePotentialEvalResult2D {
+    Eigen::VectorXd u_bulk;    // solution at all grid nodes
+    Eigen::VectorXd u_avg;     // averaged trace (u_int + u_ext)/2
+    Eigen::VectorXd un_avg;    // averaged normal derivative
+};
+
 // ============================================================================
-// LaplacePotentialEval2D — modular boundary integral operator evaluation (2D)
+// LaplacePotentialEval2D — general 2D KFBI pipeline and potential operators.
 //
-// Evaluates the three fundamental potentials for the constant-coefficient
-// interface problem  -Δu + κ u = f,  [u] = a,  [∂ₙu] = b:
+// evaluate() runs one Spread -> BulkSolve -> Restrict pass for arbitrary jumps
+// and bulk RHS. Restrict returns averaged trace/flux values directly.
 //
-//   D[φ]  Double-layer jump primitive:  f=0,  a=φ,  b=0
-//   S[ψ]  Single-layer:  f=0,  a=0,  b=ψ
-//   N[q]  Newton:        f=q,  a=0,  b=0   (q = [f] on interface)
-//
-// Convention: u+ = interior limit, u- = exterior limit, [u] = u+ - u-.
-// The double-layer primitive follows this jump convention directly.  Relative
-// to the classical representation whose double-layer has jump -phi, this is
-// the sign used by the current second-kind BVP operators.
-//
-// Derived operators (returned alongside each potential):
-//   K[φ]   = principal-value trace of D          = ½(D⁺ + D⁻)[φ]
-//   H[φ]   = normal derivative of D (continuous) = ∂ₙD[φ]
-//   S[ψ]   = trace of S (continuous)             = S⁺[ψ] = S⁻[ψ]
-//   K'[ψ]  = averaged normal derivative of S     = ½(∂ₙS⁺ + ∂ₙS⁻)[ψ]
-//   N[q]   = trace of N (continuous)
-//   ∂ₙN[q] = normal derivative of N (continuous)
-//
-// Internal: one KFBI pipeline run (Spread -> BulkSolve -> Restrict) per call.
-// The current restrict implementations output the interior trace/gradient
-// (u+, d_n u+); exterior-side quantities follow from the jump relations
-// [u] = u+ - u- and [d_n u] = d_n u+ - d_n u-.
+// The specialized potential helpers are thin wrappers around evaluate():
+//   D[φ]: [u]=φ, [∂ₙu]=0, f=0
+//   S[ψ]: [u]=0, [∂ₙu]=ψ, f=0
+//   N[q]: [u]=0, [∂ₙu]=0, [f]=q
 // ============================================================================
 
 class LaplacePotentialEval2D {
@@ -49,6 +39,11 @@ public:
                            const ILaplaceRestrict2D&   restrict_op);
 
     int problem_size() const;
+    double arc_h_ratio() const;
+
+    LaplacePotentialEvalResult2D evaluate(
+        const std::vector<LaplaceJumpData2D>& jumps,
+        const Eigen::VectorXd&                f_bulk) const;
 
     // ── Double-layer potential D[φ] ──────────────────────────────────────
     // [u]=phi, [∂ₙu]=0, f=0
@@ -69,16 +64,10 @@ public:
                      Eigen::VectorXd&       Nn_q) const;
 
 private:
-    // Run pipeline with given jumps and f-jumps; returns interior trace + flux.
-    void run_pipeline(const Eigen::VectorXd&              u_jump,
-                      const Eigen::VectorXd&              un_jump,
-                      const std::vector<Eigen::VectorXd>& rhs_derivs,
-                      Eigen::VectorXd&                    trace_int,
-                      Eigen::VectorXd&                    flux_int) const;
-
     const ILaplaceSpread2D&     spread_;
     const ILaplaceBulkSolver2D& bulk_solver_;
     const ILaplaceRestrict2D&   restrict_op_;
+    double                      arc_h_ratio_;
 };
 
 // ============================================================================

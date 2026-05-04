@@ -14,7 +14,8 @@ namespace kfbim {
 //
 // solve() may use x as an initial guess on entry (warm start); the solver
 // must not rely on x being zeroed.  Returns the number of iterations taken.
-// residuals() is valid after solve() returns.
+// residuals() is valid after solve() returns. Implementations should document
+// whether this history is recorded per step or per restart cycle.
 // ---------------------------------------------------------------------------
 
 class IOuterSolver {

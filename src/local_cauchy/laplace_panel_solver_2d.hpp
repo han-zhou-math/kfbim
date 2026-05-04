@@ -173,6 +173,12 @@ inline void panel_normal_2d(const double pts[3][2],
     panel_normal_2d_at_nodes(kPanelGLS, pts, stored_normals, s, out);
 }
 
+inline double panel_chord_length_2d(const double pts[3][2])
+{
+    return std::hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1])
+         + std::hypot(pts[2][0] - pts[1][0], pts[2][1] - pts[1][1]);
+}
+
 } // namespace detail
 
 // ---------------------------------------------------------------------------
@@ -353,10 +359,6 @@ inline PanelCauchyResult2D laplace_panel_cauchy_2d(
         const int g1 = iface.point_index(p, 1);
         const int g2 = iface.point_index(p, 2);
 
-        // Panel arc-length is only a fallback scale for degenerate geometry;
-        // each target solve uses its own local collocation radius below.
-        const double panel_length = iface.weights()[g0] + iface.weights()[g1] + iface.weights()[g2];
-
         const double panel_pts[3][2] = {
             { iface.points()(g0, 0), iface.points()(g0, 1) },
             { iface.points()(g1, 0), iface.points()(g1, 1) },
@@ -370,6 +372,7 @@ inline PanelCauchyResult2D laplace_panel_cauchy_2d(
         const double panel_a[3]  = { a[g0], a[g1], a[g2] };
         const double panel_b[3]  = { b[g0], b[g1], b[g2] };
         const double panel_Lu[3] = { Lu_iface[g0], Lu_iface[g1], Lu_iface[g2] };
+        const double panel_length = detail::panel_chord_length_2d(panel_pts);
 
         // Solve for each of the 3 Gauss points as the local center
         const int gidx[3] = { g0, g1, g2 };
@@ -471,8 +474,6 @@ inline PanelCenterCauchyResult2D laplace_panel_lobatto_center_cauchy_2d(
         const int g1 = iface.point_index(p, 1);
         const int g2 = iface.point_index(p, 2);
 
-        const double panel_length = iface.weights()[g0] + iface.weights()[g1] + iface.weights()[g2];
-
         const double panel_pts[3][2] = {
             { iface.points()(g0, 0), iface.points()(g0, 1) },
             { iface.points()(g1, 0), iface.points()(g1, 1) },
@@ -486,6 +487,7 @@ inline PanelCenterCauchyResult2D laplace_panel_lobatto_center_cauchy_2d(
         const double panel_a[3]  = { a[g0], a[g1], a[g2] };
         const double panel_b[3]  = { b[g0], b[g1], b[g2] };
         const double panel_Lu[3] = { Lu_iface[g0], Lu_iface[g1], Lu_iface[g2] };
+        const double panel_length = detail::panel_chord_length_2d(panel_pts);
 
         for (int i = 0; i < detail::kLobattoExpansionCount; ++i) {
             const int ci = detail::kLobattoExpansionCount * p + i;
