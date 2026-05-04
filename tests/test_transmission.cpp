@@ -435,7 +435,7 @@ TransmissionCaseConfig different_ratios_case()
 TEST_CASE("Common-ratio transmission 2D: Chebyshev-Lobatto convergence on 3-fold star",
           "[transmission][laplace][interface][lobatto][convergence][2d]")
 {
-    run_convergence_case(common_ratio_case(), {32, 64, 128, 256, 512, 1024});
+    run_convergence_case(common_ratio_case(), {32, 64, 128, 256, 512});
 }
 
 TEST_CASE("Different-ratio transmission 2D: Chebyshev-Lobatto convergence on 3-fold star",

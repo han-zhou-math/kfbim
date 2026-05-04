@@ -10,9 +10,11 @@ interface iteration applies a matrix-free operator:
 Spread interface jumps -> solve bulk PDE -> restrict solution to interface
 ```
 
-The current code focuses on the 2D Laplace pipeline, with Chebyshev-Lobatto
-panels as the default discretization for new work. The repository is structured
-as a reusable library rather than a one-off solver.
+The current stable problem wrappers are 2D Laplace BVP and transmission
+solvers using Chebyshev-Lobatto panels. A first 3D Laplace P2 triangular-patch
+potential pipeline is implemented and verified for a prescribed-jump screened
+interface problem. The repository is structured as a reusable library rather
+than a one-off solver.
 
 ## Status
 
@@ -24,6 +26,10 @@ Implemented:
 - Quasi-uniform arc-length curve resampling for stable interface discretization
 - 2D Laplace panel Cauchy solver for local jump reconstruction
 - 2D Laplace spread and restrict transfer operators
+- 3D P2 triangular-patch Laplace local Cauchy solver with 16 expansion centers
+  per parent triangle
+- 3D P2 Laplace spread/restrict transfer operators and
+  `LaplacePotentialEval3D`
 - 2D and 3D zFFT-backed Laplace bulk solvers
 - Matrix-free `IKFBIOperator` interface implemented by Laplace problem wrappers
 - Restarted GMRES outer solver
@@ -36,10 +42,12 @@ In progress / planned:
 
 - Richer forcing/nonzero-volume-potential APIs and diagnostics for Laplace
   problem wrappers
-- Variable-coefficient, 3D KFBI-pipeline, Stokes, and elasticity extensions
+- 3D screened Laplace BVP wrappers, followed by 3D discontinuous-coefficient
+  transmission wrappers
+- Variable-coefficient, Stokes, and elasticity extensions
 - Python and MATLAB bindings
 
-See [PROGRESS.md](PROGRESS.md) for current development notes.
+See [AGENTS.md](AGENTS.md) for current development notes and handoff plans.
 
 ## Repository Layout
 
@@ -48,10 +56,10 @@ src/
   grid/           Cartesian and MAC grids
   interface/      Interface quadrature and panel data
   geometry/       GridPair queries and domain labels
-  local_cauchy/   Local panel Cauchy reconstruction
+  local_cauchy/   Local panel/patch Cauchy reconstruction
   transfer/       Laplace spread/restrict operators
   bulk_solvers/   FFT and zFFT bulk solvers
-  potentials/     Reusable potential evaluators
+  potentials/     Reusable 2D/3D potential evaluators
   operators/      Matrix-free KFBI interface and problem wrappers
   gmres/          Restarted GMRES outer solver
 tests/            Catch2 test suite
@@ -74,7 +82,8 @@ Optional:
 
 - Catch2 v3 for tests; fetched by CMake if not installed
 - FFTW3 for the FFTW-backed solver
-- CGAL for future geometry backends; current 2D grid-pair code is self-contained
+- CGAL for GridPair geometry queries and 3D nearest-neighbor acceleration;
+  required for the active geometry-dependent tests
 
 On macOS with Homebrew:
 
@@ -108,15 +117,13 @@ ctest --test-dir build
 Run a specific executable directly when you want Catch2 output:
 
 ```bash
-./build/tests/test_dirichlet -s
+./build/tests/test_interface -s
 ```
 
-The current `test_dirichlet` manufactured harmonic solve uses a 5-fold star
-curve and reports Chebyshev-Lobatto convergence.
-
-Primary PDE/convergence executables are `test_fft`, `test_iim`,
-`test_dirichlet`, `test_screened`, and `test_transmission`; `test_potential`
-checks the modular boundary-potential jump relations.
+Primary PDE/convergence executables are `test_interface`, `test_interface_3d`,
+`test_bvp`, and `test_transmission`. The 3D interface test uses power-of-two
+grid sizes and is currently capped at `N=128`; the active 2D convergence
+programs are capped at `N=512`.
 
 ## Visualization Scripts
 
@@ -147,8 +154,12 @@ Grid, interface, and geometry data
 ```
 
 Most current tests exercise individual layers plus the full 2D Laplace
-interface pipeline. When adding a new component, prefer a focused component test
-and one integration test that verifies convergence or conservation behavior.
+interface pipeline and the first 3D P2 Laplace potential path. When adding a new
+component, prefer a focused component test and one integration test that verifies
+convergence or conservation behavior.
 For new 2D Laplace work, use `CurveResampler2D::discretize()` and
 `LaplaceBvpPanelMethod2D::ChebyshevLobattoCenter`; keep the legacy
 Gauss path only for explicit regression or comparison tests.
+For new 3D Laplace work, use shared six-node P2 triangular patches with
+`PanelNodeLayout3D::QuadraticLagrange`, 16 expansion centers per parent
+triangle, and target adjacent P2 node spacing over grid spacing of about `1.0`.

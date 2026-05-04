@@ -1,6 +1,7 @@
 /build/
 .codex
 .cache/
+*.swp
 python/*.png
 *.csv
 /output/

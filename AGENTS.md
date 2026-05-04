@@ -8,13 +8,26 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
 - Branch `main`; run `git log --oneline -n 3` for the exact current commit.
 - This guide reflects the 2026-05-04 2D Laplace Chebyshev-Lobatto,
   screened-Poisson, merged potential-evaluation, screened BVP wrapper,
-  transmission, and three-program PDE convergence-test reorganization work.
+  transmission, three-program PDE convergence-test reorganization work, and
+  the first verified 3D P2 Laplace potential pipeline.
 - **Completed modules** (active tests passing):
   - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
     - `Interface2D` tracks panel node layout: `ChebyshevLobatto`, `LegacyGaussLegendre`, or `Raw`.
     - Chebyshev-Lobatto panels use explicit connectivity with shared adjacent
       endpoints, so a closed curve has `num_points() = 2*num_panels()`.
     - `GridPair2D::domain_label()` uses oversampled curved-panel polygons for 3-point panels.
+  - Layer 0 3D additions:
+    - `Interface3D` tracks panel node layout: `Raw` or `QuadraticLagrange`.
+    - P2 triangular patches store explicit six-node connectivity
+      `[v0,v1,v2,e01,e12,e20]`, allowing shared vertices and shared edge
+      midpoint DOFs.
+    - `GridPair3D` uses CGAL kd-tree nearest-neighbor acceleration for closest
+      interface/sample queries. For `QuadraticLagrange` P2 surfaces, narrow-band
+      distance samples include the interface DOFs and the barycenters of the 16
+      twice-subdivided child triangles per parent triangle.
+    - Current P2 domain labeling is local-normal based at the nearest curved
+      surface sample, not a full CGAL inside/outside query on the curved
+      tessellation.
   - Layer 1: preferred Chebyshev-Lobatto transfer path:
     - `LaplaceLobattoCenterSpread2D`
     - `LaplaceLobattoCenterRestrict2D`
@@ -32,6 +45,19 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     - Uses the current restrict convention: restrict returns averaged trace/flux directly.
     - Covered by archived component tests; active top-level tests now exercise it
       through PDE-level manufactured problems.
+  - Layer 1-3 3D Laplace potential path:
+    - `laplace_p2_patch_center_cauchy_3d()` solves one local 10x10 quadratic
+      Cauchy system at each of 16 expansion centers per P2 triangle.
+    - For each child triangle, Dirichlet collocation uses the three child
+      vertices plus three child edge centers; Neumann collocation uses the three
+      child edge centers; PDE collocation is imposed at the child barycenter.
+      No offset delta is used.
+    - `LaplaceQuadraticPatchCenterSpread3D` and
+      `LaplaceQuadraticPatchCenterRestrict3D` implement the current transfer
+      path for P2 triangular patches.
+    - `LaplacePotentialEval3D` evaluates arbitrary jumps/RHS and returns bulk
+      solution plus averaged trace/flux, matching the 2D potential-evaluation
+      convention.
   - Layer 4: GMRES outer solver
   - Layer 5: 2D Laplace BVP API
     - `LaplaceBvp2D`
@@ -65,6 +91,12 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     manufactured solutions.
   - `tests/test_transmission.cpp` covers both `LaplaceTransmission2D` modes:
     `CommonRatio` and `DifferentRatios`.
+  - `tests/test_interface_3d.cpp` covers the direct prescribed-jump screened
+    3D interface problem on an off-center P2 sphere, with `eta=1.1`, 16
+    expansion centers per parent triangle, and target adjacent P2 node spacing
+    over grid spacing of about `1.0`.
+  - zFFT 3D testing should use power-of-two grid sizes; non-power-of-two 3D
+    sizes were observed to hang in earlier exploratory runs.
   - Component/basic/top-level legacy tests were moved to `tests/archive/` and
     are preserved as source files but are not registered in active CMake/CTest.
   - Legacy reference code was moved from `old-codes/` to `third_party/old-codes/`.
@@ -76,42 +108,71 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - Current concrete problem-level utilities and wrappers live in
     `src/operators/`.
   - Visualization and diagnostic Python scripts live in `python/`.
-- **Current convergence test status:** the active convergence binaries passed on 2026-05-04 after the three-program PDE test update and grid-ratio change:
+- **Current convergence test status:** the active convergence binaries passed on 2026-05-04 after the 3D P2 update and the 2D/3D grid-ratio caps:
   - `build/tests/test_interface -s`
+  - `build/tests/test_interface_3d -s`
   - `build/tests/test_bvp -s`
   - `build/tests/test_transmission -s`
 
-## Next Agent Handoff — Continue This Plan
+## Next Agent Handoff — 3D BVP and Transmission Plan
 
-When resuming this project, continue the 2D Laplace public-API plan rather than branching into 3D, Stokes, variable coefficients, or bindings.
+When resuming this project, use the verified 3D P2 potential pipeline as the
+building block for 3D screened Laplace BVP wrappers first, then 3D
+discontinuous-coefficient transmission. Keep the 2D public API stable while
+adding the 3D wrappers.
 
 1. **Keep the foundation stable first.**
    - Preserve `LaplaceBvp2D` behavior and the default `ChebyshevLobattoCenter` panel method.
    - Keep the active 2D Laplace path on Chebyshev-Lobatto panels.
+   - Preserve the 3D direct-interface test and P2 convention:
+     `PanelNodeLayout3D::QuadraticLagrange`, six-node shared triangular
+     patches, 16 expansion centers per parent triangle, and target P2
+     `node_spacing/h ~= 1.0`.
    - Keep current concrete problem-level utilities and wrappers in `src/operators/`.
    - Do not keep placeholder top-level problem API declarations; create a separate public API directory only when wrappers are implemented.
 
 2. **Next implementation target.**
-   - Harden the stable 2D Laplace BVP wrappers from concrete implementations.
-   - Next priority is richer forcing/nonzero-volume-potential APIs, plus
-     compatibility handling and diagnostics for pure Laplace Neumann cases.
-   - Continue discontinuous-coefficient work from the verified
-     `LaplaceTransmission2D` common-ratio and different-ratio cases.
-   - Use `LaplacePotentialEval2D` as the verified modular building block for D/S/N operator combinations.
+   - Add `LaplaceBvp3D` in `src/operators/`, modeled on `LaplaceBvp2D`, using
+     `LaplacePotentialEval3D`, `LaplaceQuadraticPatchCenterSpread3D`,
+     `LaplaceFftBulkSolverZfft3D`, and `LaplaceQuadraticPatchCenterRestrict3D`.
+   - Implement screened interior/exterior Dirichlet first. Then add screened
+     interior/exterior Neumann after the Dirichlet operator signs and selected-
+     side reconstruction are verified.
+   - Use an off-center P2 sphere manufactured problem. Reuse sine modes that
+     vanish on the outer cube for the first tests, then add nonzero outer
+     Cartesian Dirichlet elimination/restoration for exterior modes following
+     the 2D BVP pattern.
+   - After `LaplaceBvp3D` is stable, add `LaplaceTransmission3D` in
+     `src/operators/`: common-ratio mode first, then different-ratio/two-density
+     mode. Mirror the 2D sign conventions and density layouts.
+   - Keep reusable 3D potential-building code in `src/potentials/`; keep
+     problem wrappers in `src/operators/`.
 
 3. **Testing requirements for the next change.**
-   - Add one focused BVP test at a time with manufactured exact solutions.
-   - Avoid exact grid/interface alignment by offsetting the interface center or choosing an incommensurate box size.
+   - Add one focused 3D BVP test at a time with manufactured exact solutions:
+     start with interior Dirichlet, then exterior Dirichlet, then Neumann.
+   - Add `tests/test_bvp_3d.cpp` only when `LaplaceBvp3D` exists; add
+     `tests/test_transmission_3d.cpp` only when the corresponding wrapper exists.
+   - Keep 3D convergence grids power-of-two and capped at `N <= 128`; use a
+     smaller default smoke sweep if runtime becomes too high, but keep a
+     documented high-resolution command for `N=128`.
+   - Keep 2D convergence grids capped at `N <= 512`.
+   - Avoid exact grid/interface alignment by offsetting the sphere center or choosing an incommensurate box size.
    - Run at least:
      - `cmake --build build`
+     - `build/tests/test_interface_3d -s`
      - `build/tests/test_interface -s`
      - `build/tests/test_bvp -s`
      - `build/tests/test_transmission -s`
      - `git diff --check`
+   - Once added, also run:
+     - `build/tests/test_bvp_3d -s`
+     - `build/tests/test_transmission_3d -s`
 
 4. **Deferred work.**
    - Do not start Python/MATLAB bindings until the C++ problem API is stable.
-   - Defer 3D BVP verification until concrete 3D local Cauchy, spread, and restrict implementations exist.
+   - Defer 3D Stokes/elasticity until scalar 3D Laplace BVP and transmission
+     wrappers are verified.
    - Defer Stokes until the Laplace BVP API is clean; Stokes currently has scaffolding but not concrete local Cauchy, spread, restrict, or operator implementations.
 
 ### Preferred 2D panel method
@@ -145,6 +206,19 @@ Chebyshev-node spacing/h of `1.5` (`panel_length/h = 3.0`).
 | 256 | 3.6192e-05 | 2.091 | 0 |
 | 512 | 9.5274e-06 | 1.926 | 0 |
 
+`test_interface_3d`, direct prescribed-jump screened interface problem on an
+off-center P2 sphere, `eta=1.1`, homogeneous outer Cartesian Dirichlet data,
+target P2 `node_spacing/h ~= 1.0`:
+
+| N | panels | iface pts | max err | order | GMRES |
+|---:|------:|----------:|--------:|------:|------:|
+| 4 | 32 | 66 | 1.4208e-01 | - | 0 |
+| 8 | 32 | 66 | 3.5793e-02 | 1.989 | 0 |
+| 16 | 72 | 146 | 1.4692e-02 | 1.285 | 0 |
+| 32 | 288 | 578 | 2.4803e-03 | 2.566 | 0 |
+| 64 | 1152 | 2306 | 4.9963e-04 | 2.312 | 0 |
+| 128 | 5000 | 10002 | 1.1737e-04 | 2.090 | 0 |
+
 `test_bvp`, all four screened `LaplaceBvp2D` modes, `eta=1.1`:
 
 | BVP | N=32 | N=64 | N=128 | N=256 | N=512 |
@@ -168,7 +242,6 @@ Chebyshev-node spacing/h of `1.5` (`panel_length/h = 3.0`).
 | 128 | 3.8581e-05 | 1.867 | 7 |
 | 256 | 3.6765e-06 | 3.391 | 7 |
 | 512 | 1.2467e-06 | 1.560 | 7 |
-| 1024 | 2.7389e-07 | 2.186 | 7 |
 
 `test_transmission`, `LaplaceTransmission2D::DifferentRatios`,
 `beta_int=10`, `beta_ext=1`, `kappa_int^2=11`, `kappa_ext^2=0.7`:
@@ -282,8 +355,11 @@ Higher layers depend only on the abstractions of lower layers, not their impleme
 - **u⁺** = interior solution (Ω⁺ = inside the interface Γ)
 - **u⁻** = exterior solution (Ω⁻ = outside the interface Γ)
 - **[u] = u⁺ − u⁻** (interior minus exterior), similarly [∂u/∂n] = ∂u⁺/∂n − ∂u⁻/∂n
-- **Normal n** points outward (from interior Ω⁺ to exterior Ω⁻), matching `Interface2D::normals()`
-- **Domain label**: `GridPair2D::domain_label(n)` returns 0 = exterior (Ω⁻), 1 = interior (Ω⁺)
+- **Normal n** points outward (from interior Ω⁺ to exterior Ω⁻), matching
+  `Interface2D::normals()` and `Interface3D::normals()`.
+- **Domain label**: `GridPair2D::domain_label(n)` and
+  `GridPair3D::domain_label(n)` return 0 = exterior (Ω⁻), 1 = interior (Ω⁺)
+  for single-component tests.
 - **Correction polynomial** C from panel Cauchy solver: C = [u] on Γ, ∂C/∂n = [∂u/∂n]
 - **Restrict**: maps side-specific grid samples to the interface average branch
   before interpolation: interior samples subtract `C/2`, exterior samples add `C/2`.
@@ -305,17 +381,17 @@ src/
   grid/           # CartesianGrid2D/3D, MACGrid2D/3D, DofLayout, grid interfaces
   interface/      # Interface2D, Interface3D and panel node-layout metadata
   geometry/       # Curve2D, CurveResampler2D, GridPair2D/3D
-  transfer/       # ISpread/IRestrict plus Laplace Lobatto spread/restrict
-  local_cauchy/   # Local Cauchy interfaces, jump data, Laplace panel solver, local polynomials
+  transfer/       # ISpread/IRestrict plus 2D Lobatto and 3D P2 Laplace spread/restrict
+  local_cauchy/   # Local Cauchy interfaces, jump data, 2D panel and 3D P2 patch solvers, local polynomials
   bulk_solvers/   # BulkSolver API, FFT/zFFT engines, Laplace FFT/zFFT solvers, IIM helpers
-  potentials/     # LaplacePotentialEval2D reusable potential pipeline
+  potentials/     # LaplacePotentialEval2D/3D reusable potential pipelines
   operators/      # IKFBIOperator, LaplaceBvp2D, LaplaceTransmission2D, Stokes scaffold
   gmres/          # GMRES and outer-solver interface
 ```
 
 The old `src/solver/`, `src/operator/`, and `src/problems/` paths have been
 replaced by `src/bulk_solvers/`, `src/potentials/`, and `src/operators/`.
-New concrete 2D Laplace problem code should live in `src/operators/`; reusable
+New concrete Laplace problem code should live in `src/operators/`; reusable
 potential-building code should live in `src/potentials/`.
 
 Other repository paths:

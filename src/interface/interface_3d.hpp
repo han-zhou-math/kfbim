@@ -4,17 +4,22 @@
 
 namespace kfbim {
 
+enum class PanelNodeLayout3D {
+    Raw,
+    QuadraticLagrange
+};
+
 // Triangulated surface interface in 3D.
 //
-// In 3D, Gauss quadrature points on a triangle are not natural isoparametric
-// nodes (they don't sit at corners or edge midpoints), so geometry and DOFs
-// are kept separate:
-//   - vertices + panels define the geometry (P1 or P2 triangulation)
+// Geometry and DOFs are kept separate:
+//   - vertices + panels define the coarse triangle mesh used by legacy/raw
+//     callers and as a source mesh for diagnostics
 //   - points, normals, weights are the quadrature/DOF locations
+//   - panel_point_indices maps each panel-local DOF to a row in points
 //
-// Each panel has k = points_per_panel quadrature points (uniform across all
-// panels). Points are stored panel-major: panel p occupies global indices
-// [p*k, (p+1)*k). point_index(p, q) = p * points_per_panel + q.
+// The legacy constructor builds panel-major point connectivity. The explicit
+// constructor supports shared nodes, including QuadraticLagrange P2 triangles
+// with local order [v0, v1, v2, e01, e12, e20].
 //
 // Supports multiple disconnected components via panel_components.
 class Interface3D {
@@ -32,7 +37,20 @@ public:
                 Eigen::MatrixX3d normals,
                 Eigen::VectorXd  weights,
                 int              points_per_panel,
-                Eigen::VectorXi  panel_components);
+                Eigen::VectorXi  panel_components,
+                PanelNodeLayout3D panel_node_layout = PanelNodeLayout3D::Raw);
+
+    // Explicit-connectivity constructor. panel_point_indices is Np x k and
+    // maps each panel-local point to a row in points/normals/weights.
+    Interface3D(Eigen::MatrixX3d vertices,
+                Eigen::MatrixX3i panels,
+                Eigen::MatrixX3d points,
+                Eigen::MatrixX3d normals,
+                Eigen::VectorXd  weights,
+                int              points_per_panel,
+                Eigen::MatrixXi  panel_point_indices,
+                Eigen::VectorXi  panel_components,
+                PanelNodeLayout3D panel_node_layout = PanelNodeLayout3D::Raw);
 
     int num_vertices()     const { return static_cast<int>(vertices_.rows()); }
     int num_panels()       const { return static_cast<int>(panels_.rows()); }
@@ -41,7 +59,7 @@ public:
     int num_components()   const { return panel_components_.maxCoeff() + 1; }
 
     int point_index(int panel, int local_q) const {
-        return panel * points_per_panel_ + local_q;
+        return panel_point_indices_(panel, local_q);
     }
 
     const Eigen::MatrixX3d& vertices()         const { return vertices_; }
@@ -49,7 +67,9 @@ public:
     const Eigen::MatrixX3d& points()           const { return points_; }
     const Eigen::MatrixX3d& normals()          const { return normals_; }
     const Eigen::VectorXd&  weights()          const { return weights_; }
+    const Eigen::MatrixXi&  panel_point_indices() const { return panel_point_indices_; }
     const Eigen::VectorXi&  panel_components() const { return panel_components_; }
+    PanelNodeLayout3D       panel_node_layout() const { return panel_node_layout_; }
 
 private:
     Eigen::MatrixX3d vertices_;
@@ -58,7 +78,9 @@ private:
     Eigen::MatrixX3d normals_;
     Eigen::VectorXd  weights_;
     int              points_per_panel_;
+    Eigen::MatrixXi  panel_point_indices_;
     Eigen::VectorXi  panel_components_;
+    PanelNodeLayout3D panel_node_layout_;
 };
 
 } // namespace kfbim

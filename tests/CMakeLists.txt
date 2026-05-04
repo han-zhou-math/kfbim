@@ -43,5 +43,6 @@ endfunction()
 # ---------------------------------------------------------------------------
 
 kfbim_add_test(test_interface test_interface.cpp)
+kfbim_add_test(test_interface_3d test_interface_3d.cpp)
 kfbim_add_test(test_bvp test_bvp.cpp)
 kfbim_add_test(test_transmission test_transmission.cpp)

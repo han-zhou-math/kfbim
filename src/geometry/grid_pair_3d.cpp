@@ -2,10 +2,19 @@
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/Side_of_triangle_mesh.h>
+#include <CGAL/Search_traits_3.h>
+#include <CGAL/Search_traits_adapter.h>
+#include <CGAL/Orthogonal_k_neighbor_search.h>
+#include <CGAL/property_map.h>
 #include <cmath>
 #include <limits>
 #include <algorithm>
+#include <array>
+#include <memory>
+#include <string>
+#include <stdexcept>
 #include <unordered_map>
+#include <utility>
 
 namespace kfbim {
 
@@ -13,6 +22,14 @@ using K3      = CGAL::Exact_predicates_inexact_constructions_kernel;
 using CPoint3 = K3::Point_3;
 using CMesh3  = CGAL::Surface_mesh<CPoint3>;
 using CSideOf = CGAL::Side_of_triangle_mesh<CMesh3, K3>;
+using CPointWithIndex3 = std::pair<CPoint3, int>;
+using CSearchBaseTraits3 = CGAL::Search_traits_3<K3>;
+using CSearchTraits3 =
+    CGAL::Search_traits_adapter<CPointWithIndex3,
+                                CGAL::First_of_pair_property_map<CPointWithIndex3>,
+                                CSearchBaseTraits3>;
+using CNeighborSearch3 = CGAL::Orthogonal_k_neighbor_search<CSearchTraits3>;
+using CSearchTree3 = CNeighborSearch3::Tree;
 
 // ============================================================================
 // Internal helpers
@@ -61,6 +78,144 @@ struct GridPair3D::Impl {
     std::vector<int>    domain_label_vec;
 };
 
+struct DistanceSample3D {
+    Eigen::Vector3d point;
+    Eigen::Vector3d normal;
+    int             component;
+};
+
+static Eigen::Vector3d p2_panel_point(const Interface3D& iface,
+                                      int                panel,
+                                      double             l0,
+                                      double             l1,
+                                      double             l2)
+{
+    const double N0 = l0 * (2.0 * l0 - 1.0);
+    const double N1 = l1 * (2.0 * l1 - 1.0);
+    const double N2 = l2 * (2.0 * l2 - 1.0);
+    const double N3 = 4.0 * l0 * l1;
+    const double N4 = 4.0 * l1 * l2;
+    const double N5 = 4.0 * l2 * l0;
+    const double N[6] = {N0, N1, N2, N3, N4, N5};
+
+    Eigen::Vector3d pt = Eigen::Vector3d::Zero();
+    for (int q = 0; q < 6; ++q)
+        pt += N[q] * iface.points().row(iface.point_index(panel, q)).transpose();
+    return pt;
+}
+
+static std::vector<std::array<Eigen::Vector3d, 3>>
+subdivided_p2_faces(const Interface3D& iface, int panel)
+{
+    constexpr int n = 4;
+
+    auto lattice_point = [&](int i, int j) {
+        const double l1 = static_cast<double>(i) / static_cast<double>(n);
+        const double l2 = static_cast<double>(j) / static_cast<double>(n);
+        const double l0 = 1.0 - l1 - l2;
+        return p2_panel_point(iface, panel, l0, l1, l2);
+    };
+
+    std::vector<std::array<Eigen::Vector3d, 3>> faces;
+    faces.reserve(n * n);
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < n - i; ++j) {
+            faces.push_back({lattice_point(i, j),
+                             lattice_point(i + 1, j),
+                             lattice_point(i, j + 1)});
+            if (i + j < n - 1) {
+                faces.push_back({lattice_point(i + 1, j),
+                                 lattice_point(i + 1, j + 1),
+                                 lattice_point(i, j + 1)});
+            }
+        }
+    }
+    return faces;
+}
+
+static std::vector<int> point_components_3d(const Interface3D& iface)
+{
+    std::vector<int> components(iface.num_points(), 0);
+    for (int p = 0; p < iface.num_panels(); ++p) {
+        for (int q = 0; q < iface.points_per_panel(); ++q)
+            components[iface.point_index(p, q)] = iface.panel_components()[p];
+    }
+    return components;
+}
+
+static std::vector<DistanceSample3D> distance_samples_3d(const Interface3D& iface)
+{
+    std::vector<DistanceSample3D> samples;
+    samples.reserve(static_cast<std::size_t>(iface.num_points())
+                    + 16 * static_cast<std::size_t>(iface.num_panels()));
+    const std::vector<int> point_components = point_components_3d(iface);
+    for (int q = 0; q < iface.num_points(); ++q) {
+        samples.push_back({iface.points().row(q).transpose(),
+                           iface.normals().row(q).transpose(),
+                           point_components[q]});
+    }
+
+    if (iface.panel_node_layout() == PanelNodeLayout3D::QuadraticLagrange) {
+        for (int p = 0; p < iface.num_panels(); ++p) {
+            for (const auto& tri : subdivided_p2_faces(iface, p)) {
+                const Eigen::Vector3d center = (tri[0] + tri[1] + tri[2]) / 3.0;
+                Eigen::Vector3d normal = (tri[1] - tri[0]).cross(tri[2] - tri[0]);
+                const double len = normal.norm();
+                if (len > 1.0e-14)
+                    normal /= len;
+                else
+                    normal = iface.normals().row(iface.point_index(p, 0)).transpose();
+                const Eigen::Vector3d ref =
+                    iface.normals().row(iface.point_index(p, 0)).transpose();
+                if (normal.dot(ref) < 0.0)
+                    normal = -normal;
+                samples.push_back({center, normal, iface.panel_components()[p]});
+            }
+        }
+    }
+
+    return samples;
+}
+
+static std::string point_key(Eigen::Vector3d p)
+{
+    const long long x = std::llround(p[0] * 1.0e12);
+    const long long y = std::llround(p[1] * 1.0e12);
+    const long long z = std::llround(p[2] * 1.0e12);
+    return std::to_string(x) + "," + std::to_string(y) + "," + std::to_string(z);
+}
+
+class NearestPointCloud3D {
+public:
+    explicit NearestPointCloud3D(const std::vector<Eigen::Vector3d>& points)
+    {
+        if (points.empty())
+            throw std::invalid_argument("NearestPointCloud3D requires at least one point");
+
+        points_.reserve(points.size());
+        for (int i = 0; i < static_cast<int>(points.size()); ++i) {
+            const Eigen::Vector3d& p = points[i];
+            points_.emplace_back(CPoint3(p[0], p[1], p[2]), i);
+        }
+        tree_ = std::make_unique<CSearchTree3>(points_.begin(), points_.end());
+    }
+
+    int nearest(Eigen::Vector3d query) const
+    {
+        CNeighborSearch3 search(*tree_, CPoint3(query[0], query[1], query[2]), 1);
+        return search.begin()->first.second;
+    }
+
+private:
+    std::vector<CPointWithIndex3> points_;
+    std::unique_ptr<CSearchTree3> tree_;
+};
+
+static double squared_distance(Eigen::Vector3d a, Eigen::Vector3d b)
+{
+    return (a - b).squaredNorm();
+}
+
 // ============================================================================
 // Constructor
 // ============================================================================
@@ -69,9 +224,24 @@ GridPair3D::GridPair3D(const CartesianGrid3D& grid, const Interface3D& iface)
 {
     const int Nq = iface.num_points();
     const int N  = grid.num_dofs();
-    const int k  = iface.points_per_panel();
     const int Np = iface.num_panels();
     const int Nc = iface.num_components();
+    const std::vector<DistanceSample3D> distance_samples =
+        distance_samples_3d(iface);
+    std::vector<int> closest_sample_idx(N, 0);
+
+    std::vector<Eigen::Vector3d> iface_points;
+    iface_points.reserve(Nq);
+    for (int q = 0; q < Nq; ++q)
+        iface_points.push_back(iface.points().row(q).transpose());
+
+    std::vector<Eigen::Vector3d> sample_points;
+    sample_points.reserve(distance_samples.size());
+    for (const auto& sample : distance_samples)
+        sample_points.push_back(sample.point);
+
+    const NearestPointCloud3D iface_cloud(iface_points);
+    const NearestPointCloud3D sample_cloud(sample_points);
 
     // ------------------------------------------------------------------
     // 1. closest_bulk_node[q]: nearest grid DOF to each interface point.
@@ -83,25 +253,25 @@ GridPair3D::GridPair3D(const CartesianGrid3D& grid, const Interface3D& iface)
             iface.points()(q, 0), iface.points()(q, 1), iface.points()(q, 2));
 
     // ------------------------------------------------------------------
-    // 2. closest_iface_pt[n] and min_iface_dist[n]:
-    //    Brute-force O(N * Nq).
+    // 2. closest_iface_pt[n] and min_iface_dist[n].
+    //    The closest interface point is a DOF index. Narrow-band distances
+    //    use extra samples for curved P2 patches so face interiors are not
+    //    missed by coarse six-node surface data.
     // ------------------------------------------------------------------
     impl_->closest_iface_pt.resize(N, 0);
     impl_->min_iface_dist.resize(N, std::numeric_limits<double>::infinity());
 
     for (int n = 0; n < N; ++n) {
-        auto   c  = grid.coord(n);
-        double cx = c[0], cy = c[1], cz = c[2];
-        for (int q = 0; q < Nq; ++q) {
-            double dx = cx - iface.points()(q, 0);
-            double dy = cy - iface.points()(q, 1);
-            double dz = cz - iface.points()(q, 2);
-            double d  = std::sqrt(dx*dx + dy*dy + dz*dz);
-            if (d < impl_->min_iface_dist[n]) {
-                impl_->min_iface_dist[n]   = d;
-                impl_->closest_iface_pt[n] = q;
-            }
-        }
+        const auto c = grid.coord(n);
+        const Eigen::Vector3d pt(c[0], c[1], c[2]);
+
+        const int q = iface_cloud.nearest(pt);
+        impl_->closest_iface_pt[n] = q;
+
+        const int sidx = sample_cloud.nearest(pt);
+        impl_->min_iface_dist[n] =
+            std::sqrt(squared_distance(pt, distance_samples[sidx].point));
+        closest_sample_idx[n] = sidx;
     }
 
     // ------------------------------------------------------------------
@@ -113,6 +283,17 @@ GridPair3D::GridPair3D(const CartesianGrid3D& grid, const Interface3D& iface)
     // ------------------------------------------------------------------
 
     impl_->domain_label_vec.resize(N, 0);
+    if (iface.panel_node_layout() == PanelNodeLayout3D::QuadraticLagrange) {
+        for (int n = 0; n < N; ++n) {
+            const auto c = grid.coord(n);
+            const Eigen::Vector3d pt(c[0], c[1], c[2]);
+            const auto& sample = distance_samples[closest_sample_idx[n]];
+            if ((pt - sample.point).dot(sample.normal) < 0.0)
+                impl_->domain_label_vec[n] = sample.component + 1;
+        }
+        return;
+    }
+
     for (int comp = 0; comp < Nc; ++comp) {
         CMesh3 mesh;
         std::unordered_map<int, CMesh3::Vertex_index> vmap;

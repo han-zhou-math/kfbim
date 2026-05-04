@@ -76,6 +76,16 @@ inline int taylor_degree_from_num_coeffs_2d(int n_coeffs) {
     throw std::invalid_argument("invalid 2D Taylor polynomial coefficient count");
 }
 
+inline int taylor_degree_from_num_coeffs_3d(int n_coeffs) {
+    int total = 0;
+    for (int degree = 0; total < n_coeffs; ++degree) {
+        total += (degree + 1) * (degree + 2) / 2;
+        if (total == n_coeffs)
+            return degree;
+    }
+    throw std::invalid_argument("invalid 3D Taylor polynomial coefficient count");
+}
+
 // Evaluate a 2D LocalPoly in the Taylor-derivative basis.
 inline double evaluate_taylor_poly_2d(const LocalPoly2D& poly,
                                       Eigen::Vector2d    pt)
@@ -93,6 +103,37 @@ inline double evaluate_taylor_poly_2d(const LocalPoly2D& poly,
             value += poly.coeffs[idx] * local_poly_pow(dx, ax) * local_poly_pow(dy, ay)
                      / (local_poly_factorial(ax) * local_poly_factorial(ay));
             ++idx;
+        }
+    }
+
+    return value;
+}
+
+// Evaluate a 3D LocalPoly in the Taylor-derivative basis.
+inline double evaluate_taylor_poly_3d(const LocalPoly3D& poly,
+                                      Eigen::Vector3d    pt)
+{
+    const int max_degree = taylor_degree_from_num_coeffs_3d(
+        static_cast<int>(poly.coeffs.size()));
+    const double dx = pt[0] - poly.center[0];
+    const double dy = pt[1] - poly.center[1];
+    const double dz = pt[2] - poly.center[2];
+
+    double value = 0.0;
+    int idx = 0;
+    for (int degree = 0; degree <= max_degree; ++degree) {
+        for (int ax = degree; ax >= 0; --ax) {
+            for (int ay = degree - ax; ay >= 0; --ay) {
+                const int az = degree - ax - ay;
+                value += poly.coeffs[idx]
+                         * local_poly_pow(dx, ax)
+                         * local_poly_pow(dy, ay)
+                         * local_poly_pow(dz, az)
+                         / (local_poly_factorial(ax)
+                            * local_poly_factorial(ay)
+                            * local_poly_factorial(az));
+                ++idx;
+            }
         }
     }
 

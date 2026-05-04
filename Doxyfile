@@ -5,15 +5,18 @@ CREATE_SUBDIRS         = NO
 
 INPUT                  = README.md \
                          AGENTS.md \
-                         PROGRESS.md \
-                         core \
-                         problems \
+                         src \
+                         tests \
                          notes
 USE_MDFILE_AS_MAINPAGE = README.md
 RECURSIVE              = YES
 FILE_PATTERNS          = *.hpp \
                          *.cpp \
                          *.md
+EXCLUDE_PATTERNS       = */build/* \
+                         */output/* \
+                         */third_party/* \
+                         */tests/archive/*
 EXTRACT_ALL            = YES
 EXTRACT_PRIVATE        = NO
 EXTRACT_STATIC         = YES
@@ -24,7 +27,6 @@ GENERATE_HTML          = YES
 HTML_OUTPUT            = html
 GENERATE_LATEX         = NO
 GENERATE_TREEVIEW      = YES
-FULL_SIDEBAR           = YES
 SEARCHENGINE           = YES
 
 QUIET                  = NO

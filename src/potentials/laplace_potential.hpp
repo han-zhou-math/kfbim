@@ -20,6 +20,12 @@ struct LaplacePotentialEvalResult2D {
     Eigen::VectorXd un_avg;    // averaged normal derivative
 };
 
+struct LaplacePotentialEvalResult3D {
+    Eigen::VectorXd u_bulk;
+    Eigen::VectorXd u_avg;
+    Eigen::VectorXd un_avg;
+};
+
 // ============================================================================
 // LaplacePotentialEval2D — general 2D KFBI pipeline and potential operators.
 //
@@ -82,6 +88,10 @@ public:
 
     int problem_size() const;
 
+    LaplacePotentialEvalResult3D evaluate(
+        const std::vector<LaplaceJumpData3D>& jumps,
+        const Eigen::VectorXd&                f_bulk) const;
+
     void eval_double_layer(const Eigen::VectorXd& phi,
                            Eigen::VectorXd&       K_phi,
                            Eigen::VectorXd&       H_phi) const;
@@ -95,12 +105,6 @@ public:
                      Eigen::VectorXd&       Nn_q) const;
 
 private:
-    void run_pipeline(const Eigen::VectorXd&              u_jump,
-                      const Eigen::VectorXd&              un_jump,
-                      const std::vector<Eigen::VectorXd>& rhs_derivs,
-                      Eigen::VectorXd&                    trace_int,
-                      Eigen::VectorXd&                    flux_int) const;
-
     const ILaplaceSpread3D&     spread_;
     const ILaplaceBulkSolver3D& bulk_solver_;
     const ILaplaceRestrict3D&   restrict_op_;
