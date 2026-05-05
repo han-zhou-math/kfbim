@@ -40,7 +40,9 @@ add_library(kfbim_core STATIC
     # Layer 3 — potential pipeline, operators, and problem wrappers
     potentials/laplace_potential.cpp
     operators/laplace_bvp_2d.cpp
+    operators/laplace_bvp_3d.cpp
     operators/laplace_transmission_2d.cpp
+    operators/laplace_transmission_3d.cpp
 
     # Layer 4 — Outer Solver
     gmres/gmres.cpp

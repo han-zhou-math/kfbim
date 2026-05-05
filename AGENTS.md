@@ -8,8 +8,9 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
 - Branch `main`; run `git log --oneline -n 3` for the exact current commit.
 - This guide reflects the 2026-05-04 2D Laplace Chebyshev-Lobatto,
   screened-Poisson, merged potential-evaluation, screened BVP wrapper,
-  transmission, three-program PDE convergence-test reorganization work, and
-  the first verified 3D P2 Laplace potential pipeline.
+  transmission, three-program PDE convergence-test reorganization work, the
+  first verified 3D P2 Laplace potential pipeline, and the 2026-05-05 3D
+  screened BVP/transmission wrapper update.
 - **Completed modules** (active tests passing):
   - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
     - `Interface2D` tracks panel node layout: `ChebyshevLobatto`, `LegacyGaussLegendre`, or `Raw`.
@@ -65,6 +66,12 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     - Default panel method is `ChebyshevLobattoCenter`.
     - Interior Neumann uses an unweighted mean-zero vector projection only for
       the pure Laplace nullspace case `eta=0`; screened cases do not project.
+  - Layer 5: 3D Laplace BVP API
+    - `LaplaceBvp3D`
+    - Solves screened interior/exterior Dirichlet and Neumann BVPs on shared
+      P2 triangular interfaces using `LaplacePotentialEval3D`.
+    - Interior Neumann uses the same unweighted mean-zero projection as 2D
+      only for the pure Laplace nullspace case `eta=0`.
   - Discontinuous coefficient interface utility:
     - `LaplaceTransmission2D`
     - Solves `-div(beta grad u)+kappa^2 u=f` with common-ratio and
@@ -73,6 +80,8 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
       `-Delta u + lambda_sq u=q`.
     - Eliminates optional nonzero outer Cartesian Dirichlet data into the RHS,
       then restores boundary values in the output.
+    - `LaplaceTransmission3D` mirrors the 2D common-ratio and different-ratio
+      density layouts on the 3D P2 potential pipeline.
 - **Recent implementation notes:**
   - Chebyshev-Lobatto panel/expansion-center path is implemented and verified.
   - Gauss-point restrictor/problem-wrapper paths were removed from active code.
@@ -94,7 +103,14 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - `tests/test_interface_3d.cpp` covers the direct prescribed-jump screened
     3D interface problem on an off-center P2 sphere, with `eta=1.1`, 16
     expansion centers per parent triangle, and target adjacent P2 node spacing
-    over grid spacing of about `1.0`.
+    over grid spacing of about `1.5`.
+  - `tests/test_bvp_3d.cpp` covers all four screened `LaplaceBvp3D` modes on
+    an off-center P2 sphere.
+  - `tests/test_transmission_3d.cpp` covers both `LaplaceTransmission3D`
+    modes on an off-center P2 sphere; the common-ratio default sweep runs
+    through `N=64`, while the more expensive two-density different-ratio
+    default sweep runs through `N=32`. Set `KFBIM_HIGH_RES_3D=1` for the
+    higher-resolution 3D transmission levels.
   - zFFT 3D testing should use power-of-two grid sizes; non-power-of-two 3D
     sizes were observed to hang in earlier exploratory runs.
   - Component/basic/top-level legacy tests were moved to `tests/archive/` and
@@ -108,72 +124,60 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - Current concrete problem-level utilities and wrappers live in
     `src/operators/`.
   - Visualization and diagnostic Python scripts live in `python/`.
-- **Current convergence test status:** the active convergence binaries passed on 2026-05-04 after the 3D P2 update and the 2D/3D grid-ratio caps:
-  - `build/tests/test_interface -s`
-  - `build/tests/test_interface_3d -s`
-  - `build/tests/test_bvp -s`
-  - `build/tests/test_transmission -s`
+- **Current convergence test status:**
+  - 3D additions passed on 2026-05-05 after the target P2
+    `node_spacing/h ~= 1.5` update:
+    - `cmake --build build`
+    - `build/tests/test_transmission_3d -s`
+    - `git diff --check`
+  - The active 2D/direct-interface baseline previously passed on 2026-05-04:
+    - `build/tests/test_interface -s`
+    - `build/tests/test_interface_3d -s`
+    - `build/tests/test_bvp -s`
+    - `build/tests/test_transmission -s`
+  - Earlier 2026-05-05 smoke runs also verified `build/tests/test_bvp_3d -s`
+    before the final 3D ratio update.
 
-## Next Agent Handoff — 3D BVP and Transmission Plan
+## Next Agent Handoff — Post 3D Laplace Wrappers
 
-When resuming this project, use the verified 3D P2 potential pipeline as the
-building block for 3D screened Laplace BVP wrappers first, then 3D
-discontinuous-coefficient transmission. Keep the 2D public API stable while
-adding the 3D wrappers.
+The 3D scalar Laplace wrappers now exist. When resuming this project, preserve
+the 2D public API and the verified 3D P2 potential conventions while improving
+coverage, runtime, and numerical robustness.
 
 1. **Keep the foundation stable first.**
-   - Preserve `LaplaceBvp2D` behavior and the default `ChebyshevLobattoCenter` panel method.
+   - Preserve `LaplaceBvp2D` behavior and the default `ChebyshevLobattoCenter`
+     panel method.
    - Keep the active 2D Laplace path on Chebyshev-Lobatto panels.
-   - Preserve the 3D direct-interface test and P2 convention:
-     `PanelNodeLayout3D::QuadraticLagrange`, six-node shared triangular
-     patches, 16 expansion centers per parent triangle, and target P2
-     `node_spacing/h ~= 1.0`.
-   - Keep current concrete problem-level utilities and wrappers in `src/operators/`.
-   - Do not keep placeholder top-level problem API declarations; create a separate public API directory only when wrappers are implemented.
-
-2. **Next implementation target.**
-   - Add `LaplaceBvp3D` in `src/operators/`, modeled on `LaplaceBvp2D`, using
-     `LaplacePotentialEval3D`, `LaplaceQuadraticPatchCenterSpread3D`,
-     `LaplaceFftBulkSolverZfft3D`, and `LaplaceQuadraticPatchCenterRestrict3D`.
-   - Implement screened interior/exterior Dirichlet first. Then add screened
-     interior/exterior Neumann after the Dirichlet operator signs and selected-
-     side reconstruction are verified.
-   - Use an off-center P2 sphere manufactured problem. Reuse sine modes that
-     vanish on the outer cube for the first tests, then add nonzero outer
-     Cartesian Dirichlet elimination/restoration for exterior modes following
-     the 2D BVP pattern.
-   - After `LaplaceBvp3D` is stable, add `LaplaceTransmission3D` in
-     `src/operators/`: common-ratio mode first, then different-ratio/two-density
-     mode. Mirror the 2D sign conventions and density layouts.
+   - Preserve the 3D P2 convention: `PanelNodeLayout3D::QuadraticLagrange`,
+     six-node shared triangular patches, 16 expansion centers per parent
+     triangle, and target P2 `node_spacing/h ~= 1.5`.
    - Keep reusable 3D potential-building code in `src/potentials/`; keep
      problem wrappers in `src/operators/`.
 
-3. **Testing requirements for the next change.**
-   - Add one focused 3D BVP test at a time with manufactured exact solutions:
-     start with interior Dirichlet, then exterior Dirichlet, then Neumann.
-   - Add `tests/test_bvp_3d.cpp` only when `LaplaceBvp3D` exists; add
-     `tests/test_transmission_3d.cpp` only when the corresponding wrapper exists.
-   - Keep 3D convergence grids power-of-two and capped at `N <= 128`; use a
-     smaller default smoke sweep if runtime becomes too high, but keep a
-     documented high-resolution command for `N=128`.
-   - Keep 2D convergence grids capped at `N <= 512`.
-   - Avoid exact grid/interface alignment by offsetting the sphere center or choosing an incommensurate box size.
-   - Run at least:
-     - `cmake --build build`
-     - `build/tests/test_interface_3d -s`
-     - `build/tests/test_interface -s`
-     - `build/tests/test_bvp -s`
-     - `build/tests/test_transmission -s`
-     - `git diff --check`
-   - Once added, also run:
-     - `build/tests/test_bvp_3d -s`
-     - `build/tests/test_transmission_3d -s`
+2. **Current 3D operators.**
+   - `LaplaceBvp3D` mirrors `LaplaceBvp2D` for screened interior/exterior
+     Dirichlet and Neumann BVPs.
+   - `LaplaceTransmission3D` mirrors `LaplaceTransmission2D` with common-ratio
+     one-density and different-ratio two-density modes.
+   - Exterior 3D modes eliminate optional nonzero outer Cartesian Dirichlet data
+     into the RHS and restore boundary values in the returned bulk solution.
+
+3. **Next implementation targets.**
+   - Rerun and refresh the 3D direct-interface and BVP convergence snapshots
+     after the final target P2 `node_spacing/h ~= 1.5` change.
+   - Profile the 3D different-ratio transmission operator; it is substantially
+     more expensive than common-ratio because each GMRES apply evaluates four
+     potential branches.
+   - Keep the different-ratio 3D active default sweep modest, and use
+     `KFBIM_HIGH_RES_3D=1` for high-resolution `N=64`/`N=128` runs.
 
 4. **Deferred work.**
    - Do not start Python/MATLAB bindings until the C++ problem API is stable.
    - Defer 3D Stokes/elasticity until scalar 3D Laplace BVP and transmission
-     wrappers are verified.
-   - Defer Stokes until the Laplace BVP API is clean; Stokes currently has scaffolding but not concrete local Cauchy, spread, restrict, or operator implementations.
+     wrappers remain stable under the ratio-1.5 test suite.
+   - Defer Stokes until the Laplace BVP API is clean; Stokes currently has
+     scaffolding but not concrete local Cauchy, spread, restrict, or operator
+     implementations.
 
 ### Preferred 2D panel method
 
@@ -192,8 +196,9 @@ Use Chebyshev-Lobatto panels for new 2D Laplace work.
 
 ### Latest convergence snapshot
 
-All active tests use the same off-center 3-fold star and target adjacent
-Chebyshev-node spacing/h of `1.5` (`panel_length/h = 3.0`).
+The active 2D tests use the same off-center 3-fold star and target adjacent
+Chebyshev-node spacing/h of `1.5` (`panel_length/h = 3.0`). Active 3D sphere
+tests target P2 node spacing/h of about `1.5`.
 
 `test_interface`, direct prescribed-jump screened interface problem,
 `eta=1.1`, homogeneous outer Cartesian Dirichlet data:
@@ -206,9 +211,9 @@ Chebyshev-node spacing/h of `1.5` (`panel_length/h = 3.0`).
 | 256 | 3.6192e-05 | 2.091 | 0 |
 | 512 | 9.5274e-06 | 1.926 | 0 |
 
-`test_interface_3d`, direct prescribed-jump screened interface problem on an
-off-center P2 sphere, `eta=1.1`, homogeneous outer Cartesian Dirichlet data,
-target P2 `node_spacing/h ~= 1.0`:
+Previous `test_interface_3d` direct-interface snapshot before the final
+ratio-1.5 change, retained for comparison. Rerun this test before treating the
+table as the current 3D direct-interface benchmark:
 
 | N | panels | iface pts | max err | order | GMRES |
 |---:|------:|----------:|--------:|------:|------:|
@@ -253,6 +258,29 @@ target P2 `node_spacing/h ~= 1.0`:
 | 128 | 5.5521e-04 | 2.417 | 14 |
 | 256 | 1.1830e-04 | 2.231 | 13 |
 | 512 | 3.3862e-05 | 1.805 | 12 |
+
+`test_transmission_3d`, off-center P2 sphere, target P2
+`node_spacing/h ~= 1.5`, nonzero outer Cartesian Dirichlet data,
+`LaplaceTransmission3D::CommonRatio`, `beta_int=2`, `beta_ext=1`,
+`lambda^2=1.1`:
+
+| N | panels | iface pts | max err | order | GMRES |
+|---:|------:|----------:|--------:|------:|------:|
+| 8 | 32 | 66 | 1.0276e-01 | - | 6 |
+| 16 | 32 | 66 | 5.3546e-04 | 7.584 | 7 |
+| 32 | 128 | 258 | 1.2529e-04 | 2.095 | 7 |
+| 64 | 512 | 1026 | 2.0131e-05 | 2.638 | 6 |
+
+`test_transmission_3d`, off-center P2 sphere, target P2
+`node_spacing/h ~= 1.5`, nonzero outer Cartesian Dirichlet data,
+`LaplaceTransmission3D::DifferentRatios`, `beta_int=10`, `beta_ext=1`,
+`kappa_int^2=11`, `kappa_ext^2=0.7`:
+
+| N | panels | iface pts | max err | order | GMRES |
+|---:|------:|----------:|--------:|------:|------:|
+| 8 | 32 | 66 | 2.4244e-01 | - | 18 |
+| 16 | 32 | 66 | 1.0968e-01 | 1.144 | 12 |
+| 32 | 128 | 258 | 2.2487e-02 | 2.286 | 12 |
 
 ### Known numerical pitfall — grid/interface alignment
 When a Cartesian grid node lands exactly on the interface, the IIM correction stencil has zero distance to the interface, making the local polynomial fit degenerate. This produces erratic convergence rates. **Rule:** for convergence tests, ensure no grid node is exactly on the interface by either offsetting the interface center or using a domain size incommensurate with the interface geometry. See `tests/archive/test_laplace_interior_circle_2d_legacy_gauss.cpp` for the archived regression that exposed this pitfall.
@@ -385,7 +413,7 @@ src/
   local_cauchy/   # Local Cauchy interfaces, jump data, 2D panel and 3D P2 patch solvers, local polynomials
   bulk_solvers/   # BulkSolver API, FFT/zFFT engines, Laplace FFT/zFFT solvers, IIM helpers
   potentials/     # LaplacePotentialEval2D/3D reusable potential pipelines
-  operators/      # IKFBIOperator, LaplaceBvp2D, LaplaceTransmission2D, Stokes scaffold
+  operators/      # IKFBIOperator, LaplaceBvp2D/3D, LaplaceTransmission2D/3D, Stokes scaffold
   gmres/          # GMRES and outer-solver interface
 ```
 
