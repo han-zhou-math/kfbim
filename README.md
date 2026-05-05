@@ -10,11 +10,11 @@ interface iteration applies a matrix-free operator:
 Spread interface jumps -> solve bulk PDE -> restrict solution to interface
 ```
 
-The current stable problem wrappers are 2D Laplace BVP and transmission
-solvers using Chebyshev-Lobatto panels. A first 3D Laplace P2 triangular-patch
-potential pipeline is implemented and verified for a prescribed-jump screened
-interface problem. The repository is structured as a reusable library rather
-than a one-off solver.
+The current stable problem wrappers are 2D and 3D Laplace BVP and transmission
+solvers. The 2D path uses Chebyshev-Lobatto panels, while the 3D path uses
+shared P2 triangular patches and is covered on spherical and ellipsoidal
+interfaces. The repository is structured as a reusable library rather than a
+one-off solver.
 
 ## Status
 
@@ -36,14 +36,17 @@ Implemented:
 - Modular `LaplacePotentialEval2D` operators for D/S/N jump primitives
 - End-to-end 2D Laplace BVP and transmission tests with current
   Chebyshev-Lobatto convergence coverage, including star boundaries
-- Current concrete problem APIs: `LaplaceBvp2D` and `LaplaceTransmission2D`
+- End-to-end 3D screened Laplace BVP and transmission tests on shared P2
+  triangular interfaces, including sphere and ellipsoid transmission coverage
+- Current concrete problem APIs: `LaplaceBvp2D`, `LaplaceBvp3D`,
+  `LaplaceTransmission2D`, and `LaplaceTransmission3D`
 
 In progress / planned:
 
 - Richer forcing/nonzero-volume-potential APIs and diagnostics for Laplace
   problem wrappers
-- 3D screened Laplace BVP wrappers, followed by 3D discontinuous-coefficient
-  transmission wrappers
+- 3D runtime profiling and robustness work, especially the expensive
+  different-ratio transmission operator
 - Variable-coefficient, Stokes, and elasticity extensions
 - Python and MATLAB bindings
 
@@ -121,9 +124,9 @@ Run a specific executable directly when you want Catch2 output:
 ```
 
 Primary PDE/convergence executables are `test_interface`, `test_interface_3d`,
-`test_bvp`, and `test_transmission`. The 3D interface test uses power-of-two
-grid sizes and is currently capped at `N=128`; the active 2D convergence
-programs are capped at `N=512`.
+`test_bvp`, `test_bvp_3d`, `test_transmission`, `test_transmission_3d`, and
+`test_transmission_ellipsoid_3d`. The 3D tests use power-of-two grid sizes;
+set `KFBIM_HIGH_RES_3D=1` to include the highest-resolution 3D levels.
 
 ## Visualization Scripts
 
@@ -154,12 +157,12 @@ Grid, interface, and geometry data
 ```
 
 Most current tests exercise individual layers plus the full 2D Laplace
-interface pipeline and the first 3D P2 Laplace potential path. When adding a new
-component, prefer a focused component test and one integration test that verifies
-convergence or conservation behavior.
+interface pipeline and the 3D P2 Laplace BVP/transmission paths. When adding a
+new component, prefer a focused component test and one integration test that
+verifies convergence or conservation behavior.
 For new 2D Laplace work, use `CurveResampler2D::discretize()` and
 `LaplaceBvpPanelMethod2D::ChebyshevLobattoCenter`; keep the legacy
 Gauss path only for explicit regression or comparison tests.
 For new 3D Laplace work, use shared six-node P2 triangular patches with
 `PanelNodeLayout3D::QuadraticLagrange`, 16 expansion centers per parent
-triangle, and target adjacent P2 node spacing over grid spacing of about `1.0`.
+triangle, and target adjacent P2 node spacing over grid spacing of about `1.5`.

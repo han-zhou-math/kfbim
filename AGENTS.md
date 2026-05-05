@@ -10,7 +10,7 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   screened-Poisson, merged potential-evaluation, screened BVP wrapper,
   transmission, three-program PDE convergence-test reorganization work, the
   first verified 3D P2 Laplace potential pipeline, and the 2026-05-05 3D
-  screened BVP/transmission wrapper update.
+  screened BVP/transmission wrapper and ellipsoid transmission-test update.
 - **Completed modules** (active tests passing):
   - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
     - `Interface2D` tracks panel node layout: `ChebyshevLobatto`, `LegacyGaussLegendre`, or `Raw`.
@@ -111,6 +111,10 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     through `N=64`, while the more expensive two-density different-ratio
     default sweep runs through `N=32`. Set `KFBIM_HIGH_RES_3D=1` for the
     higher-resolution 3D transmission levels.
+  - `tests/test_transmission_ellipsoid_3d.cpp` covers
+    `LaplaceTransmission3D::CommonRatio` on a shared P2 triaxial ellipsoid
+    with axes `(0.61,0.49,0.41)`, center `(0.07,-0.04,0.03)`, nonzero outer
+    Cartesian Dirichlet data, and target P2 `node_spacing/h ~= 1.5`.
   - zFFT 3D testing should use power-of-two grid sizes; non-power-of-two 3D
     sizes were observed to hang in earlier exploratory runs.
   - Component/basic/top-level legacy tests were moved to `tests/archive/` and
@@ -126,9 +130,11 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - Visualization and diagnostic Python scripts live in `python/`.
 - **Current convergence test status:**
   - 3D additions passed on 2026-05-05 after the target P2
-    `node_spacing/h ~= 1.5` update:
+    `node_spacing/h ~= 1.5` and ellipsoid common-ratio transmission update:
     - `cmake --build build`
     - `build/tests/test_transmission_3d -s`
+    - `build/tests/test_transmission_ellipsoid_3d -s`
+    - `ctest --test-dir build -R ellipsoid --output-on-failure`
     - `git diff --check`
   - The active 2D/direct-interface baseline previously passed on 2026-05-04:
     - `build/tests/test_interface -s`
@@ -281,6 +287,18 @@ table as the current 3D direct-interface benchmark:
 | 8 | 32 | 66 | 2.4244e-01 | - | 18 |
 | 16 | 32 | 66 | 1.0968e-01 | 1.144 | 12 |
 | 32 | 128 | 258 | 2.2487e-02 | 2.286 | 12 |
+
+`test_transmission_ellipsoid_3d`, off-center P2 triaxial ellipsoid with axes
+`(0.61,0.49,0.41)`, target P2 `node_spacing/h ~= 1.5`, nonzero outer
+Cartesian Dirichlet data, `LaplaceTransmission3D::CommonRatio`, `beta_int=2`,
+`beta_ext=1`, `lambda^2=1.1`:
+
+| N | panels | iface pts | max err | order | GMRES |
+|---:|------:|----------:|--------:|------:|------:|
+| 8 | 32 | 66 | 7.3221e-02 | - | 6 |
+| 16 | 32 | 66 | 1.0823e-03 | 6.080 | 7 |
+| 32 | 200 | 402 | 1.1836e-04 | 3.193 | 8 |
+| 64 | 648 | 1298 | 2.2448e-05 | 2.399 | 7 |
 
 ### Known numerical pitfall — grid/interface alignment
 When a Cartesian grid node lands exactly on the interface, the IIM correction stencil has zero distance to the interface, making the local polynomial fit degenerate. This produces erratic convergence rates. **Rule:** for convergence tests, ensure no grid node is exactly on the interface by either offsetting the interface center or using a domain size incommensurate with the interface geometry. See `tests/archive/test_laplace_interior_circle_2d_legacy_gauss.cpp` for the archived regression that exposed this pitfall.
