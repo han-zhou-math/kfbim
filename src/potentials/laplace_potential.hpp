@@ -63,6 +63,13 @@ public:
                            Eigen::VectorXd&       S_psi,
                            Eigen::VectorXd&       Kt_psi) const;
 
+    // ── Combined D[phi] + S[psi] evaluation ─────────────────────────────
+    // Runs one potential solve with [u]=phi and [∂ₙu]=psi.
+    void eval_layer_combination(const Eigen::VectorXd& phi,
+                                const Eigen::VectorXd& psi,
+                                Eigen::VectorXd&       trace_avg,
+                                Eigen::VectorXd&       normal_avg) const;
+
     // ── Newton potential N[q] ────────────────────────────────────────────
     // [u]=0, [∂ₙu]=0, [f]=q
     void eval_newton(const Eigen::VectorXd& q,
@@ -99,6 +106,11 @@ public:
     void eval_single_layer(const Eigen::VectorXd& psi,
                            Eigen::VectorXd&       S_psi,
                            Eigen::VectorXd&       Kt_psi) const;
+
+    void eval_layer_combination(const Eigen::VectorXd& phi,
+                                const Eigen::VectorXd& psi,
+                                Eigen::VectorXd&       trace_avg,
+                                Eigen::VectorXd&       normal_avg) const;
 
     void eval_newton(const Eigen::VectorXd& q,
                      Eigen::VectorXd&       N_q,

@@ -137,14 +137,8 @@ void LaplacePotentialEval2D::eval_double_layer(
     Eigen::VectorXd&       H_phi) const
 {
     const int Nq = problem_size();
-    std::vector<Eigen::VectorXd> rhs_derivs(Nq, Eigen::VectorXd::Zero(1));
     const Eigen::VectorXd zeros = Eigen::VectorXd::Zero(Nq);
-    const Eigen::VectorXd zero_rhs =
-        Eigen::VectorXd::Zero(spread_.grid_pair().grid().num_dofs());
-
-    auto result = evaluate(make_jumps_2d(Nq, phi, zeros, rhs_derivs), zero_rhs);
-    K_phi = std::move(result.u_avg);
-    H_phi = std::move(result.un_avg);
+    eval_layer_combination(phi, zeros, K_phi, H_phi);
 }
 
 // S[ψ]: [u]=0, [∂ₙu]=ψ, f=0
@@ -155,14 +149,24 @@ void LaplacePotentialEval2D::eval_single_layer(
     Eigen::VectorXd&       Kt_psi) const
 {
     const int Nq = problem_size();
-    std::vector<Eigen::VectorXd> rhs_derivs(Nq, Eigen::VectorXd::Zero(1));
     const Eigen::VectorXd zeros = Eigen::VectorXd::Zero(Nq);
+    eval_layer_combination(zeros, psi, S_psi, Kt_psi);
+}
+
+void LaplacePotentialEval2D::eval_layer_combination(
+    const Eigen::VectorXd& phi,
+    const Eigen::VectorXd& psi,
+    Eigen::VectorXd&       trace_avg,
+    Eigen::VectorXd&       normal_avg) const
+{
+    const int Nq = problem_size();
+    std::vector<Eigen::VectorXd> rhs_derivs(Nq, Eigen::VectorXd::Zero(1));
     const Eigen::VectorXd zero_rhs =
         Eigen::VectorXd::Zero(spread_.grid_pair().grid().num_dofs());
 
-    auto result = evaluate(make_jumps_2d(Nq, zeros, psi, rhs_derivs), zero_rhs);
-    S_psi = std::move(result.u_avg);
-    Kt_psi = std::move(result.un_avg);
+    auto result = evaluate(make_jumps_2d(Nq, phi, psi, rhs_derivs), zero_rhs);
+    trace_avg = std::move(result.u_avg);
+    normal_avg = std::move(result.un_avg);
 }
 
 // N[q]: [u]=0, [∂ₙu]=0, [f]=q
@@ -275,14 +279,8 @@ void LaplacePotentialEval3D::eval_double_layer(
     Eigen::VectorXd&       H_phi) const
 {
     const int Nq = problem_size();
-    std::vector<Eigen::VectorXd> rhs_derivs(Nq, Eigen::VectorXd::Zero(1));
     const Eigen::VectorXd zeros = Eigen::VectorXd::Zero(Nq);
-    const Eigen::VectorXd zero_rhs =
-        Eigen::VectorXd::Zero(spread_.grid_pair().grid().num_dofs());
-
-    auto result = evaluate(make_jumps_3d(Nq, phi, zeros, rhs_derivs), zero_rhs);
-    K_phi = std::move(result.u_avg);
-    H_phi = std::move(result.un_avg);
+    eval_layer_combination(phi, zeros, K_phi, H_phi);
 }
 
 void LaplacePotentialEval3D::eval_single_layer(
@@ -291,14 +289,24 @@ void LaplacePotentialEval3D::eval_single_layer(
     Eigen::VectorXd&       Kt_psi) const
 {
     const int Nq = problem_size();
-    std::vector<Eigen::VectorXd> rhs_derivs(Nq, Eigen::VectorXd::Zero(1));
     const Eigen::VectorXd zeros = Eigen::VectorXd::Zero(Nq);
+    eval_layer_combination(zeros, psi, S_psi, Kt_psi);
+}
+
+void LaplacePotentialEval3D::eval_layer_combination(
+    const Eigen::VectorXd& phi,
+    const Eigen::VectorXd& psi,
+    Eigen::VectorXd&       trace_avg,
+    Eigen::VectorXd&       normal_avg) const
+{
+    const int Nq = problem_size();
+    std::vector<Eigen::VectorXd> rhs_derivs(Nq, Eigen::VectorXd::Zero(1));
     const Eigen::VectorXd zero_rhs =
         Eigen::VectorXd::Zero(spread_.grid_pair().grid().num_dofs());
 
-    auto result = evaluate(make_jumps_3d(Nq, zeros, psi, rhs_derivs), zero_rhs);
-    S_psi = std::move(result.u_avg);
-    Kt_psi = std::move(result.un_avg);
+    auto result = evaluate(make_jumps_3d(Nq, phi, psi, rhs_derivs), zero_rhs);
+    trace_avg = std::move(result.u_avg);
+    normal_avg = std::move(result.un_avg);
 }
 
 void LaplacePotentialEval3D::eval_newton(

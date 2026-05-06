@@ -331,35 +331,26 @@ void LaplaceTransmission3D::apply_different_ratios(
     const Eigen::VectorXd phi = x.head(n_iface);
     const Eigen::VectorXd psi = x.tail(n_iface);
 
-    Eigen::VectorXd k_int;
-    Eigen::VectorXd h_int;
-    Eigen::VectorXd k_ext;
-    Eigen::VectorXd h_ext;
-    Eigen::VectorXd s_int;
-    Eigen::VectorXd kt_int;
-    Eigen::VectorXd s_ext;
-    Eigen::VectorXd kt_ext;
-
-    potentials_int_.eval_double_layer(phi, k_int, h_int);
-    potentials_ext_.eval_double_layer(phi, k_ext, h_ext);
-    potentials_int_.eval_single_layer(psi, s_int, kt_int);
-    potentials_ext_.eval_single_layer(psi, s_ext, kt_ext);
-
     const double beta_int = coefficients_.beta_int;
     const double beta_ext = coefficients_.beta_ext;
     const double beta_sum = beta_int + beta_ext;
     const double alpha_int = 2.0 * beta_ext / beta_sum;
     const double alpha_ext = 2.0 * beta_int / beta_sum;
-    const double flux_coeff = 2.0 * beta_int * beta_ext / beta_sum;
     const double flux_row_scale = 2.0 / beta_sum;
 
+    Eigen::VectorXd trace_int;
+    Eigen::VectorXd normal_int;
+    Eigen::VectorXd trace_ext;
+    Eigen::VectorXd normal_ext;
+    const Eigen::VectorXd phi_int = alpha_int * phi;
+    const Eigen::VectorXd phi_ext = alpha_ext * phi;
+    potentials_int_.eval_layer_combination(phi_int, psi, trace_int, normal_int);
+    potentials_ext_.eval_layer_combination(phi_ext, psi, trace_ext, normal_ext);
+
     y.resize(2 * n_iface);
-    y.head(n_iface) =
-        phi + alpha_int * k_int - alpha_ext * k_ext + s_int - s_ext;
+    y.head(n_iface) = phi + trace_int - trace_ext;
     y.tail(n_iface) =
-        psi + flux_row_scale *
-                  (flux_coeff * (h_int - h_ext)
-                   + beta_int * kt_int - beta_ext * kt_ext);
+        psi + flux_row_scale * (beta_int * normal_int - beta_ext * normal_ext);
 }
 
 LaplaceTransmissionSolveResult3D LaplaceTransmission3D::solve(
@@ -414,7 +405,6 @@ LaplaceTransmissionSolveResult3D LaplaceTransmission3D::solve_common_ratio(
     require_common_ratio(lambda_sq_int_, lambda_sq_ext_);
 
     const int n_iface = grid_pair_.interface().num_points();
-    const int n_dof = grid_pair_.grid().num_dofs();
     const Eigen::VectorXd rhs = apply_dirichlet_boundary_elimination(
         rhs_data.reduced_rhs_bulk, outer_dirichlet_values);
     const auto rhs_derivs = combine_rhs_derivs(
@@ -422,21 +412,16 @@ LaplaceTransmissionSolveResult3D LaplaceTransmission3D::solve_common_ratio(
         rhs_data.reduced_rhs_ext_derivs);
 
     const Eigen::VectorXd zeros = Eigen::VectorXd::Zero(n_iface);
-    const Eigen::VectorXd zero_rhs = Eigen::VectorXd::Zero(n_dof);
-    const auto zero_derivs = zero_rhs_derivs(n_iface);
 
-    auto double_jumps = make_jumps(n_iface, u_jump, zeros, zero_derivs);
-    auto double_res = potentials_int_.evaluate(double_jumps, zero_rhs);
-
-    auto volume_jumps = make_jumps(n_iface, zeros, zeros, rhs_derivs);
-    auto volume_res = potentials_int_.evaluate(volume_jumps, rhs);
+    auto rhs_setup_jumps = make_jumps(n_iface, u_jump, zeros, rhs_derivs);
+    auto rhs_setup_res = potentials_int_.evaluate(rhs_setup_jumps, rhs);
 
     const double beta_sum = coefficients_.beta_int + coefficients_.beta_ext;
     const double gamma =
         2.0 * (coefficients_.beta_int - coefficients_.beta_ext) / beta_sum;
     Eigen::VectorXd bie_rhs =
         (2.0 / beta_sum) * beta_flux_jump
-        - gamma * (double_res.un_avg + volume_res.un_avg);
+        - gamma * rhs_setup_res.un_avg;
 
     GMRES gmres(max_iter, tol, restart);
     Eigen::VectorXd psi = Eigen::VectorXd::Zero(n_iface);

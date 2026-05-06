@@ -66,7 +66,8 @@ public:
     LaplaceTransmission2D(const CartesianGrid2D&                 grid,
                           const Interface2D&                     iface,
                           LaplaceTransmissionMode2D              mode,
-                          LaplaceTransmissionCoefficients2D      coefficients);
+                          LaplaceTransmissionCoefficients2D      coefficients,
+                          ZfftBcType                             bulk_bc = ZfftBcType::Dirichlet);
 
     void apply(const Eigen::VectorXd& x, Eigen::VectorXd& y) const override;
     int problem_size() const override;
@@ -118,6 +119,7 @@ private:
     GridPair2D                       grid_pair_;
     LaplaceTransmissionMode2D        mode_;
     LaplaceTransmissionCoefficients2D coefficients_;
+    ZfftBcType                       bulk_bc_;
     double                           lambda_sq_int_;
     double                           lambda_sq_ext_;
 

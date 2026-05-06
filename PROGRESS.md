@@ -1,5 +1,33 @@
 # KFBIM - Development Plan
 
+## 2026-05-06 Update
+
+Recent work extended the scalar Laplace coverage and cleaned up project notes:
+
+- Added a 3D common-ratio transmission convergence test on a shared P2 torus.
+- Added torus visualization export and
+  `python/visualize_transmission_torus_3d.py`.
+- Added a 2D common-ratio transmission convergence test with a bi-periodic
+  bulk solver on a cell-centered periodic unit square.
+- Added `LaplacePotentialEval2D/3D::eval_layer_combination()` and rewrote
+  compatible transmission operator paths to evaluate combined D+S layer
+  potentials with fewer bulk solves.
+- Extended `LaplaceTransmission2D` with an optional zFFT bulk boundary
+  condition argument, defaulting to Dirichlet. The current periodic
+  transmission test keeps the interface away from the periodic boundary;
+  spread/restrict are not yet general periodic-wrap transfer operators.
+- Shortened note filenames under `notes/` and added
+  `notes/parallel_plan.md` for the future MFEM/parallel KFBI roadmap.
+
+Current note filenames:
+
+- `notes/bie.md`
+- `notes/iim.md`
+- `notes/math.md`
+- `notes/theory.md`
+- `notes/parallel_plan.md`
+- `notes/stokes.pdf`
+
 ## Current State
 
 | Layer | Component | Status |
@@ -11,11 +39,11 @@
 | 1.5 | `laplace_panel_solver_2d.hpp`; per-panel Cauchy solver with Chebyshev-Lobatto expansion centers | done |
 | 1 | `LaplaceLobattoCenterSpread2D` / `LaplaceLobattoCenterRestrict2D`; active 2D transfer path | done |
 | 2 | `LaplaceFftBulkSolverZfft2D/3D`; DST Poisson/screened solver | done |
-| 3 | `LaplacePotentialEval2D`; general arbitrary-jump/RHS KFBI pipeline plus D, S, N helpers | done |
+| 3 | `LaplacePotentialEval2D/3D`; general arbitrary-jump/RHS KFBI pipeline plus D, S, N, and combined D+S helpers | done |
 | 3 | `IKFBIOperator`; implemented directly by active Laplace problem wrappers | done |
 | 4 | `GMRES`; restarted Givens implementation with residual history | done |
 | 5 | `LaplaceBvp2D`; interior/exterior Dirichlet and Neumann modes | done |
-| 5 | `LaplaceTransmission2D`; common-ratio and different-ratio interface modes | done |
+| 5 | `LaplaceTransmission2D/3D`; common-ratio and different-ratio interface modes | done |
 | - | IIM defect correction (2D, exact C and Taylor path) | done |
 | - | Quasi-uniform curve resampling (`CurveResampler2D`); active wrappers use Chebyshev-Lobatto | done |
 | - | Active PDE convergence tests: `test_interface`, `test_bvp`, `test_transmission` | done |
@@ -65,17 +93,20 @@ New 2D Laplace work should use Chebyshev-Lobatto panels.
   `src/operators/`, and `src/gmres/`.
 - `src/bulk_solvers/` owns the `IBulkSolver` API, FFT/zFFT engines,
   Laplace FFT/zFFT bulk solvers, boundary-condition enum, and IIM helper.
-- `src/potentials/` currently contains `LaplacePotentialEval2D`, the reusable
-  Spread -> BulkSolve -> Restrict pipeline.
-- `src/operators/` currently contains `IKFBIOperator`, `LaplaceBvp2D`,
-  `LaplaceTransmission2D`, and the remaining Stokes scaffold.
+- `src/potentials/` currently contains `LaplacePotentialEval2D/3D`, the
+  reusable Spread -> BulkSolve -> Restrict pipelines.
+- `src/operators/` currently contains `IKFBIOperator`, `LaplaceBvp2D/3D`,
+  `LaplaceTransmission2D/3D`, and the remaining Stokes scaffold.
 - The old `src/solver/`, `src/operator/`, and `src/problems/` paths have been
   replaced by `src/bulk_solvers/`, `src/potentials/`, and `src/operators/`.
 - Visualization and diagnostic scripts live in `python/`.
 - Runtime CSV/PNG output is written under `output/` and should not be committed.
-- Active CMake/CTest registration is intentionally limited to `test_interface`,
-  `test_bvp`, and `test_transmission`; component and older top-level tests live
-  in `tests/archive/`.
+- Active CMake/CTest registration includes 2D and 3D PDE-level convergence
+  programs: `test_interface`, `test_interface_3d`, `test_bvp`, `test_bvp_3d`,
+  `test_transmission`, `test_transmission_periodic_2d`,
+  `test_transmission_3d`, `test_transmission_ellipsoid_3d`, and
+  `test_transmission_torus_3d`. Component and older top-level tests live in
+  `tests/archive/`.
 
 ## Latest Convergence Runs
 
@@ -161,6 +192,31 @@ Exterior Neumann:
 | 128 | 5.5521e-04 | 2.417 | 14 |
 | 256 | 1.1830e-04 | 2.231 | 13 |
 | 512 | 3.3862e-05 | 1.805 | 12 |
+
+`test_transmission_periodic_2d`, `LaplaceTransmission2D::CommonRatio`,
+cell-centered bi-periodic unit square, `beta_int=2`, `beta_ext=1`,
+`lambda^2=1.3`:
+
+| N | max err | order | GMRES |
+|---:|--------:|------:|------:|
+| 32 | 3.4118e-02 | - | 8 |
+| 64 | 1.0923e-02 | 1.643 | 7 |
+| 128 | 1.8616e-03 | 2.553 | 7 |
+| 256 | 3.4085e-04 | 2.449 | 7 |
+| 512 | 8.3662e-05 | 2.026 | 7 |
+
+`test_transmission_torus_3d`, `LaplaceTransmission3D::CommonRatio`, shared P2
+torus, target P2 `node_spacing/h ~= 1.5`, nonzero outer Cartesian Dirichlet
+data, `beta_int=2`, `beta_ext=1`, `lambda^2=1.1`:
+
+| N | panels | iface pts | max err | order | GMRES |
+|---:|------:|----------:|--------:|------:|------:|
+| 8 | 96 | 192 | 8.4870e-02 | - | 7 |
+| 16 | 120 | 240 | 3.7657e-04 | 7.816 | 8 |
+| 32 | 240 | 480 | 2.0510e-04 | 0.877 | 9 |
+| 64 | 960 | 1920 | 3.6327e-05 | 2.497 | 8 |
+| 128 | 3840 | 7680 | 7.5496e-06 | 2.267 | 8 |
+| 256 | 15456 | 30912 | 1.1500e-06 | 2.715 | 8 |
 
 ### Test-Setup Pitfall: Grid/Interface Alignment
 

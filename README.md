@@ -12,9 +12,9 @@ Spread interface jumps -> solve bulk PDE -> restrict solution to interface
 
 The current stable problem wrappers are 2D and 3D Laplace BVP and transmission
 solvers. The 2D path uses Chebyshev-Lobatto panels, while the 3D path uses
-shared P2 triangular patches and is covered on spherical and ellipsoidal
-interfaces. The repository is structured as a reusable library rather than a
-one-off solver.
+shared P2 triangular patches and is covered on spherical, ellipsoidal, and
+torus interfaces. The repository is structured as a reusable library rather
+than a one-off solver.
 
 ## Status
 
@@ -33,11 +33,14 @@ Implemented:
 - 2D and 3D zFFT-backed Laplace bulk solvers
 - Matrix-free `IKFBIOperator` interface implemented by Laplace problem wrappers
 - Restarted GMRES outer solver
-- Modular `LaplacePotentialEval2D` operators for D/S/N jump primitives
+- Modular `LaplacePotentialEval2D/3D` operators for D/S/N jump primitives and
+  combined D+S layer evaluations
 - End-to-end 2D Laplace BVP and transmission tests with current
-  Chebyshev-Lobatto convergence coverage, including star boundaries
+  Chebyshev-Lobatto convergence coverage, including star boundaries and a
+  bi-periodic transmission case
 - End-to-end 3D screened Laplace BVP and transmission tests on shared P2
-  triangular interfaces, including sphere and ellipsoid transmission coverage
+  triangular interfaces, including sphere, ellipsoid, and torus transmission
+  coverage
 - Current concrete problem APIs: `LaplaceBvp2D`, `LaplaceBvp3D`,
   `LaplaceTransmission2D`, and `LaplaceTransmission3D`
 
@@ -47,6 +50,8 @@ In progress / planned:
   problem wrappers
 - 3D runtime profiling and robustness work, especially the expensive
   different-ratio transmission operator
+- Parallel KFBI prototype planning around MFEM surface PDEs/meshes, distributed
+  bulk-surface search, and adaptive bulk backends
 - Variable-coefficient, Stokes, and elasticity extensions
 - Python and MATLAB bindings
 
@@ -125,8 +130,14 @@ Run a specific executable directly when you want Catch2 output:
 
 Primary PDE/convergence executables are `test_interface`, `test_interface_3d`,
 `test_bvp`, `test_bvp_3d`, `test_transmission`, `test_transmission_3d`, and
-`test_transmission_ellipsoid_3d`. The 3D tests use power-of-two grid sizes;
-set `KFBIM_HIGH_RES_3D=1` to include the highest-resolution 3D levels.
+`test_transmission_ellipsoid_3d`, `test_transmission_torus_3d`, and
+`test_transmission_periodic_2d`. The 3D tests use power-of-two grid sizes; set
+`KFBIM_HIGH_RES_3D=1` to include the highest-resolution 3D levels.
+
+The current periodic 2D transmission test uses a cell-centered periodic bulk
+solver and an interface well away from the box edge. The 2D transfer operators
+are not yet general periodic-wrap transfer operators for interfaces crossing a
+periodic boundary.
 
 ## Visualization Scripts
 
@@ -140,7 +151,26 @@ Example:
 python3 python/visualize_laplace_iface_2d.py
 ```
 
+The torus transmission test can export geometry and solution CSVs with
+`KFBIM_TORUS_VIS_N=<N>`, then render them with:
+
+```bash
+python3 python/visualize_transmission_torus_3d.py \
+  output/laplace_transmission_common_ratio_torus_3d 256
+```
+
 Generated PNGs under `python/` are ignored by git.
+
+## Notes
+
+Design and derivation notes live under `notes/`:
+
+- `bie.md`: generic interface BIE derivation
+- `iim.md`: IIM correction formula notes
+- `math.md`: KFBI mathematical notes
+- `theory.md`: broader KFBI theory notes
+- `parallel_plan.md`: future parallel MFEM/AMR KFBI project plan
+- `stokes.pdf`: Stokes reference paper
 
 ## Development Notes
 

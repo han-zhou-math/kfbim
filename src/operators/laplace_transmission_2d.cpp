@@ -164,10 +164,12 @@ LaplaceTransmission2D::LaplaceTransmission2D(
     const CartesianGrid2D&            grid,
     const Interface2D&                iface,
     LaplaceTransmissionMode2D         mode,
-    LaplaceTransmissionCoefficients2D coefficients)
+    LaplaceTransmissionCoefficients2D coefficients,
+    ZfftBcType                        bulk_bc)
     : grid_pair_(grid, iface)
     , mode_(mode)
     , coefficients_(coefficients)
+    , bulk_bc_(bulk_bc)
     , lambda_sq_int_(checked_lambda_sq("interior",
                                        coefficients.beta_int,
                                        coefficients.kappa_sq_int))
@@ -176,8 +178,8 @@ LaplaceTransmission2D::LaplaceTransmission2D(
                                        coefficients.kappa_sq_ext))
     , spread_int_(grid_pair_, lambda_sq_int_)
     , spread_ext_(grid_pair_, lambda_sq_ext_)
-    , bulk_solver_int_(grid, ZfftBcType::Dirichlet, lambda_sq_int_)
-    , bulk_solver_ext_(grid, ZfftBcType::Dirichlet, lambda_sq_ext_)
+    , bulk_solver_int_(grid, bulk_bc_, lambda_sq_int_)
+    , bulk_solver_ext_(grid, bulk_bc_, lambda_sq_ext_)
     , restrict_op_(grid_pair_)
     , potentials_int_(spread_int_, bulk_solver_int_, restrict_op_)
     , potentials_ext_(spread_ext_, bulk_solver_ext_, restrict_op_)
@@ -224,6 +226,14 @@ Eigen::VectorXd LaplaceTransmission2D::apply_dirichlet_boundary_elimination(
     const int n_dof = nx * ny;
 
     require_vector_size("reduced_rhs_bulk", reduced_rhs_bulk.size(), n_dof);
+    if (bulk_bc_ != ZfftBcType::Dirichlet) {
+        if (outer_dirichlet_values.size() != 0) {
+            throw std::invalid_argument(
+                std::string(kContext)
+                + ": outer Dirichlet values are only valid with Dirichlet bulk BC");
+        }
+        return reduced_rhs_bulk;
+    }
     if (outer_dirichlet_values.size() == 0)
         return reduced_rhs_bulk;
     require_vector_size("outer_dirichlet_values", outer_dirichlet_values.size(), n_dof);
@@ -264,6 +274,11 @@ void LaplaceTransmission2D::restore_dirichlet_boundary(
 {
     if (outer_dirichlet_values.size() == 0)
         return;
+    if (bulk_bc_ != ZfftBcType::Dirichlet) {
+        throw std::invalid_argument(
+            std::string(kContext)
+            + ": outer Dirichlet values are only valid with Dirichlet bulk BC");
+    }
 
     const auto& grid = grid_pair_.grid();
     const auto dims = grid.dof_dims();
@@ -310,35 +325,26 @@ void LaplaceTransmission2D::apply_different_ratios(
     const Eigen::VectorXd phi = x.head(n_iface);
     const Eigen::VectorXd psi = x.tail(n_iface);
 
-    Eigen::VectorXd k_int;
-    Eigen::VectorXd h_int;
-    Eigen::VectorXd k_ext;
-    Eigen::VectorXd h_ext;
-    Eigen::VectorXd s_int;
-    Eigen::VectorXd kt_int;
-    Eigen::VectorXd s_ext;
-    Eigen::VectorXd kt_ext;
-
-    potentials_int_.eval_double_layer(phi, k_int, h_int);
-    potentials_ext_.eval_double_layer(phi, k_ext, h_ext);
-    potentials_int_.eval_single_layer(psi, s_int, kt_int);
-    potentials_ext_.eval_single_layer(psi, s_ext, kt_ext);
-
     const double beta_int = coefficients_.beta_int;
     const double beta_ext = coefficients_.beta_ext;
     const double beta_sum = beta_int + beta_ext;
     const double alpha_int = 2.0 * beta_ext / beta_sum;
     const double alpha_ext = 2.0 * beta_int / beta_sum;
-    const double flux_coeff = 2.0 * beta_int * beta_ext / beta_sum;
     const double flux_row_scale = 2.0 / beta_sum;
 
+    Eigen::VectorXd trace_int;
+    Eigen::VectorXd normal_int;
+    Eigen::VectorXd trace_ext;
+    Eigen::VectorXd normal_ext;
+    const Eigen::VectorXd phi_int = alpha_int * phi;
+    const Eigen::VectorXd phi_ext = alpha_ext * phi;
+    potentials_int_.eval_layer_combination(phi_int, psi, trace_int, normal_int);
+    potentials_ext_.eval_layer_combination(phi_ext, psi, trace_ext, normal_ext);
+
     y.resize(2 * n_iface);
-    y.head(n_iface) =
-        phi + alpha_int * k_int - alpha_ext * k_ext + s_int - s_ext;
+    y.head(n_iface) = phi + trace_int - trace_ext;
     y.tail(n_iface) =
-        psi + flux_row_scale *
-                  (flux_coeff * (h_int - h_ext)
-                   + beta_int * kt_int - beta_ext * kt_ext);
+        psi + flux_row_scale * (beta_int * normal_int - beta_ext * normal_ext);
 }
 
 LaplaceTransmissionSolveResult2D LaplaceTransmission2D::solve(
@@ -356,8 +362,14 @@ LaplaceTransmissionSolveResult2D LaplaceTransmission2D::solve(
     require_vector_size("u_jump", u_jump.size(), n_iface);
     require_vector_size("beta_flux_jump", beta_flux_jump.size(), n_iface);
     validate_rhs_data(rhs_data, n_iface, n_dof);
-    if (outer_dirichlet_values.size() != 0)
+    if (outer_dirichlet_values.size() != 0) {
+        if (bulk_bc_ != ZfftBcType::Dirichlet) {
+            throw std::invalid_argument(
+                std::string(kContext)
+                + ": outer Dirichlet values are only valid with Dirichlet bulk BC");
+        }
         require_vector_size("outer_dirichlet_values", outer_dirichlet_values.size(), n_dof);
+    }
 
     switch (mode_) {
     case LaplaceTransmissionMode2D::CommonRatio:
@@ -393,7 +405,6 @@ LaplaceTransmissionSolveResult2D LaplaceTransmission2D::solve_common_ratio(
     require_common_ratio(lambda_sq_int_, lambda_sq_ext_);
 
     const int n_iface = grid_pair_.interface().num_points();
-    const int n_dof = grid_pair_.grid().num_dofs();
     const Eigen::VectorXd rhs = apply_dirichlet_boundary_elimination(
         rhs_data.reduced_rhs_bulk, outer_dirichlet_values);
     const auto rhs_derivs = combine_rhs_derivs(
@@ -401,21 +412,16 @@ LaplaceTransmissionSolveResult2D LaplaceTransmission2D::solve_common_ratio(
         rhs_data.reduced_rhs_ext_derivs);
 
     const Eigen::VectorXd zeros = Eigen::VectorXd::Zero(n_iface);
-    const Eigen::VectorXd zero_rhs = Eigen::VectorXd::Zero(n_dof);
-    const auto zero_derivs = zero_rhs_derivs(n_iface);
 
-    auto double_jumps = make_jumps(n_iface, u_jump, zeros, zero_derivs);
-    auto double_res = potentials_int_.evaluate(double_jumps, zero_rhs);
-
-    auto volume_jumps = make_jumps(n_iface, zeros, zeros, rhs_derivs);
-    auto volume_res = potentials_int_.evaluate(volume_jumps, rhs);
+    auto rhs_setup_jumps = make_jumps(n_iface, u_jump, zeros, rhs_derivs);
+    auto rhs_setup_res = potentials_int_.evaluate(rhs_setup_jumps, rhs);
 
     const double beta_sum = coefficients_.beta_int + coefficients_.beta_ext;
     const double gamma =
         2.0 * (coefficients_.beta_int - coefficients_.beta_ext) / beta_sum;
     Eigen::VectorXd bie_rhs =
         (2.0 / beta_sum) * beta_flux_jump
-        - gamma * (double_res.un_avg + volume_res.un_avg);
+        - gamma * rhs_setup_res.un_avg;
 
     GMRES gmres(max_iter, tol, restart);
     Eigen::VectorXd psi = Eigen::VectorXd::Zero(n_iface);

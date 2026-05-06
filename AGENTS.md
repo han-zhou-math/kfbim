@@ -11,6 +11,9 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   transmission, three-program PDE convergence-test reorganization work, the
   first verified 3D P2 Laplace potential pipeline, and the 2026-05-05 3D
   screened BVP/transmission wrapper and ellipsoid transmission-test update.
+  It also reflects the 2026-05-06 3D torus transmission test, 2D bi-periodic
+  transmission test, combined D+S potential-evaluation optimization, shortened
+  note filenames, and parallel KFBI planning note.
 - **Completed modules** (active tests passing):
   - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
     - `Interface2D` tracks panel node layout: `ChebyshevLobatto`, `LegacyGaussLegendre`, or `Raw`.
@@ -43,6 +46,8 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - Layer 3 modular potentials: `LaplacePotentialEval2D`
     - Evaluates arbitrary jumps/RHS and returns bulk values plus averaged trace/flux.
     - Specialized D/S/N helpers are thin calls into the same general pipeline.
+    - `eval_layer_combination(phi, psi)` evaluates D[phi] + S[psi] with one
+      potential solve when both jumps use the same bulk differential operator.
     - Uses the current restrict convention: restrict returns averaged trace/flux directly.
     - Covered by archived component tests; active top-level tests now exercise it
       through PDE-level manufactured problems.
@@ -58,7 +63,7 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
       path for P2 triangular patches.
     - `LaplacePotentialEval3D` evaluates arbitrary jumps/RHS and returns bulk
       solution plus averaged trace/flux, matching the 2D potential-evaluation
-      convention.
+      convention. It also exposes `eval_layer_combination(phi, psi)`.
   - Layer 4: GMRES outer solver
   - Layer 5: 2D Laplace BVP API
     - `LaplaceBvp2D`
@@ -80,6 +85,11 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
       `-Delta u + lambda_sq u=q`.
     - Eliminates optional nonzero outer Cartesian Dirichlet data into the RHS,
       then restores boundary values in the output.
+    - `LaplaceTransmission2D` now accepts an optional zFFT bulk boundary
+      condition argument, defaulting to Dirichlet. The active periodic
+      transmission test uses a cell-centered periodic grid with the interface
+      away from the periodic boundary; 2D spread/restrict are not yet general
+      periodic-wrap transfer operators for interfaces crossing the boundary.
     - `LaplaceTransmission3D` mirrors the 2D common-ratio and different-ratio
       density layouts on the 3D P2 potential pipeline.
 - **Recent implementation notes:**
@@ -100,6 +110,9 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     manufactured solutions.
   - `tests/test_transmission.cpp` covers both `LaplaceTransmission2D` modes:
     `CommonRatio` and `DifferentRatios`.
+  - `tests/test_transmission_periodic_2d.cpp` covers
+    `LaplaceTransmission2D::CommonRatio` on a cell-centered bi-periodic unit
+    square with periodic trigonometric manufactured solutions.
   - `tests/test_interface_3d.cpp` covers the direct prescribed-jump screened
     3D interface problem on an off-center P2 sphere, with `eta=1.1`, 16
     expansion centers per parent triangle, and target adjacent P2 node spacing
@@ -115,6 +128,14 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     `LaplaceTransmission3D::CommonRatio` on a shared P2 triaxial ellipsoid
     with axes `(0.61,0.49,0.41)`, center `(0.07,-0.04,0.03)`, nonzero outer
     Cartesian Dirichlet data, and target P2 `node_spacing/h ~= 1.5`.
+  - `tests/test_transmission_torus_3d.cpp` covers
+    `LaplaceTransmission3D::CommonRatio` on a shared P2 torus. Set
+    `KFBIM_TORUS_VIS_N=<N>` to export torus geometry and solution CSVs for
+    `python/visualize_transmission_torus_3d.py`.
+  - Different-ratio transmission GMRES applies now combine compatible D and S
+    layer potentials per phase, reducing same-operator layer evaluations from
+    four potential solves to two. Common-ratio RHS setup also combines
+    compatible double-layer and volume terms.
   - zFFT 3D testing should use power-of-two grid sizes; non-power-of-two 3D
     sizes were observed to hang in earlier exploratory runs.
   - Component/basic/top-level legacy tests were moved to `tests/archive/` and
@@ -128,7 +149,17 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - Current concrete problem-level utilities and wrappers live in
     `src/operators/`.
   - Visualization and diagnostic Python scripts live in `python/`.
+  - Notes use short filenames: `notes/bie.md`, `notes/iim.md`,
+    `notes/math.md`, `notes/theory.md`, `notes/parallel_plan.md`, and
+    `notes/stokes.pdf`.
 - **Current convergence test status:**
+  - 2026-05-06 transmission suite after the torus/periodic tests and combined
+    D+S optimization:
+    - `build/tests/test_transmission_periodic_2d -s`
+    - `KFBIM_HIGH_RES_3D=1 build/tests/test_transmission_torus_3d -s`
+    - `KFBIM_HIGH_RES_3D=1 KFBIM_TORUS_VIS_N=256 build/tests/test_transmission_torus_3d -s`
+    - `ctest --test-dir build -R transmission --output-on-failure`
+    - `git diff --check`
   - 3D additions passed on 2026-05-05 after the target P2
     `node_spacing/h ~= 1.5` and ellipsoid common-ratio transmission update:
     - `cmake --build build`
@@ -171,9 +202,9 @@ coverage, runtime, and numerical robustness.
 3. **Next implementation targets.**
    - Rerun and refresh the 3D direct-interface and BVP convergence snapshots
      after the final target P2 `node_spacing/h ~= 1.5` change.
-   - Profile the 3D different-ratio transmission operator; it is substantially
-     more expensive than common-ratio because each GMRES apply evaluates four
-     potential branches.
+   - Profile the 3D different-ratio transmission operator; it is still
+     substantially more expensive than common-ratio, though compatible D/S
+     layer evaluations are now combined per phase.
    - Keep the different-ratio 3D active default sweep modest, and use
      `KFBIM_HIGH_RES_3D=1` for high-resolution `N=64`/`N=128` runs.
 
@@ -265,6 +296,18 @@ table as the current 3D direct-interface benchmark:
 | 256 | 1.1830e-04 | 2.231 | 13 |
 | 512 | 3.3862e-05 | 1.805 | 12 |
 
+`test_transmission_periodic_2d`, cell-centered bi-periodic unit square,
+`LaplaceTransmission2D::CommonRatio`, `beta_int=2`, `beta_ext=1`,
+`lambda^2=1.3`:
+
+| N | max err | order | GMRES |
+|---:|--------:|------:|------:|
+| 32 | 3.4118e-02 | - | 8 |
+| 64 | 1.0923e-02 | 1.643 | 7 |
+| 128 | 1.8616e-03 | 2.553 | 7 |
+| 256 | 3.4085e-04 | 2.449 | 7 |
+| 512 | 8.3662e-05 | 2.026 | 7 |
+
 `test_transmission_3d`, off-center P2 sphere, target P2
 `node_spacing/h ~= 1.5`, nonzero outer Cartesian Dirichlet data,
 `LaplaceTransmission3D::CommonRatio`, `beta_int=2`, `beta_ext=1`,
@@ -299,6 +342,20 @@ Cartesian Dirichlet data, `LaplaceTransmission3D::CommonRatio`, `beta_int=2`,
 | 16 | 32 | 66 | 1.0823e-03 | 6.080 | 7 |
 | 32 | 200 | 402 | 1.1836e-04 | 3.193 | 8 |
 | 64 | 648 | 1298 | 2.2448e-05 | 2.399 | 7 |
+
+`test_transmission_torus_3d`, off-center shared P2 torus, target P2
+`node_spacing/h ~= 1.5`, nonzero outer Cartesian Dirichlet data,
+`LaplaceTransmission3D::CommonRatio`, `beta_int=2`, `beta_ext=1`,
+`lambda^2=1.1`:
+
+| N | panels | iface pts | max err | order | GMRES |
+|---:|------:|----------:|--------:|------:|------:|
+| 8 | 96 | 192 | 8.4870e-02 | - | 7 |
+| 16 | 120 | 240 | 3.7657e-04 | 7.816 | 8 |
+| 32 | 240 | 480 | 2.0510e-04 | 0.877 | 9 |
+| 64 | 960 | 1920 | 3.6327e-05 | 2.497 | 8 |
+| 128 | 3840 | 7680 | 7.5496e-06 | 2.267 | 8 |
+| 256 | 15456 | 30912 | 1.1500e-06 | 2.715 | 8 |
 
 ### Known numerical pitfall — grid/interface alignment
 When a Cartesian grid node lands exactly on the interface, the IIM correction stencil has zero distance to the interface, making the local polynomial fit degenerate. This produces erratic convergence rates. **Rule:** for convergence tests, ensure no grid node is exactly on the interface by either offsetting the interface center or using a domain size incommensurate with the interface geometry. See `tests/archive/test_laplace_interior_circle_2d_legacy_gauss.cpp` for the archived regression that exposed this pitfall.

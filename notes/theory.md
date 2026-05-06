@@ -772,7 +772,7 @@ hypersingular pieces of $H_{int}$ and $H_{ext}$ cancel. The remaining
 $H_{ext}-H_{int}$ term is lower order for a smooth interface, giving a
 Fredholm second-kind system for the two unknown densities $(\phi,\psi)$. If
 $q_{int}=q_{ext}=0$, then $v_{int}=v_{ext}=0$ and the system reduces to the
-homogeneous BIE derived in `generic_if_bie.md`. For nonzero forcing, the
+homogeneous BIE derived in `bie.md`. For nonzero forcing, the
 matrix-free BIE operator is unchanged; the phase-specific volume potentials
 only shift the right-hand side.
 
