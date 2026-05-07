@@ -218,6 +218,47 @@ so every interpolation stencil node that participates in an average-trace
 correction needs $C_m$ unless the coefficient multiplying it is known to cancel
 in the chosen interpolant.
 
+## 3D P2 Projection-Point Geometry
+
+For shared quadratic triangular interfaces,
+`GridPair3D::project_near_interface_nodes(radius)` now supplies the geometry
+data needed to evaluate correction functions at the closest curved-surface
+projection instead of at an arbitrary expansion center.
+
+For each narrow-band grid node, the projection record includes:
+
+- the grid-node index,
+- the parent P2 triangle,
+- the barycentric coordinate in the reference triangle,
+- the projected physical point,
+- the oriented surface normal,
+- the signed normal distance from projection to grid node,
+- a tangential residual, iteration count, and convergence flag.
+
+The broad-phase seed is the nearest of the 16 P2 expansion-center locations per
+parent triangle. A damped Newton iteration then solves the local closest-point
+normality equations on the curved patch. If the closest admissible point lies
+on a patch boundary, the record can be returned as a valid edge fallback with
+`converged=false`; downstream code should still use the stored panel and
+barycentric coordinate for interpolation, while treating the convergence flag
+as a diagnostic.
+
+This supports the intended 3D projection-point IIM correction evaluation. Let
+$p$ be the projection of a grid node $x$, let $n(p)$ be the outward normal, and
+let
+$$
+s = (x-p)\cdot n(p).
+$$
+After interpolating surface data to the returned panel-local coordinate, the
+second-order normal Taylor correction is
+$$
+C(x) \approx C(p) + s\,\partial_n C(p)
+        + \frac12 s^2\,\partial_{nn}C(p).
+$$
+The current implementation only provides the geometry projection data; the
+spread/restrict operators still use the existing expansion-center correction
+polynomials until a projection-point IIM transfer path is added.
+
 ### Equivalent Stokes-Paper Indicator Form
 
 This is the scalar analogue of the correction-function derivation in the

@@ -115,6 +115,13 @@ linearized proxy mesh:
 
 Do not rely on CGAL alone for exact P2 curved-patch projection.
 
+The serial C++ core now has the first P2 version of this local geometry layer:
+`GridPair3D::project_near_interface_nodes(radius)` builds narrow-band grid-node
+projections from nearest 16-center seeds and a damped Newton solve on each
+curved patch. A future parallel implementation should preserve the same output
+contract: panel id, reference-triangle coordinate, projected point, oriented
+normal, signed distance, residual, iteration count, and convergence flag.
+
 ### Linear and Nonlinear Solvers
 
 Use the native solvers of each backend first:

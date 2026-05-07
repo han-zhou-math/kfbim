@@ -22,12 +22,16 @@ Implemented:
 
 - Cartesian and MAC grid types in 2D and 3D
 - 2D and 3D interface containers with panel connectivity, quadrature points, normals, and weights
-- 2D and 3D grid/interface pairing with closest-point and domain-label queries
+- 2D and 3D grid/interface pairing with closest-point, domain-label, and
+  3D P2 narrow-band projection queries
 - Quasi-uniform arc-length curve resampling for stable interface discretization
 - 2D Laplace panel Cauchy solver for local jump reconstruction
 - 2D Laplace spread and restrict transfer operators
 - 3D P2 triangular-patch Laplace local Cauchy solver with 16 expansion centers
   per parent triangle
+- 3D P2 curved-surface geometry helpers and `GridPair3D` projection cache
+  returning panel/barycentric coordinates, projected points, normals, and
+  signed distances for narrow-band grid nodes
 - 3D P2 Laplace spread/restrict transfer operators and
   `LaplacePotentialEval3D`
 - 2D and 3D zFFT-backed Laplace bulk solvers
@@ -129,10 +133,11 @@ Run a specific executable directly when you want Catch2 output:
 ```
 
 Primary PDE/convergence executables are `test_interface`, `test_interface_3d`,
-`test_bvp`, `test_bvp_3d`, `test_transmission`, `test_transmission_3d`, and
-`test_transmission_ellipsoid_3d`, `test_transmission_torus_3d`, and
-`test_transmission_periodic_2d`. The 3D tests use power-of-two grid sizes; set
-`KFBIM_HIGH_RES_3D=1` to include the highest-resolution 3D levels.
+`test_projection_3d`, `test_bvp`, `test_bvp_3d`, `test_transmission`,
+`test_transmission_3d`, `test_transmission_ellipsoid_3d`,
+`test_transmission_torus_3d`, and `test_transmission_periodic_2d`. The 3D
+PDE tests use power-of-two grid sizes; set `KFBIM_HIGH_RES_3D=1` to include
+the highest-resolution 3D levels.
 
 The current periodic 2D transmission test uses a cell-centered periodic bulk
 solver and an interface well away from the box edge. The 2D transfer operators
@@ -196,3 +201,7 @@ Gauss path only for explicit regression or comparison tests.
 For new 3D Laplace work, use shared six-node P2 triangular patches with
 `PanelNodeLayout3D::QuadraticLagrange`, 16 expansion centers per parent
 triangle, and target adjacent P2 node spacing over grid spacing of about `1.5`.
+For projection-point IIM work, use `GridPair3D::project_near_interface_nodes()`
+to obtain the projected point, parent panel, barycentric coordinate, oriented
+normal, and signed distance for each narrow-band grid node before interpolating
+surface correction data.

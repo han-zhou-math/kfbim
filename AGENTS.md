@@ -13,7 +13,8 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   screened BVP/transmission wrapper and ellipsoid transmission-test update.
   It also reflects the 2026-05-06 3D torus transmission test, 2D bi-periodic
   transmission test, combined D+S potential-evaluation optimization, shortened
-  note filenames, and parallel KFBI planning note.
+  note filenames, parallel KFBI planning note, and 2026-05-07 3D P2
+  narrow-band projection geometry.
 - **Completed modules** (active tests passing):
   - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
     - `Interface2D` tracks panel node layout: `ChebyshevLobatto`, `LegacyGaussLegendre`, or `Raw`.
@@ -29,6 +30,15 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
       interface/sample queries. For `QuadraticLagrange` P2 surfaces, narrow-band
       distance samples include the interface DOFs and the barycenters of the 16
       twice-subdivided child triangles per parent triangle.
+    - `GridPair3D::project_near_interface_nodes(radius)` returns cached P2
+      curved-surface projections for narrow-band grid nodes. Each
+      `SurfaceProjection3D` stores the grid node, parent panel, component,
+      barycentric reference coordinate, projected point, oriented normal,
+      signed distance, distance, tangential residual, Newton iteration count,
+      and convergence flag. The Newton initial guesses are the same 16
+      expansion-center locations per parent triangle used by the 3D P2 local
+      Cauchy path. Boundary/edge fallbacks can return `converged=false` while
+      still carrying a valid panel-local point.
     - Current P2 domain labeling is local-normal based at the nearest curved
       surface sample, not a full CGAL inside/outside query on the curved
       tessellation.
@@ -132,6 +142,11 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     `LaplaceTransmission3D::CommonRatio` on a shared P2 torus. Set
     `KFBIM_TORUS_VIS_N=<N>` to export torus geometry and solution CSVs for
     `python/visualize_transmission_torus_3d.py`.
+  - `tests/test_projection_3d.cpp` covers the new
+    `GridPair3D::project_near_interface_nodes()` P2 projection path on an
+    off-center sphere. It verifies cached narrow-band lookup, panel/barycentric
+    coordinates, oriented normals, signed distances, Newton residuals, and that
+    existing `GridPair3D` label/nearest-point queries are unchanged.
   - Different-ratio transmission GMRES applies now combine compatible D and S
     layer potentials per phase, reducing same-operator layer evaluations from
     four potential solves to two. Common-ratio RHS setup also combines
@@ -153,6 +168,11 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     `notes/math.md`, `notes/theory.md`, `notes/parallel_plan.md`, and
     `notes/stokes.pdf`.
 - **Current convergence test status:**
+  - 2026-05-07 3D P2 projection geometry:
+    - `cmake --build build`
+    - `build/tests/test_projection_3d`
+    - `ctest --test-dir build -R projection --output-on-failure`
+    - `git diff --check`
   - 2026-05-06 transmission suite after the torus/periodic tests and combined
     D+S optimization:
     - `build/tests/test_transmission_periodic_2d -s`
@@ -200,6 +220,10 @@ coverage, runtime, and numerical robustness.
      into the RHS and restore boundary values in the returned bulk solution.
 
 3. **Next implementation targets.**
+   - Use the new P2 projection geometry in a projection-point IIM correction
+     path. The intended local correction evaluation is one-dimensional along
+     the projection normal, using surface-interpolated `C`, `partial_n C`, and
+     `partial_nn C` at the returned panel/barycentric projection point.
    - Rerun and refresh the 3D direct-interface and BVP convergence snapshots
      after the final target P2 `node_spacing/h ~= 1.5` change.
    - Profile the 3D different-ratio transmission operator; it is still

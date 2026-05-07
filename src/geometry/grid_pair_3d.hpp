@@ -1,11 +1,44 @@
 #pragma once
 
+#include <Eigen/Dense>
 #include <memory>
 #include <vector>
 #include "../grid/cartesian_grid_3d.hpp"
 #include "../interface/interface_3d.hpp"
 
 namespace kfbim {
+
+struct SurfaceProjection3D {
+    int             grid_node = -1;
+    int             panel = -1;
+    int             component = -1;
+    Eigen::Vector3d barycentric = Eigen::Vector3d::Zero();
+    Eigen::Vector3d point = Eigen::Vector3d::Zero();
+    Eigen::Vector3d normal = Eigen::Vector3d::Zero();
+    double          signed_distance = 0.0;
+    double          distance = 0.0;
+    double          tangential_residual = 0.0;
+    int             iterations = 0;
+    bool            converged = false;
+};
+
+class NarrowBandProjection3D {
+public:
+    double radius() const { return radius_; }
+    const std::vector<int>& nodes() const { return nodes_; }
+    const std::vector<SurfaceProjection3D>& projections() const { return projections_; }
+
+    bool has_projection(int bulk_node_idx) const;
+    const SurfaceProjection3D& projection(int bulk_node_idx) const;
+
+private:
+    friend class GridPair3D;
+
+    double radius_ = 0.0;
+    std::vector<int> nodes_;
+    std::vector<SurfaceProjection3D> projections_;
+    std::vector<int> projection_index_by_grid_node_;
+};
 
 // Owns the CGAL spatial structures relating a CartesianGrid3D and an Interface3D.
 // Built once at setup; queries are read-only after construction.
@@ -33,6 +66,11 @@ public:
     // all interface point indices within radius of a given bulk node
     // (may span multiple components; used by Corrector to accumulate all contributions)
     std::vector<int> near_interface_points(int bulk_node_idx, double radius) const;
+
+    // P2 curved-surface projections for all grid nodes in a narrow band.
+    // Projection results include the parent panel and barycentric coordinates
+    // for later surface interpolation/differentiation.
+    NarrowBandProjection3D project_near_interface_nodes(double radius) const;
 
     const CartesianGrid3D& grid()      const { return grid_; }
     const Interface3D&     interface() const { return interface_; }

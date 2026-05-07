@@ -1,4 +1,5 @@
 #include "grid_pair_3d.hpp"
+#include "p2_surface_3d.hpp"
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/Side_of_triangle_mesh.h>
@@ -11,7 +12,6 @@
 #include <algorithm>
 #include <array>
 #include <memory>
-#include <string>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -84,55 +84,6 @@ struct DistanceSample3D {
     int             component;
 };
 
-static Eigen::Vector3d p2_panel_point(const Interface3D& iface,
-                                      int                panel,
-                                      double             l0,
-                                      double             l1,
-                                      double             l2)
-{
-    const double N0 = l0 * (2.0 * l0 - 1.0);
-    const double N1 = l1 * (2.0 * l1 - 1.0);
-    const double N2 = l2 * (2.0 * l2 - 1.0);
-    const double N3 = 4.0 * l0 * l1;
-    const double N4 = 4.0 * l1 * l2;
-    const double N5 = 4.0 * l2 * l0;
-    const double N[6] = {N0, N1, N2, N3, N4, N5};
-
-    Eigen::Vector3d pt = Eigen::Vector3d::Zero();
-    for (int q = 0; q < 6; ++q)
-        pt += N[q] * iface.points().row(iface.point_index(panel, q)).transpose();
-    return pt;
-}
-
-static std::vector<std::array<Eigen::Vector3d, 3>>
-subdivided_p2_faces(const Interface3D& iface, int panel)
-{
-    constexpr int n = 4;
-
-    auto lattice_point = [&](int i, int j) {
-        const double l1 = static_cast<double>(i) / static_cast<double>(n);
-        const double l2 = static_cast<double>(j) / static_cast<double>(n);
-        const double l0 = 1.0 - l1 - l2;
-        return p2_panel_point(iface, panel, l0, l1, l2);
-    };
-
-    std::vector<std::array<Eigen::Vector3d, 3>> faces;
-    faces.reserve(n * n);
-    for (int i = 0; i < n; ++i) {
-        for (int j = 0; j < n - i; ++j) {
-            faces.push_back({lattice_point(i, j),
-                             lattice_point(i + 1, j),
-                             lattice_point(i, j + 1)});
-            if (i + j < n - 1) {
-                faces.push_back({lattice_point(i + 1, j),
-                                 lattice_point(i + 1, j + 1),
-                                 lattice_point(i, j + 1)});
-            }
-        }
-    }
-    return faces;
-}
-
 static std::vector<int> point_components_3d(const Interface3D& iface)
 {
     std::vector<int> components(iface.num_points(), 0);
@@ -157,7 +108,11 @@ static std::vector<DistanceSample3D> distance_samples_3d(const Interface3D& ifac
 
     if (iface.panel_node_layout() == PanelNodeLayout3D::QuadraticLagrange) {
         for (int p = 0; p < iface.num_panels(); ++p) {
-            for (const auto& tri : subdivided_p2_faces(iface, p)) {
+            for (const auto& ref_tri : geometry3d::subdivided_reference_triangles()) {
+                const std::array<Eigen::Vector3d, 3> tri = {
+                    geometry3d::panel_point(iface, p, ref_tri.bary[0]),
+                    geometry3d::panel_point(iface, p, ref_tri.bary[1]),
+                    geometry3d::panel_point(iface, p, ref_tri.bary[2])};
                 const Eigen::Vector3d center = (tri[0] + tri[1] + tri[2]) / 3.0;
                 Eigen::Vector3d normal = (tri[1] - tri[0]).cross(tri[2] - tri[0]);
                 const double len = normal.norm();
@@ -175,14 +130,6 @@ static std::vector<DistanceSample3D> distance_samples_3d(const Interface3D& ifac
     }
 
     return samples;
-}
-
-static std::string point_key(Eigen::Vector3d p)
-{
-    const long long x = std::llround(p[0] * 1.0e12);
-    const long long y = std::llround(p[1] * 1.0e12);
-    const long long z = std::llround(p[2] * 1.0e12);
-    return std::to_string(x) + "," + std::to_string(y) + "," + std::to_string(z);
 }
 
 class NearestPointCloud3D {
@@ -206,6 +153,20 @@ public:
         return search.begin()->first.second;
     }
 
+    std::vector<int> nearest_k(Eigen::Vector3d query, int k) const
+    {
+        if (k <= 0)
+            throw std::invalid_argument("NearestPointCloud3D nearest_k requires k > 0");
+        k = std::min(k, static_cast<int>(points_.size()));
+
+        CNeighborSearch3 search(*tree_, CPoint3(query[0], query[1], query[2]), k);
+        std::vector<int> result;
+        result.reserve(k);
+        for (auto it = search.begin(); it != search.end(); ++it)
+            result.push_back(it->first.second);
+        return result;
+    }
+
 private:
     std::vector<CPointWithIndex3> points_;
     std::unique_ptr<CSearchTree3> tree_;
@@ -214,6 +175,270 @@ private:
 static double squared_distance(Eigen::Vector3d a, Eigen::Vector3d b)
 {
     return (a - b).squaredNorm();
+}
+
+struct ProjectionSeed3D {
+    Eigen::Vector3d point;
+    Eigen::Vector3d barycentric;
+    int             panel;
+    int             component;
+};
+
+struct ProjectionEval3D {
+    Eigen::Vector3d point;
+    Eigen::Vector3d normal;
+    Eigen::Vector2d tangential_equations;
+    double          distance;
+    double          signed_distance;
+    double          tangential_residual;
+    double          merit;
+};
+
+static Eigen::Vector3d grid_point(const CartesianGrid3D& grid, int idx)
+{
+    const auto c = grid.coord(idx);
+    return {c[0], c[1], c[2]};
+}
+
+static bool finite_vector(Eigen::Vector2d v)
+{
+    return std::isfinite(v[0]) && std::isfinite(v[1]);
+}
+
+static bool reference_triangle_contains(Eigen::Vector3d bary, double tol)
+{
+    return bary[0] >= -tol
+        && bary[1] >= -tol
+        && bary[2] >= -tol
+        && std::abs(bary.sum() - 1.0) <= tol;
+}
+
+static Eigen::Vector2d clamp_uv_to_reference_triangle(Eigen::Vector2d uv)
+{
+    if (!finite_vector(uv))
+        return Eigen::Vector2d::Zero();
+
+    const Eigen::Vector3d bary = geometry3d::barycentric_from_uv(uv);
+    if (reference_triangle_contains(bary, 0.0))
+        return uv;
+
+    auto best = Eigen::Vector2d(0.0, std::max(0.0, std::min(1.0, uv[1])));
+    double best_dist2 = (best - uv).squaredNorm();
+
+    auto try_candidate = [&](Eigen::Vector2d candidate) {
+        const double dist2 = (candidate - uv).squaredNorm();
+        if (dist2 < best_dist2) {
+            best = candidate;
+            best_dist2 = dist2;
+        }
+    };
+
+    try_candidate({std::max(0.0, std::min(1.0, uv[0])), 0.0});
+
+    double edge_u = 0.5 * (uv[0] - uv[1] + 1.0);
+    edge_u = std::max(0.0, std::min(1.0, edge_u));
+    try_candidate({edge_u, 1.0 - edge_u});
+
+    return best;
+}
+
+static ProjectionEval3D projection_eval(const Interface3D&  iface,
+                                        int                 panel,
+                                        Eigen::Vector3d     target,
+                                        Eigen::Vector2d     uv)
+{
+    const Eigen::Vector3d bary = geometry3d::barycentric_from_uv(uv);
+    const Eigen::Vector3d point = geometry3d::panel_point(iface, panel, bary);
+    const Eigen::Vector3d normal =
+        geometry3d::panel_oriented_normal(iface, panel, bary);
+    const Eigen::Vector3d r = point - target;
+    const Eigen::Vector3d Xu = geometry3d::panel_tangent_u(iface, panel, bary);
+    const Eigen::Vector3d Xv = geometry3d::panel_tangent_v(iface, panel, bary);
+
+    ProjectionEval3D eval;
+    eval.point = point;
+    eval.normal = normal;
+    eval.tangential_equations = {r.dot(Xu), r.dot(Xv)};
+    eval.distance = r.norm();
+    eval.signed_distance = (target - point).dot(normal);
+    eval.merit = eval.tangential_equations.squaredNorm();
+
+    Eigen::Matrix2d metric;
+    metric << Xu.dot(Xu), Xu.dot(Xv),
+              Xv.dot(Xu), Xv.dot(Xv);
+    const double det = metric.determinant();
+    if (std::abs(det) > 1.0e-28) {
+        const Eigen::Vector2d coeff =
+            metric.fullPivLu().solve(eval.tangential_equations);
+        const Eigen::Vector3d tangential = coeff[0] * Xu + coeff[1] * Xv;
+        eval.tangential_residual = tangential.norm();
+    } else {
+        eval.tangential_residual = std::sqrt(eval.merit);
+    }
+
+    return eval;
+}
+
+static SurfaceProjection3D make_surface_projection(const Interface3D&  iface,
+                                                   int                 grid_node,
+                                                   const ProjectionSeed3D& seed,
+                                                   Eigen::Vector3d     target,
+                                                   Eigen::Vector2d     uv,
+                                                   int                 iterations,
+                                                   bool                converged)
+{
+    Eigen::Vector3d bary = geometry3d::barycentric_from_uv(uv);
+    if (!reference_triangle_contains(bary, 1.0e-8)) {
+        uv = clamp_uv_to_reference_triangle(uv);
+        bary = geometry3d::barycentric_from_uv(uv);
+        converged = false;
+    }
+
+    const ProjectionEval3D eval =
+        projection_eval(iface, seed.panel, target, uv);
+
+    SurfaceProjection3D projection;
+    projection.grid_node = grid_node;
+    projection.panel = seed.panel;
+    projection.component = seed.component;
+    projection.barycentric = bary;
+    projection.point = eval.point;
+    projection.normal = eval.normal;
+    projection.signed_distance = eval.signed_distance;
+    projection.distance = eval.distance;
+    projection.tangential_residual = eval.tangential_residual;
+    projection.iterations = iterations;
+    projection.converged = converged;
+    return projection;
+}
+
+static SurfaceProjection3D project_from_seed(const Interface3D&     iface,
+                                             int                    grid_node,
+                                             Eigen::Vector3d        target,
+                                             const ProjectionSeed3D& seed)
+{
+    constexpr int kMaxIterations = 30;
+    constexpr double kResidualTol = 1.0e-11;
+    constexpr double kStepTol = 1.0e-13;
+
+    Eigen::Vector2d uv = geometry3d::uv_from_barycentric(seed.barycentric);
+    int iterations = 0;
+    bool converged = false;
+
+    const Eigen::Vector3d Xuu = geometry3d::panel_second_uu(iface, seed.panel);
+    const Eigen::Vector3d Xuv = geometry3d::panel_second_uv(iface, seed.panel);
+    const Eigen::Vector3d Xvv = geometry3d::panel_second_vv(iface, seed.panel);
+
+    for (int iter = 0; iter < kMaxIterations; ++iter) {
+        const Eigen::Vector3d bary = geometry3d::barycentric_from_uv(uv);
+        const ProjectionEval3D eval =
+            projection_eval(iface, seed.panel, target, uv);
+        if (eval.tangential_residual <= kResidualTol
+            && reference_triangle_contains(bary, 1.0e-8)) {
+            converged = true;
+            iterations = iter;
+            break;
+        }
+
+        const Eigen::Vector3d point =
+            geometry3d::panel_point(iface, seed.panel, bary);
+        const Eigen::Vector3d r = point - target;
+        const Eigen::Vector3d Xu =
+            geometry3d::panel_tangent_u(iface, seed.panel, bary);
+        const Eigen::Vector3d Xv =
+            geometry3d::panel_tangent_v(iface, seed.panel, bary);
+
+        Eigen::Matrix2d J;
+        J(0, 0) = Xu.dot(Xu) + r.dot(Xuu);
+        J(0, 1) = Xv.dot(Xu) + r.dot(Xuv);
+        J(1, 0) = Xu.dot(Xv) + r.dot(Xuv);
+        J(1, 1) = Xv.dot(Xv) + r.dot(Xvv);
+
+        if (std::abs(J.determinant()) <= 1.0e-28)
+            break;
+
+        const Eigen::Vector2d delta = J.fullPivLu().solve(eval.tangential_equations);
+        if (!finite_vector(delta))
+            break;
+
+        bool accepted = false;
+        Eigen::Vector2d accepted_uv = uv;
+        Eigen::Vector2d accepted_step = Eigen::Vector2d::Zero();
+        for (double damping = 1.0; damping >= 1.0 / 64.0; damping *= 0.5) {
+            Eigen::Vector2d candidate = uv - damping * delta;
+            if (candidate[0] < -0.5 || candidate[1] < -0.5
+                || candidate[0] + candidate[1] > 1.5) {
+                candidate = clamp_uv_to_reference_triangle(candidate);
+            }
+            if (!finite_vector(candidate))
+                continue;
+
+            const ProjectionEval3D candidate_eval =
+                projection_eval(iface, seed.panel, target, candidate);
+            if (candidate_eval.merit <= eval.merit || damping <= 1.0 / 64.0) {
+                accepted = true;
+                accepted_uv = candidate;
+                accepted_step = damping * delta;
+                break;
+            }
+        }
+
+        if (!accepted)
+            break;
+
+        uv = accepted_uv;
+        iterations = iter + 1;
+        if (accepted_step.norm() <= kStepTol)
+            break;
+    }
+
+    const Eigen::Vector3d final_bary = geometry3d::barycentric_from_uv(uv);
+    const ProjectionEval3D final_eval =
+        projection_eval(iface, seed.panel, target, uv);
+    converged = converged
+        || (final_eval.tangential_residual <= kResidualTol
+            && reference_triangle_contains(final_bary, 1.0e-8));
+
+    return make_surface_projection(iface,
+                                   grid_node,
+                                   seed,
+                                   target,
+                                   uv,
+                                   iterations,
+                                   converged);
+}
+
+static std::vector<ProjectionSeed3D> projection_seeds_3d(const Interface3D& iface)
+{
+    const std::vector<Eigen::Vector3d> center_bary =
+        geometry3d::expansion_center_barycentrics();
+    std::vector<ProjectionSeed3D> seeds;
+    seeds.reserve(static_cast<std::size_t>(iface.num_panels())
+                  * center_bary.size());
+
+    for (int p = 0; p < iface.num_panels(); ++p) {
+        for (const Eigen::Vector3d& bary : center_bary) {
+            seeds.push_back({geometry3d::panel_point(iface, p, bary),
+                             bary,
+                             p,
+                             iface.panel_components()[p]});
+        }
+    }
+    return seeds;
+}
+
+static bool better_projection(const SurfaceProjection3D& candidate,
+                              const SurfaceProjection3D& current)
+{
+    if (current.panel < 0)
+        return true;
+    if (candidate.converged != current.converged)
+        return candidate.converged;
+    if (candidate.converged)
+        return candidate.distance < current.distance;
+    if (candidate.tangential_residual != current.tangential_residual)
+        return candidate.tangential_residual < current.tangential_residual;
+    return candidate.distance < current.distance;
 }
 
 // ============================================================================
@@ -329,6 +554,20 @@ GridPair3D::~GridPair3D() = default;
 // ============================================================================
 // Query methods
 // ============================================================================
+bool NarrowBandProjection3D::has_projection(int bulk_node_idx) const
+{
+    return bulk_node_idx >= 0
+        && bulk_node_idx < static_cast<int>(projection_index_by_grid_node_.size())
+        && projection_index_by_grid_node_[bulk_node_idx] >= 0;
+}
+
+const SurfaceProjection3D& NarrowBandProjection3D::projection(int bulk_node_idx) const
+{
+    if (!has_projection(bulk_node_idx))
+        throw std::out_of_range("NarrowBandProjection3D missing grid-node projection");
+    return projections_[projection_index_by_grid_node_[bulk_node_idx]];
+}
+
 int GridPair3D::closest_bulk_node(int q) const {
     return impl_->closest_bulk_node[q];
 }
@@ -368,6 +607,57 @@ std::vector<int> GridPair3D::near_interface_points(int n, double radius) const {
             result.push_back(q);
     }
     return result;
+}
+
+NarrowBandProjection3D GridPair3D::project_near_interface_nodes(double radius) const
+{
+    if (radius < 0.0)
+        throw std::invalid_argument("GridPair3D projection radius must be nonnegative");
+    if (interface_.points_per_panel() != 6
+        || interface_.panel_node_layout() != PanelNodeLayout3D::QuadraticLagrange) {
+        throw std::invalid_argument(
+            "GridPair3D::project_near_interface_nodes requires P2 QuadraticLagrange panels");
+    }
+
+    NarrowBandProjection3D band;
+    band.radius_ = radius;
+    band.nodes_ = near_interface_nodes(radius);
+    band.projection_index_by_grid_node_.assign(grid_.num_dofs(), -1);
+    band.projections_.reserve(band.nodes_.size());
+
+    if (band.nodes_.empty())
+        return band;
+
+    const std::vector<ProjectionSeed3D> seeds = projection_seeds_3d(interface_);
+    std::vector<Eigen::Vector3d> seed_points;
+    seed_points.reserve(seeds.size());
+    for (const auto& seed : seeds)
+        seed_points.push_back(seed.point);
+    const NearestPointCloud3D seed_cloud(seed_points);
+
+    constexpr int kRetrySeeds = 64;
+    const int k = std::min(kRetrySeeds, static_cast<int>(seeds.size()));
+
+    for (int node : band.nodes_) {
+        const Eigen::Vector3d target = grid_point(grid_, node);
+        const std::vector<int> seed_indices = seed_cloud.nearest_k(target, k);
+
+        SurfaceProjection3D best;
+        for (std::size_t i = 0; i < seed_indices.size(); ++i) {
+            const SurfaceProjection3D candidate =
+                project_from_seed(interface_, node, target, seeds[seed_indices[i]]);
+            if (better_projection(candidate, best))
+                best = candidate;
+            if (i == 0 && candidate.converged)
+                break;
+        }
+
+        band.projection_index_by_grid_node_[node] =
+            static_cast<int>(band.projections_.size());
+        band.projections_.push_back(best);
+    }
+
+    return band;
 }
 
 } // namespace kfbim
