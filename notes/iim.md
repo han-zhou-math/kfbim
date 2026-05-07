@@ -218,12 +218,68 @@ so every interpolation stencil node that participates in an average-trace
 correction needs $C_m$ unless the coefficient multiplying it is known to cancel
 in the chosen interpolant.
 
+## Screened-Poisson Surface Decomposition
+
+For a common screened Poisson operator on the two smooth branches,
+$$
+-\Delta u^\pm + \kappa^2 u^\pm = f^\pm,
+$$
+the correction function
+$$
+C = u_{int}-u_{ext}
+$$
+satisfies, on the interface and by smooth extension from either side,
+$$
+\boxed{
+-\Delta C + \kappa^2 C = [f].
+}
+$$
+Here $[f]=f_{int}-f_{ext}$ uses the same interior-minus-exterior jump
+convention as $C=[u]$.
+
+Let $n$ be the outward normal, let $r$ be signed distance in the normal
+direction, and let $\Delta_\Gamma$ be the surface Laplace-Beltrami operator.
+With the mean-curvature convention
+$$
+H_\Gamma = \nabla\cdot n
+$$
+at the interface, the Euclidean Laplacian decomposes at $\Gamma$ as
+$$
+\boxed{
+\Delta C
+= \partial_{nn}C + H_\Gamma\,\partial_n C + \Delta_\Gamma C.
+}
+$$
+Therefore the screened correction equation is
+$$
+\boxed{
+-\partial_{nn}C
+- H_\Gamma\,\partial_n C
+- \Delta_\Gamma C
++ \kappa^2 C
+= [f].
+}
+$$
+Equivalently, the second normal derivative needed by a normal Taylor
+correction can be eliminated by
+$$
+\boxed{
+\partial_{nn}C
+= \kappa^2 C - [f] - H_\Gamma\,\partial_n C - \Delta_\Gamma C.
+}
+$$
+In 2D, $\Gamma$ is a curve, $H_\Gamma$ is the signed curvature
+$\nabla\cdot n$, and $\Delta_\Gamma C=\partial_{\tau\tau}C$. In 3D,
+$H_\Gamma$ is the sum of the two principal curvatures and
+$\Delta_\Gamma$ is the surface Laplacian on the triangular/P2 surface.
+
 ## 3D P2 Projection-Point Geometry
 
 For shared quadratic triangular interfaces,
-`GridPair3D::project_near_interface_nodes(radius)` now supplies the geometry
-data needed to evaluate correction functions at the closest curved-surface
-projection instead of at an arbitrary expansion center.
+`GridPair3D::project_near_interface_nodes(radius)` supplies broad narrow-band
+geometry projection data. The transfer implementation uses
+`GridPair3D::project_grid_nodes_to_interface(nodes)` for projection-point
+correction so it projects only the grid nodes where `C(x)` is needed.
 
 For each narrow-band grid node, the projection record includes:
 
@@ -235,15 +291,17 @@ For each narrow-band grid node, the projection record includes:
 - the signed normal distance from projection to grid node,
 - a tangential residual, iteration count, and convergence flag.
 
-The broad-phase seed is the nearest of the 16 P2 expansion-center locations per
-parent triangle. A damped Newton iteration then solves the local closest-point
-normality equations on the curved patch. If the closest admissible point lies
-on a patch boundary, the record can be returned as a valid edge fallback with
-`converged=false`; downstream code should still use the stored panel and
-barycentric coordinate for interpolation, while treating the convergence flag
-as a diagnostic.
+For the broad radius-band geometry query, the broad-phase seeds are the nearest
+of the 16 P2 expansion-center locations per parent triangle. For the explicit
+transfer-support query, the nearest expansion center is used only to choose the
+parent triangle; the initial parameter is then the closest point on the flat
+vertex triangle. A damped Newton iteration solves the local closest-point
+normality equations on the curved patch. If Newton fails, the explicit-support
+path keeps the flat-triangle parameter with `converged=false`; downstream code
+can still use the stored panel and barycentric coordinate for interpolation,
+while treating the convergence flag as a diagnostic.
 
-This supports the intended 3D projection-point IIM correction evaluation. Let
+This supports the 3D projection-point IIM correction evaluation. Let
 $p$ be the projection of a grid node $x$, let $n(p)$ be the outward normal, and
 let
 $$
@@ -255,9 +313,19 @@ $$
 C(x) \approx C(p) + s\,\partial_n C(p)
         + \frac12 s^2\,\partial_{nn}C(p).
 $$
-The current implementation only provides the geometry projection data; the
-spread/restrict operators still use the existing expansion-center correction
-polynomials until a projection-point IIM transfer path is added.
+In the implemented projection-point transfer path, `C`, `partial_n C`, and the
+surface Laplacian term are interpolated with P2 data at the projected
+panel-local coordinate, and `partial_{nn} C` is computed from the surface
+decomposition of the screened Laplacian. To avoid the earlier runtime
+bottleneck, spread precomputes the union of grid nodes needed by crossing
+finite-difference stencil edges and by the restrict interpolation stencils, then
+stores one projection cache for both spread and restrict.
+
+The production default remains the existing nearest expansion-center correction
+polynomial path. The projection-point path is available through
+`LaplaceCorrectionMethod3D::ProjectionPoint` for comparison and further
+accuracy work; on the current unit-sphere direct-interface benchmark the
+nearest expansion-center path is more accurate on the finest tested levels.
 
 ### Equivalent Stokes-Paper Indicator Form
 

@@ -201,7 +201,8 @@ Gauss path only for explicit regression or comparison tests.
 For new 3D Laplace work, use shared six-node P2 triangular patches with
 `PanelNodeLayout3D::QuadraticLagrange`, 16 expansion centers per parent
 triangle, and target adjacent P2 node spacing over grid spacing of about `1.5`.
-For projection-point IIM work, use `GridPair3D::project_near_interface_nodes()`
-to obtain the projected point, parent panel, barycentric coordinate, oriented
-normal, and signed distance for each narrow-band grid node before interpolating
-surface correction data.
+The default 3D transfer correction is nearest expansion-center expansion.
+Projection-point IIM correction is available as an opt-in comparison path; use
+`GridPair3D::project_grid_nodes_to_interface()` for the explicit set of grid
+nodes where `C(x)` is needed, or `GridPair3D::project_near_interface_nodes()`
+for broader projection-geometry diagnostics.

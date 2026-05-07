@@ -27,6 +27,12 @@ struct LaplaceTransmissionCoefficients3D {
     double kappa_sq_ext = 0.0;
 };
 
+struct LaplaceTransmissionOptions3D {
+    int restrict_stencil_radius = 2;
+    LaplaceCorrectionMethod3D correction_method =
+        LaplaceCorrectionMethod3D::NearestExpansionCenter;
+};
+
 struct LaplaceTransmissionRhsData3D {
     // Stores q=f/beta on grid nodes before outer-boundary Dirichlet elimination.
     Eigen::VectorXd reduced_rhs_bulk;
@@ -62,7 +68,8 @@ public:
     LaplaceTransmission3D(const CartesianGrid3D&            grid,
                           const Interface3D&                iface,
                           LaplaceTransmissionMode3D         mode,
-                          LaplaceTransmissionCoefficients3D coefficients);
+                          LaplaceTransmissionCoefficients3D coefficients,
+                          LaplaceTransmissionOptions3D      options = {});
 
     void apply(const Eigen::VectorXd& x, Eigen::VectorXd& y) const override;
     int problem_size() const override;

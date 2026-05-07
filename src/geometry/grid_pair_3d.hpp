@@ -72,6 +72,14 @@ public:
     // for later surface interpolation/differentiation.
     NarrowBandProjection3D project_near_interface_nodes(double radius) const;
 
+    // P2 curved-surface projections for an explicit grid-node support set.
+    // Uses the nearest generated P2 expansion center to choose a parent panel,
+    // initializes with the closest point on the flat vertex triangle, then
+    // applies curved-patch Newton. If Newton does not converge, the flat
+    // triangle parameter is returned with converged=false.
+    NarrowBandProjection3D project_grid_nodes_to_interface(
+        const std::vector<int>& bulk_node_indices) const;
+
     const CartesianGrid3D& grid()      const { return grid_; }
     const Interface3D&     interface() const { return interface_; }
 

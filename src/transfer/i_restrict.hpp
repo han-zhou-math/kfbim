@@ -5,6 +5,7 @@
 #include "../local_cauchy/local_poly.hpp"
 #include "../geometry/grid_pair_2d.hpp"
 #include "../geometry/grid_pair_3d.hpp"
+#include "i_spread.hpp"
 
 namespace kfbim {
 
@@ -51,8 +52,8 @@ public:
     virtual ~ILaplaceRestrict3D() = default;
 
     virtual std::vector<LocalPoly3D> apply(
-        const Eigen::VectorXd&          bulk_solution,
-        const std::vector<LocalPoly3D>& correction_polys) const = 0;
+        const Eigen::VectorXd&       bulk_solution,
+        const LaplaceSpreadResult3D& spread_result) const = 0;
 
     virtual const GridPair3D& grid_pair() const = 0;
 };

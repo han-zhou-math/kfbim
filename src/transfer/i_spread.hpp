@@ -12,15 +12,11 @@ namespace kfbim {
 // ---------------------------------------------------------------------------
 // Spread (Layer 1): interface jump data → bulk RHS correction
 //
-// For each interface quadrature point, apply():
-//   1. Calls ILocalCauchySolver::fit() to solve the local Cauchy problem and
-//      obtain a correction polynomial.
-//   2. Evaluates the polynomial at every nearby bulk node (via GridPair) and
-//      accumulates the values into rhs_correction.
+// For each interface quadrature point, apply() builds the correction data
+// needed to accumulate bulk RHS corrections near the interface.
 //
-// The returned vector of LocalPolys is passed to the paired Restrict::apply().
-// Most spreads return one polynomial per interface point; center-based spreads
-// may return generated expansion-center polynomials instead.
+// 2D spreads return LocalPolys directly. 3D spreads return a result object
+// because projection-point correction needs surface jump data during restrict.
 //
 // rhs_correction is *accumulated into*, not zeroed — the caller zeros it first
 // when starting a fresh iteration, or accumulates across multiple interfaces.
@@ -40,11 +36,39 @@ public:
     virtual const GridPair2D& grid_pair() const = 0;
 };
 
+enum class LaplaceCorrectionMethod3D {
+    NearestExpansionCenter,
+    ProjectionPoint
+};
+
+struct LaplaceSpreadResult3D {
+    LaplaceCorrectionMethod3D correction_method =
+        LaplaceCorrectionMethod3D::NearestExpansionCenter;
+
+    // Existing center-polynomial correction data. In projection-point mode this
+    // may be empty because C(x) is evaluated directly from projected P2 data.
+    std::vector<LocalPoly3D> correction_polys;
+
+    // Surface data needed by the projection-point evaluator. Vectors are sized
+    // to Interface3D::num_points() when correction_method == ProjectionPoint.
+    Eigen::VectorXd u_jump;
+    Eigen::VectorXd un_jump;
+    Eigen::VectorXd rhs_jump;
+
+    // Screened coefficient in -Delta C + alpha*C = [f].
+    double alpha = 0.0;
+
+    // Projection-point cache for grid nodes where C(x) is actually needed.
+    NarrowBandProjection3D projection_cache;
+};
+
 class ILaplaceSpread3D {
 public:
     virtual ~ILaplaceSpread3D() = default;
 
-    virtual std::vector<LocalPoly3D> apply(
+    // The 3D result carries either nearest-center correction polynomials or
+    // projection-point surface data for the paired restrict operator.
+    virtual LaplaceSpreadResult3D apply(
         const std::vector<LaplaceJumpData3D>& jumps,
         Eigen::VectorXd&                      rhs_correction) const = 0;
 

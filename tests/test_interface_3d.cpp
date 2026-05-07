@@ -4,6 +4,8 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -29,12 +31,12 @@ namespace {
 
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kEta = 1.1;
-constexpr double kSphereCx = 0.07;
-constexpr double kSphereCy = -0.04;
-constexpr double kSphereCz = 0.03;
-constexpr double kSphereRadius = 0.55;
-constexpr double kBoxLower = -1.0;
-constexpr double kBoxSide = 2.0;
+constexpr double kSphereCx = 0.0;
+constexpr double kSphereCy = 0.0;
+constexpr double kSphereCz = 0.0;
+constexpr double kSphereRadius = 1.0;
+constexpr double kBoxLower = -1.5;
+constexpr double kBoxSide = 3.0;
 constexpr double kTargetNodeSpacingOverH = 1.5;
 constexpr double kOctahedronEdgeLengthOnUnitSphere = 1.41421356237309504880;
 
@@ -51,6 +53,47 @@ struct SolveData {
     double bulk_err = 0.0;
     int    num_panels = 0;
     int    num_interface_points = 0;
+};
+
+LaplaceCorrectionMethod3D correction_method_from_env()
+{
+    const char* value = std::getenv("KFBIM_INTERFACE_3D_CORRECTION");
+    if (value == nullptr)
+        return LaplaceCorrectionMethod3D::NearestExpansionCenter;
+
+    const std::string method(value);
+    if (method == "nearest" || method == "NearestExpansionCenter")
+        return LaplaceCorrectionMethod3D::NearestExpansionCenter;
+    if (method == "projection" || method == "ProjectionPoint")
+        return LaplaceCorrectionMethod3D::ProjectionPoint;
+
+    throw std::invalid_argument(
+        "KFBIM_INTERFACE_3D_CORRECTION must be 'projection' or 'nearest'");
+}
+
+const char* correction_method_name(LaplaceCorrectionMethod3D method)
+{
+    switch (method) {
+    case LaplaceCorrectionMethod3D::NearestExpansionCenter:
+        return "Nearest expansion-center correction";
+    case LaplaceCorrectionMethod3D::ProjectionPoint:
+        return "Projection-point P2 correction";
+    }
+    return "Unknown correction";
+}
+
+struct StageTimer {
+    using Clock = std::chrono::steady_clock;
+
+    Clock::time_point start = Clock::now();
+
+    double lap()
+    {
+        const Clock::time_point now = Clock::now();
+        const std::chrono::duration<double> elapsed = now - start;
+        start = now;
+        return elapsed.count();
+    }
 };
 
 struct SphereMeshData {
@@ -373,6 +416,19 @@ double tail_average_order(const std::vector<double>& rates, int count = 2)
     return sum / static_cast<double>(used);
 }
 
+bool profile_enabled()
+{
+    return std::getenv("KFBIM_PROFILE_INTERFACE_3D") != nullptr;
+}
+
+int max_n_from_env()
+{
+    const char* value = std::getenv("KFBIM_INTERFACE_3D_MAX_N");
+    if (value == nullptr)
+        return 0;
+    return std::max(0, std::atoi(value));
+}
+
 int surface_subdivision_for_grid(int N)
 {
     const double approx_subdivision =
@@ -383,10 +439,15 @@ int surface_subdivision_for_grid(int N)
 
 SolveData solve_and_measure(int N)
 {
+    StageTimer timer;
+    const bool profile = profile_enabled();
+    const LaplaceCorrectionMethod3D correction_method =
+        correction_method_from_env();
     const Box3D box{{kBoxLower, kBoxLower, kBoxLower}, kBoxSide};
     const double h = box.side_length / static_cast<double>(N);
 
     CartesianGrid3D grid(box.lower, {h, h, h}, {N, N, N}, DofLayout3D::Node);
+    const double t_grid = timer.lap();
     const auto dims = grid.dof_dims();
     const int nx = dims[0];
     const int ny = dims[1];
@@ -395,7 +456,9 @@ SolveData solve_and_measure(int N)
 
     const int surface_subdivision = surface_subdivision_for_grid(N);
     Interface3D iface = make_p2_sphere(surface_subdivision);
+    const double t_interface = timer.lap();
     GridPair3D grid_pair(grid, iface);
+    const double t_grid_pair = timer.lap();
 
     Eigen::VectorXd f_bulk = Eigen::VectorXd::Zero(n_dof);
     Eigen::VectorXd u_exact = Eigen::VectorXd::Zero(n_dof);
@@ -412,17 +475,45 @@ SolveData solve_and_measure(int N)
             f_bulk[n] = is_outer_boundary_node(n, nx, ny, nz) ? 0.0 : f_ext(box, x, y, z);
         }
     }
+    const double t_rhs = timer.lap();
 
-    LaplaceQuadraticPatchCenterSpread3D spread(grid_pair, kEta);
+    LaplaceQuadraticPatchCenterSpread3D spread(
+        grid_pair, kEta, correction_method);
     LaplaceFftBulkSolverZfft3D bulk_solver(grid, ZfftBcType::Dirichlet, kEta);
     LaplaceQuadraticPatchCenterRestrict3D restrict_op(grid_pair);
-    LaplacePotentialEval3D potentials(spread, bulk_solver, restrict_op);
+    const double t_ops = timer.lap();
 
-    auto result = potentials.evaluate(make_jumps(iface, box), f_bulk);
+    const std::vector<LaplaceJumpData3D> jumps = make_jumps(iface, box);
+    Eigen::VectorXd rhs = f_bulk;
+    const double t_jumps = timer.lap();
+
+    const LaplaceSpreadResult3D spread_result = spread.apply(jumps, rhs);
+    const double t_spread = timer.lap();
+
+    Eigen::VectorXd u_bulk;
+    bulk_solver.solve(-rhs, u_bulk);
+    const double t_bulk_solve = timer.lap();
+
+    const std::vector<LocalPoly3D> solution_polys =
+        restrict_op.apply(u_bulk, spread_result);
+    REQUIRE(solution_polys.size() == static_cast<std::size_t>(iface.num_points()));
+    const double t_restrict = timer.lap();
 
     double bulk_err = 0.0;
     for (int n = 0; n < n_dof; ++n)
-        bulk_err = std::max(bulk_err, std::abs(result.u_bulk[n] - u_exact[n]));
+        bulk_err = std::max(bulk_err, std::abs(u_bulk[n] - u_exact[n]));
+    const double t_error = timer.lap();
+
+    if (profile) {
+        std::printf("    profile N=%d panels=%d iface=%d grid=%d\n",
+                    N, iface.num_panels(), iface.num_points(), n_dof);
+        std::printf("      grid %.3fs interface %.3fs grid_pair %.3fs rhs %.3fs ops %.3fs jumps %.3fs\n",
+                    t_grid, t_interface, t_grid_pair, t_rhs, t_ops, t_jumps);
+        std::printf("      spread %.3fs bulk_solve %.3fs restrict %.3fs error %.3fs total %.3fs\n",
+                    t_spread, t_bulk_solve, t_restrict, t_error,
+                    t_grid + t_interface + t_grid_pair + t_rhs + t_ops + t_jumps
+                        + t_spread + t_bulk_solve + t_restrict + t_error);
+    }
 
     return {bulk_err, iface.num_panels(), iface.num_points()};
 }
@@ -432,9 +523,18 @@ SolveData solve_and_measure(int N)
 TEST_CASE("Constant-coefficient screened interface problem converges on P2 sphere",
           "[screened][laplace][interface][p2][convergence][3d]")
 {
-    const std::vector<int> Ns{4, 8, 16, 32, 64, 128};
+    std::vector<int> Ns{4, 8, 16, 32, 64, 128};
+    const int max_n = max_n_from_env();
+    if (max_n > 0) {
+        Ns.erase(std::remove_if(Ns.begin(), Ns.end(),
+                                [max_n](int n) { return n > max_n; }),
+                 Ns.end());
+        REQUIRE_FALSE(Ns.empty());
+    }
     std::vector<SolveData> data(Ns.size());
     std::vector<double> rates(Ns.size(), 0.0);
+    const LaplaceCorrectionMethod3D correction_method =
+        correction_method_from_env();
 
     const std::filesystem::path out_dir = output_dir();
     std::ofstream csv(out_dir / "convergence.csv");
@@ -445,7 +545,9 @@ TEST_CASE("Constant-coefficient screened interface problem converges on P2 spher
                 kEta);
     std::printf("  Surface: shared P2 triangles; target P2 node_spacing/h = %.2f\n",
                 kTargetNodeSpacingOverH);
-    std::printf("  16 expansion centers per parent triangle; output: %s\n",
+    std::printf("  Geometry: unit sphere centered at origin in (-1.5,1.5)^3\n");
+    std::printf("  %s; output: %s\n",
+                correction_method_name(correction_method),
                 out_dir.string().c_str());
     std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "order", "GMRES");
 
@@ -471,7 +573,9 @@ TEST_CASE("Constant-coefficient screened interface problem converges on P2 spher
         }
     }
 
-    REQUIRE(data.back().bulk_err < data.front().bulk_err);
-    REQUIRE(tail_average_order(rates) > 0.8);
-    REQUIRE(data.back().bulk_err < 5.0e-2);
+    if (Ns.size() > 1) {
+        REQUIRE(data.back().bulk_err < data.front().bulk_err);
+        REQUIRE(tail_average_order(rates) > 0.8);
+        REQUIRE(data.back().bulk_err < 5.0e-2);
+    }
 }

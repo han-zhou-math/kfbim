@@ -13,8 +13,10 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   screened BVP/transmission wrapper and ellipsoid transmission-test update.
   It also reflects the 2026-05-06 3D torus transmission test, 2D bi-periodic
   transmission test, combined D+S potential-evaluation optimization, shortened
-  note filenames, parallel KFBI planning note, and 2026-05-07 3D P2
-  narrow-band projection geometry.
+  note filenames, parallel KFBI planning note, 2026-05-07 3D P2
+  narrow-band projection geometry, and the 2026-05-07 projection-point
+  correction prototype. The default 3D correction path remains nearest
+  expansion-center expansion.
 - **Completed modules** (active tests passing):
   - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
     - `Interface2D` tracks panel node layout: `ChebyshevLobatto`, `LegacyGaussLegendre`, or `Raw`.
@@ -39,6 +41,11 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
       expansion-center locations per parent triangle used by the 3D P2 local
       Cauchy path. Boundary/edge fallbacks can return `converged=false` while
       still carrying a valid panel-local point.
+    - `GridPair3D::project_grid_nodes_to_interface(nodes)` projects an explicit
+      grid-node support set. It chooses the parent triangle from the nearest
+      expansion center, initializes the parameter by closest point on the flat
+      vertex triangle, then applies curved-patch Newton. If Newton fails, it
+      returns the flat-triangle parameter with `converged=false`.
     - Current P2 domain labeling is local-normal based at the nearest curved
       surface sample, not a full CGAL inside/outside query on the curved
       tessellation.
@@ -70,7 +77,12 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
       No offset delta is used.
     - `LaplaceQuadraticPatchCenterSpread3D` and
       `LaplaceQuadraticPatchCenterRestrict3D` implement the current transfer
-      path for P2 triangular patches.
+      path for P2 triangular patches. The default correction method is
+      `LaplaceCorrectionMethod3D::NearestExpansionCenter`.
+      `LaplaceCorrectionMethod3D::ProjectionPoint` is implemented as an
+      opt-in method that evaluates `C(x)` from projected P2 surface data and
+      precomputes only grid nodes needed by crossing stencil edges and the
+      restrict interpolation stencils.
     - `LaplacePotentialEval3D` evaluates arbitrary jumps/RHS and returns bulk
       solution plus averaged trace/flux, matching the 2D potential-evaluation
       convention. It also exposes `eval_layer_combination(phi, psi)`.
@@ -124,9 +136,12 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     `LaplaceTransmission2D::CommonRatio` on a cell-centered bi-periodic unit
     square with periodic trigonometric manufactured solutions.
   - `tests/test_interface_3d.cpp` covers the direct prescribed-jump screened
-    3D interface problem on an off-center P2 sphere, with `eta=1.1`, 16
-    expansion centers per parent triangle, and target adjacent P2 node spacing
-    over grid spacing of about `1.5`.
+    3D interface problem on a unit P2 sphere centered at the origin in
+    `(-1.5,1.5)^3`, with `eta=1.1`, 16 expansion centers per parent triangle,
+    and target adjacent P2 node spacing over grid spacing of about `1.5`.
+    The default run uses nearest expansion-center correction. Set
+    `KFBIM_INTERFACE_3D_CORRECTION=projection` to run the projection-point
+    correction comparison.
   - `tests/test_bvp_3d.cpp` covers all four screened `LaplaceBvp3D` modes on
     an off-center P2 sphere.
   - `tests/test_transmission_3d.cpp` covers both `LaplaceTransmission3D`
@@ -143,7 +158,8 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     `KFBIM_TORUS_VIS_N=<N>` to export torus geometry and solution CSVs for
     `python/visualize_transmission_torus_3d.py`.
   - `tests/test_projection_3d.cpp` covers the new
-    `GridPair3D::project_near_interface_nodes()` P2 projection path on an
+    `GridPair3D::project_near_interface_nodes()` and explicit-support
+    `GridPair3D::project_grid_nodes_to_interface()` P2 projection paths on an
     off-center sphere. It verifies cached narrow-band lookup, panel/barycentric
     coordinates, oriented normals, signed distances, Newton residuals, and that
     existing `GridPair3D` label/nearest-point queries are unchanged.
@@ -173,6 +189,11 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     - `build/tests/test_projection_3d`
     - `ctest --test-dir build -R projection --output-on-failure`
     - `git diff --check`
+  - 2026-05-07 3D direct-interface correction comparison on the unit sphere:
+    - `build/tests/test_interface_3d -s`
+    - `KFBIM_INTERFACE_3D_CORRECTION=projection build/tests/test_interface_3d -s`
+    - Default remains nearest expansion-center because it was more accurate on
+      the finest tested levels for this benchmark.
   - 2026-05-06 transmission suite after the torus/periodic tests and combined
     D+S optimization:
     - `build/tests/test_transmission_periodic_2d -s`
@@ -220,12 +241,11 @@ coverage, runtime, and numerical robustness.
      into the RHS and restore boundary values in the returned bulk solution.
 
 3. **Next implementation targets.**
-   - Use the new P2 projection geometry in a projection-point IIM correction
-     path. The intended local correction evaluation is one-dimensional along
-     the projection normal, using surface-interpolated `C`, `partial_n C`, and
-     `partial_nn C` at the returned panel/barycentric projection point.
-   - Rerun and refresh the 3D direct-interface and BVP convergence snapshots
-     after the final target P2 `node_spacing/h ~= 1.5` change.
+   - Keep nearest expansion-center correction as the default 3D transfer path.
+     The projection-point IIM correction path is implemented and useful for
+     comparison, but currently remains opt-in while its accuracy is assessed.
+   - Rerun and refresh the 3D BVP convergence snapshots after the final target
+     P2 `node_spacing/h ~= 1.5` change.
    - Profile the 3D different-ratio transmission operator; it is still
      substantially more expensive than common-ratio, though compatible D/S
      layer evaluations are now combined per phase.
@@ -272,18 +292,31 @@ tests target P2 node spacing/h of about `1.5`.
 | 256 | 3.6192e-05 | 2.091 | 0 |
 | 512 | 9.5274e-06 | 1.926 | 0 |
 
-Previous `test_interface_3d` direct-interface snapshot before the final
-ratio-1.5 change, retained for comparison. Rerun this test before treating the
-table as the current 3D direct-interface benchmark:
+`test_interface_3d`, direct prescribed-jump screened 3D interface problem,
+unit P2 sphere centered at the origin in `(-1.5,1.5)^3`, `eta=1.1`, target P2
+`node_spacing/h ~= 1.5`. Default correction method:
+`NearestExpansionCenter`.
 
 | N | panels | iface pts | max err | order | GMRES |
 |---:|------:|----------:|--------:|------:|------:|
-| 4 | 32 | 66 | 1.4208e-01 | - | 0 |
-| 8 | 32 | 66 | 3.5793e-02 | 1.989 | 0 |
-| 16 | 72 | 146 | 1.4692e-02 | 1.285 | 0 |
-| 32 | 288 | 578 | 2.4803e-03 | 2.566 | 0 |
-| 64 | 1152 | 2306 | 4.9963e-04 | 2.312 | 0 |
-| 128 | 5000 | 10002 | 1.1737e-04 | 2.090 | 0 |
+| 4 | 32 | 66 | 1.3930e-01 | - | 0 |
+| 8 | 32 | 66 | 3.5236e-02 | 1.983 | 0 |
+| 16 | 72 | 146 | 2.3289e-02 | 0.597 | 0 |
+| 32 | 200 | 402 | 4.0566e-03 | 2.521 | 0 |
+| 64 | 800 | 1602 | 5.9520e-04 | 2.769 | 0 |
+| 128 | 3200 | 6402 | 1.0797e-04 | 2.463 | 0 |
+
+Opt-in projection-point comparison for the same benchmark, run with
+`KFBIM_INTERFACE_3D_CORRECTION=projection`:
+
+| N | panels | iface pts | max err | order | GMRES |
+|---:|------:|----------:|--------:|------:|------:|
+| 4 | 32 | 66 | 1.4263e-01 | - | 0 |
+| 8 | 32 | 66 | 3.8229e-02 | 1.900 | 0 |
+| 16 | 72 | 146 | 2.4709e-02 | 0.630 | 0 |
+| 32 | 200 | 402 | 3.8377e-03 | 2.687 | 0 |
+| 64 | 800 | 1602 | 1.0306e-03 | 1.897 | 0 |
+| 128 | 3200 | 6402 | 3.2323e-04 | 1.673 | 0 |
 
 `test_bvp`, all four screened `LaplaceBvp2D` modes, `eta=1.1`:
 

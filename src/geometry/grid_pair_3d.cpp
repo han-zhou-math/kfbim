@@ -7,7 +7,10 @@
 #include <CGAL/Search_traits_adapter.h>
 #include <CGAL/Orthogonal_k_neighbor_search.h>
 #include <CGAL/property_map.h>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <algorithm>
 #include <array>
@@ -242,6 +245,64 @@ static Eigen::Vector2d clamp_uv_to_reference_triangle(Eigen::Vector2d uv)
     return best;
 }
 
+static Eigen::Vector3d closest_flat_triangle_barycentric(const Interface3D& iface,
+                                                         int                panel,
+                                                         Eigen::Vector3d    target)
+{
+    const Eigen::Vector3d a =
+        geometry3d::panel_point(iface, panel, Eigen::Vector3d(1.0, 0.0, 0.0));
+    const Eigen::Vector3d b =
+        geometry3d::panel_point(iface, panel, Eigen::Vector3d(0.0, 1.0, 0.0));
+    const Eigen::Vector3d c =
+        geometry3d::panel_point(iface, panel, Eigen::Vector3d(0.0, 0.0, 1.0));
+
+    const Eigen::Vector3d ab = b - a;
+    const Eigen::Vector3d ac = c - a;
+    const Eigen::Vector3d ap = target - a;
+    const double d1 = ab.dot(ap);
+    const double d2 = ac.dot(ap);
+    if (d1 <= 0.0 && d2 <= 0.0)
+        return {1.0, 0.0, 0.0};
+
+    const Eigen::Vector3d bp = target - b;
+    const double d3 = ab.dot(bp);
+    const double d4 = ac.dot(bp);
+    if (d3 >= 0.0 && d4 <= d3)
+        return {0.0, 1.0, 0.0};
+
+    const double vc = d1 * d4 - d3 * d2;
+    if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0) {
+        const double v = d1 / (d1 - d3);
+        return {1.0 - v, v, 0.0};
+    }
+
+    const Eigen::Vector3d cp = target - c;
+    const double d5 = ab.dot(cp);
+    const double d6 = ac.dot(cp);
+    if (d6 >= 0.0 && d5 <= d6)
+        return {0.0, 0.0, 1.0};
+
+    const double vb = d5 * d2 - d1 * d6;
+    if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0) {
+        const double w = d2 / (d2 - d6);
+        return {1.0 - w, 0.0, w};
+    }
+
+    const double va = d3 * d6 - d5 * d4;
+    if (va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0) {
+        const double w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return {0.0, 1.0 - w, w};
+    }
+
+    const double denom = va + vb + vc;
+    if (std::abs(denom) <= 1.0e-28 || !std::isfinite(denom))
+        return {1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0};
+
+    const double v = vb / denom;
+    const double w = vc / denom;
+    return {1.0 - v - w, v, w};
+}
+
 static ProjectionEval3D projection_eval(const Interface3D&  iface,
                                         int                 panel,
                                         Eigen::Vector3d     target,
@@ -408,6 +469,31 @@ static SurfaceProjection3D project_from_seed(const Interface3D&     iface,
                                    converged);
 }
 
+static SurfaceProjection3D project_from_nearest_center_with_flat_fallback(
+    const Interface3D&     iface,
+    int                    grid_node,
+    Eigen::Vector3d        target,
+    const ProjectionSeed3D& nearest_seed)
+{
+    ProjectionSeed3D flat_seed = nearest_seed;
+    flat_seed.barycentric =
+        closest_flat_triangle_barycentric(iface, nearest_seed.panel, target);
+
+    SurfaceProjection3D projection =
+        project_from_seed(iface, grid_node, target, flat_seed);
+    if (projection.converged)
+        return projection;
+
+    return make_surface_projection(iface,
+                                   grid_node,
+                                   flat_seed,
+                                   target,
+                                   geometry3d::uv_from_barycentric(
+                                       flat_seed.barycentric),
+                                   0,
+                                   false);
+}
+
 static std::vector<ProjectionSeed3D> projection_seeds_3d(const Interface3D& iface)
 {
     const std::vector<Eigen::Vector3d> center_bary =
@@ -439,6 +525,20 @@ static bool better_projection(const SurfaceProjection3D& candidate,
     if (candidate.tangential_residual != current.tangential_residual)
         return candidate.tangential_residual < current.tangential_residual;
     return candidate.distance < current.distance;
+}
+
+static bool profile_projection_3d()
+{
+    return std::getenv("KFBIM_PROFILE_INTERFACE_3D") != nullptr
+        || std::getenv("KFBIM_PROFILE_TRANSFER_3D") != nullptr;
+}
+
+using ProjectionProfileClock = std::chrono::steady_clock;
+
+static double projection_seconds_since(ProjectionProfileClock::time_point start)
+{
+    return std::chrono::duration<double>(
+        ProjectionProfileClock::now() - start).count();
 }
 
 // ============================================================================
@@ -628,16 +728,25 @@ NarrowBandProjection3D GridPair3D::project_near_interface_nodes(double radius) c
     if (band.nodes_.empty())
         return band;
 
+    const ProjectionProfileClock::time_point setup_start =
+        ProjectionProfileClock::now();
     const std::vector<ProjectionSeed3D> seeds = projection_seeds_3d(interface_);
     std::vector<Eigen::Vector3d> seed_points;
     seed_points.reserve(seeds.size());
     for (const auto& seed : seeds)
         seed_points.push_back(seed.point);
     const NearestPointCloud3D seed_cloud(seed_points);
+    const double t_setup = projection_seconds_since(setup_start);
 
     constexpr int kRetrySeeds = 64;
     const int k = std::min(kRetrySeeds, static_cast<int>(seeds.size()));
 
+    long long seed_attempts = 0;
+    long long first_seed_converged = 0;
+    long long converged_best = 0;
+    long long newton_iterations = 0;
+    const ProjectionProfileClock::time_point node_start =
+        ProjectionProfileClock::now();
     for (int node : band.nodes_) {
         const Eigen::Vector3d target = grid_point(grid_, node);
         const std::vector<int> seed_indices = seed_cloud.nearest_k(target, k);
@@ -646,15 +755,110 @@ NarrowBandProjection3D GridPair3D::project_near_interface_nodes(double radius) c
         for (std::size_t i = 0; i < seed_indices.size(); ++i) {
             const SurfaceProjection3D candidate =
                 project_from_seed(interface_, node, target, seeds[seed_indices[i]]);
+            ++seed_attempts;
+            newton_iterations += candidate.iterations;
             if (better_projection(candidate, best))
                 best = candidate;
-            if (i == 0 && candidate.converged)
+            if (i == 0 && candidate.converged) {
+                ++first_seed_converged;
                 break;
+            }
         }
+        if (best.converged)
+            ++converged_best;
 
         band.projection_index_by_grid_node_[node] =
             static_cast<int>(band.projections_.size());
         band.projections_.push_back(best);
+    }
+    const double t_nodes = projection_seconds_since(node_start);
+
+    if (profile_projection_3d()) {
+        const double nodes = static_cast<double>(std::max<std::size_t>(1, band.nodes_.size()));
+        std::printf("        project_near_interface_nodes radius=%.4e nodes=%zu seeds=%zu k=%d setup %.3fs node_project %.3fs attempts=%lld avg_attempts=%.2f first_converged=%lld best_converged=%lld avg_newton_iters=%.2f\n",
+                    radius,
+                    band.nodes_.size(),
+                    seeds.size(),
+                    k,
+                    t_setup,
+                    t_nodes,
+                    seed_attempts,
+                    static_cast<double>(seed_attempts) / nodes,
+                    first_seed_converged,
+                    converged_best,
+                    static_cast<double>(newton_iterations) / nodes);
+    }
+
+    return band;
+}
+
+NarrowBandProjection3D GridPair3D::project_grid_nodes_to_interface(
+    const std::vector<int>& bulk_node_indices) const
+{
+    if (interface_.points_per_panel() != 6
+        || interface_.panel_node_layout() != PanelNodeLayout3D::QuadraticLagrange) {
+        throw std::invalid_argument(
+            "GridPair3D::project_grid_nodes_to_interface requires P2 QuadraticLagrange panels");
+    }
+
+    NarrowBandProjection3D band;
+    band.radius_ = 0.0;
+    band.projection_index_by_grid_node_.assign(grid_.num_dofs(), -1);
+
+    band.nodes_ = bulk_node_indices;
+    std::sort(band.nodes_.begin(), band.nodes_.end());
+    band.nodes_.erase(std::unique(band.nodes_.begin(), band.nodes_.end()),
+                      band.nodes_.end());
+    for (int node : band.nodes_) {
+        if (node < 0 || node >= grid_.num_dofs())
+            throw std::out_of_range("projection support contains invalid grid node");
+    }
+    band.projections_.reserve(band.nodes_.size());
+
+    if (band.nodes_.empty())
+        return band;
+
+    const ProjectionProfileClock::time_point setup_start =
+        ProjectionProfileClock::now();
+    const std::vector<ProjectionSeed3D> seeds = projection_seeds_3d(interface_);
+    std::vector<Eigen::Vector3d> seed_points;
+    seed_points.reserve(seeds.size());
+    for (const auto& seed : seeds)
+        seed_points.push_back(seed.point);
+    const NearestPointCloud3D seed_cloud(seed_points);
+    const double t_setup = projection_seconds_since(setup_start);
+
+    long long converged_count = 0;
+    long long newton_iterations = 0;
+    const ProjectionProfileClock::time_point node_start =
+        ProjectionProfileClock::now();
+    for (int node : band.nodes_) {
+        const Eigen::Vector3d target = grid_point(grid_, node);
+        const int seed_idx = seed_cloud.nearest(target);
+        SurfaceProjection3D projection =
+            project_from_nearest_center_with_flat_fallback(interface_,
+                                                           node,
+                                                           target,
+                                                           seeds[seed_idx]);
+        if (projection.converged)
+            ++converged_count;
+        newton_iterations += projection.iterations;
+
+        band.projection_index_by_grid_node_[node] =
+            static_cast<int>(band.projections_.size());
+        band.projections_.push_back(projection);
+    }
+    const double t_nodes = projection_seconds_since(node_start);
+
+    if (profile_projection_3d()) {
+        const double nodes = static_cast<double>(std::max<std::size_t>(1, band.nodes_.size()));
+        std::printf("        project_grid_nodes_to_interface nodes=%zu seeds=%zu setup %.3fs node_project %.3fs avg_attempts=1.00 converged=%lld avg_newton_iters=%.2f\n",
+                    band.nodes_.size(),
+                    seeds.size(),
+                    t_setup,
+                    t_nodes,
+                    converged_count,
+                    static_cast<double>(newton_iterations) / nodes);
     }
 
     return band;

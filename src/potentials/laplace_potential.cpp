@@ -253,12 +253,12 @@ LaplacePotentialEvalResult3D LaplacePotentialEval3D::evaluate(
     }
 
     Eigen::VectorXd rhs = f_bulk;
-    auto correction_polys = spread_.apply(jumps, rhs);
+    auto spread_result = spread_.apply(jumps, rhs);
 
     Eigen::VectorXd u_bulk;
     bulk_solver_.solve(-rhs, u_bulk);
 
-    auto solution_polys = restrict_op_.apply(u_bulk, correction_polys);
+    auto solution_polys = restrict_op_.apply(u_bulk, spread_result);
 
     const auto& normals = iface.normals();
     Eigen::VectorXd u_avg(Nq);

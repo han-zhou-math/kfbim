@@ -10,6 +10,9 @@
 #include "src/geometry/grid_pair_3d.hpp"
 #include "src/geometry/p2_surface_3d.hpp"
 #include "src/grid/cartesian_grid_3d.hpp"
+#include "src/transfer/laplace_projection_correction_3d.hpp"
+#include "src/transfer/laplace_restrict_3d.hpp"
+#include "src/transfer/laplace_spread_3d.hpp"
 
 using namespace kfbim;
 using namespace kfbim_test_3d;
@@ -22,7 +25,130 @@ Eigen::Vector3d grid_point(const CartesianGrid3D& grid, int idx)
     return {c[0], c[1], c[2]};
 }
 
+Interface3D make_flat_p2_triangle()
+{
+    Eigen::MatrixX3d points(6, 3);
+    points << 0.0, 0.0, 0.0,
+              1.0, 0.0, 0.0,
+              0.0, 1.0, 0.0,
+              0.5, 0.0, 0.0,
+              0.5, 0.5, 0.0,
+              0.0, 0.5, 0.0;
+
+    Eigen::MatrixX3d normals(6, 3);
+    normals.rowwise() = Eigen::RowVector3d(0.0, 0.0, 1.0);
+
+    Eigen::VectorXd weights = Eigen::VectorXd::Ones(6);
+    Eigen::MatrixX3i panels(1, 3);
+    panels << 0, 1, 2;
+    Eigen::MatrixXi panel_point_indices(1, 6);
+    panel_point_indices << 0, 1, 2, 3, 4, 5;
+
+    return Interface3D(points,
+                       panels,
+                       points,
+                       normals,
+                       weights,
+                       6,
+                       panel_point_indices,
+                       Eigen::VectorXi::Zero(1),
+                       PanelNodeLayout3D::QuadraticLagrange);
+}
+
+Eigen::VectorXd flat_phi_values(const Interface3D& iface)
+{
+    Eigen::VectorXd values(iface.num_points());
+    for (int q = 0; q < iface.num_points(); ++q) {
+        const double x = iface.points()(q, 0);
+        const double y = iface.points()(q, 1);
+        values[q] = x * x + y * y;
+    }
+    return values;
+}
+
 } // namespace
+
+TEST_CASE("P2 surface differential operators match a flat quadratic",
+          "[projection][3d]")
+{
+    const Interface3D iface = make_flat_p2_triangle();
+    const Eigen::Vector3d bary(0.2, 0.3, 0.5);
+    const Eigen::VectorXd phi = flat_phi_values(iface);
+
+    REQUIRE(geometry3d::panel_mean_curvature(iface, 0, bary)
+            == Catch::Approx(0.0).margin(1.0e-14));
+    REQUIRE(geometry3d::panel_laplace_beltrami_scalar(iface, 0, phi, bary)
+            == Catch::Approx(4.0).margin(1.0e-12));
+}
+
+TEST_CASE("Projection-point correction uses normal Taylor surface formula",
+          "[projection][3d]")
+{
+    const Interface3D iface = make_flat_p2_triangle();
+    const Eigen::Vector3d bary(0.2, 0.3, 0.5);
+
+    LaplaceSpreadResult3D spread_result;
+    spread_result.correction_method = LaplaceCorrectionMethod3D::ProjectionPoint;
+    spread_result.u_jump = flat_phi_values(iface);
+    spread_result.un_jump = Eigen::VectorXd::Constant(iface.num_points(), 3.0);
+    spread_result.rhs_jump = Eigen::VectorXd::Constant(iface.num_points(), 5.0);
+    spread_result.alpha = 7.0;
+
+    SurfaceProjection3D projection;
+    projection.grid_node = 0;
+    projection.panel = 0;
+    projection.component = 0;
+    projection.barycentric = bary;
+    projection.point = geometry3d::panel_point(iface, 0, bary);
+    projection.normal = Eigen::Vector3d(0.0, 0.0, 1.0);
+    projection.signed_distance = 0.2;
+    projection.distance = 0.2;
+    projection.converged = true;
+
+    const double correction =
+        evaluate_projection_point_correction_3d(iface, projection, spread_result);
+
+    const double c = 0.3 * 0.3 + 0.5 * 0.5;
+    const double cnn = 7.0 * c - 5.0 - 4.0;
+    const double expected = c + 0.2 * 3.0 + 0.5 * 0.2 * 0.2 * cnn;
+    REQUIRE(correction == Catch::Approx(expected).margin(1.0e-12));
+}
+
+TEST_CASE("Projection-point spread option preserves zero correction",
+          "[projection][3d]")
+{
+    const int N = 12;
+    const Box3D box = standard_box();
+    const double h = box.side_length / static_cast<double>(N);
+
+    CartesianGrid3D grid(box.lower, {h, h, h}, {N, N, N}, DofLayout3D::Node);
+    const Interface3D iface = make_p2_sphere(surface_subdivision_for_grid(N));
+    GridPair3D gp(grid, iface);
+
+    LaplaceQuadraticPatchCenterSpread3D spread(
+        gp, 1.1, LaplaceCorrectionMethod3D::ProjectionPoint);
+    std::vector<LaplaceJumpData3D> jumps(iface.num_points());
+    for (auto& jump : jumps) {
+        jump.u_jump = 0.0;
+        jump.un_jump = 0.0;
+        jump.rhs_derivs = Eigen::VectorXd::Zero(1);
+    }
+
+    Eigen::VectorXd rhs = Eigen::VectorXd::Zero(grid.num_dofs());
+    const LaplaceSpreadResult3D result = spread.apply(jumps, rhs);
+
+    REQUIRE(result.correction_method == LaplaceCorrectionMethod3D::ProjectionPoint);
+    REQUIRE(result.correction_polys.empty());
+    REQUIRE(result.u_jump.size() == iface.num_points());
+    REQUIRE(rhs.norm() == Catch::Approx(0.0).margin(1.0e-12));
+
+    LaplaceQuadraticPatchCenterRestrict3D restrict_op(gp);
+    const Eigen::VectorXd bulk = Eigen::VectorXd::Zero(grid.num_dofs());
+    const std::vector<LocalPoly3D> polys = restrict_op.apply(bulk, result);
+    REQUIRE(polys.size() == static_cast<std::size_t>(iface.num_points()));
+    for (const LocalPoly3D& poly : polys)
+        REQUIRE(poly.coeffs.norm() == Catch::Approx(0.0).margin(1.0e-12));
+}
 
 TEST_CASE("GridPair3D projection projects narrow-band nodes onto curved P2 panels",
           "[projection][3d]")

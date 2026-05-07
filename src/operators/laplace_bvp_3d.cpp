@@ -143,7 +143,10 @@ LaplaceBvp3D::LaplaceBvp3D(
     LaplaceBvpType3D       type,
     LaplaceBvpOptions3D    options)
     : grid_pair_(grid, iface)
-    , spread_(grid_pair_, options.eta)
+    , spread_(grid_pair_,
+              options.eta,
+              options.correction_method,
+              options.restrict_stencil_radius)
     , bulk_solver_(grid, ZfftBcType::Dirichlet, options.eta)
     , restrict_op_(grid_pair_, options.restrict_stencil_radius)
     , potentials_(spread_, bulk_solver_, restrict_op_)

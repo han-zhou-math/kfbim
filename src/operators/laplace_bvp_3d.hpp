@@ -26,6 +26,8 @@ struct LaplaceBvpOptions3D {
     double eta = 0.0;
     Eigen::VectorXd outer_dirichlet_values;
     int restrict_stencil_radius = 2;
+    LaplaceCorrectionMethod3D correction_method =
+        LaplaceCorrectionMethod3D::NearestExpansionCenter;
 };
 
 struct LaplaceBvpSolveResult3D {

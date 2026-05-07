@@ -10,18 +10,24 @@ namespace kfbim {
 // are used as generated correction expansion centers.
 class LaplaceQuadraticPatchCenterSpread3D final : public ILaplaceSpread3D {
 public:
-    explicit LaplaceQuadraticPatchCenterSpread3D(const GridPair3D& grid_pair,
-                                                 double            kappa = 0.0);
+    explicit LaplaceQuadraticPatchCenterSpread3D(
+        const GridPair3D&         grid_pair,
+        double                    kappa = 0.0,
+        LaplaceCorrectionMethod3D correction_method =
+            LaplaceCorrectionMethod3D::NearestExpansionCenter,
+        int                       projection_restrict_stencil_radius = 2);
 
-    std::vector<LocalPoly3D> apply(
+    LaplaceSpreadResult3D apply(
         const std::vector<LaplaceJumpData3D>& jumps,
         Eigen::VectorXd&                      rhs_correction) const override;
 
     const GridPair3D& grid_pair() const override { return grid_pair_; }
 
 private:
-    const GridPair3D& grid_pair_;
-    double            kappa_;
+    const GridPair3D&         grid_pair_;
+    double                    kappa_;
+    LaplaceCorrectionMethod3D correction_method_;
+    int                       projection_restrict_stencil_radius_;
 };
 
 } // namespace kfbim

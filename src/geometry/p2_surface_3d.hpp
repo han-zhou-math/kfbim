@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <stdexcept>
 #include <vector>
@@ -190,6 +191,159 @@ inline double panel_scalar(const Interface3D&     iface,
     for (int q = 0; q < 6; ++q)
         value += N[q] * values[iface.point_index(panel, q)];
     return value;
+}
+
+inline double panel_scalar_combination(const Interface3D&     iface,
+                                       int                    panel,
+                                       const Eigen::VectorXd& values,
+                                       const P2Shape&         coeffs)
+{
+    double value = 0.0;
+    for (int q = 0; q < 6; ++q)
+        value += coeffs[q] * values[iface.point_index(panel, q)];
+    return value;
+}
+
+inline double panel_scalar_du(const Interface3D&     iface,
+                              int                    panel,
+                              const Eigen::VectorXd& values,
+                              Eigen::Vector3d        bary)
+{
+    return panel_scalar_combination(iface, panel, values, p2_shape_du(bary));
+}
+
+inline double panel_scalar_dv(const Interface3D&     iface,
+                              int                    panel,
+                              const Eigen::VectorXd& values,
+                              Eigen::Vector3d        bary)
+{
+    return panel_scalar_combination(iface, panel, values, p2_shape_dv(bary));
+}
+
+inline double panel_scalar_duu(const Interface3D&     iface,
+                               int                    panel,
+                               const Eigen::VectorXd& values)
+{
+    return panel_scalar_combination(iface, panel, values, p2_shape_duu());
+}
+
+inline double panel_scalar_duv(const Interface3D&     iface,
+                               int                    panel,
+                               const Eigen::VectorXd& values)
+{
+    return panel_scalar_combination(iface, panel, values, p2_shape_duv());
+}
+
+inline double panel_scalar_dvv(const Interface3D&     iface,
+                               int                    panel,
+                               const Eigen::VectorXd& values)
+{
+    return panel_scalar_combination(iface, panel, values, p2_shape_dvv());
+}
+
+inline Eigen::Matrix2d panel_metric(const Interface3D& iface,
+                                    int                panel,
+                                    Eigen::Vector3d    bary)
+{
+    const Eigen::Vector3d Xu = panel_tangent_u(iface, panel, bary);
+    const Eigen::Vector3d Xv = panel_tangent_v(iface, panel, bary);
+
+    Eigen::Matrix2d metric;
+    metric << Xu.dot(Xu), Xu.dot(Xv),
+              Xv.dot(Xu), Xv.dot(Xv);
+    return metric;
+}
+
+inline double panel_mean_curvature(const Interface3D& iface,
+                                   int                panel,
+                                   Eigen::Vector3d    bary)
+{
+    const Eigen::Vector3d Xu = panel_tangent_u(iface, panel, bary);
+    const Eigen::Vector3d Xv = panel_tangent_v(iface, panel, bary);
+    const Eigen::Vector3d Xuu = panel_second_uu(iface, panel);
+    const Eigen::Vector3d Xuv = panel_second_uv(iface, panel);
+    const Eigen::Vector3d Xvv = panel_second_vv(iface, panel);
+    const Eigen::Vector3d normal = panel_oriented_normal(iface, panel, bary);
+
+    const double E = Xu.dot(Xu);
+    const double F = Xu.dot(Xv);
+    const double G = Xv.dot(Xv);
+    const double det = E * G - F * F;
+    if (std::abs(det) <= 1.0e-28)
+        throw std::invalid_argument("degenerate P2 panel metric");
+
+    const double e = normal.dot(Xuu);
+    const double f = normal.dot(Xuv);
+    const double g = normal.dot(Xvv);
+
+    // The repo convention is H = div(n). With outward normals this is
+    // positive for a sphere, hence the negative trace of the shape operator.
+    return -(e * G - 2.0 * f * F + g * E) / det;
+}
+
+inline double panel_laplace_beltrami_scalar(const Interface3D&     iface,
+                                            int                    panel,
+                                            const Eigen::VectorXd& values,
+                                            Eigen::Vector3d        bary)
+{
+    const Eigen::Vector3d Xu = panel_tangent_u(iface, panel, bary);
+    const Eigen::Vector3d Xv = panel_tangent_v(iface, panel, bary);
+    const Eigen::Vector3d Xuu = panel_second_uu(iface, panel);
+    const Eigen::Vector3d Xuv = panel_second_uv(iface, panel);
+    const Eigen::Vector3d Xvv = panel_second_vv(iface, panel);
+
+    const Eigen::Matrix2d metric = panel_metric(iface, panel, bary);
+    const double det = metric.determinant();
+    if (std::abs(det) <= 1.0e-28)
+        throw std::invalid_argument("degenerate P2 panel metric");
+    const Eigen::Matrix2d inv_metric = metric.inverse();
+
+    const double dE_du = 2.0 * Xu.dot(Xuu);
+    const double dE_dv = 2.0 * Xu.dot(Xuv);
+    const double dF_du = Xuu.dot(Xv) + Xu.dot(Xuv);
+    const double dF_dv = Xuv.dot(Xv) + Xu.dot(Xvv);
+    const double dG_du = 2.0 * Xv.dot(Xuv);
+    const double dG_dv = 2.0 * Xv.dot(Xvv);
+
+    std::array<Eigen::Matrix2d, 2> dg;
+    dg[0] << dE_du, dF_du,
+             dF_du, dG_du;
+    dg[1] << dE_dv, dF_dv,
+             dF_dv, dG_dv;
+
+    double gamma[2][2][2] = {};
+    for (int k = 0; k < 2; ++k) {
+        for (int i = 0; i < 2; ++i) {
+            for (int j = 0; j < 2; ++j) {
+                for (int l = 0; l < 2; ++l) {
+                    gamma[k][i][j] += 0.5 * inv_metric(k, l)
+                        * (dg[i](j, l) + dg[j](i, l) - dg[l](i, j));
+                }
+            }
+        }
+    }
+
+    Eigen::Vector2d grad;
+    grad << panel_scalar_du(iface, panel, values, bary),
+            panel_scalar_dv(iface, panel, values, bary);
+
+    Eigen::Matrix2d hess;
+    hess << panel_scalar_duu(iface, panel, values),
+            panel_scalar_duv(iface, panel, values),
+            panel_scalar_duv(iface, panel, values),
+            panel_scalar_dvv(iface, panel, values);
+
+    double laplace_beltrami = 0.0;
+    for (int i = 0; i < 2; ++i) {
+        for (int j = 0; j < 2; ++j) {
+            laplace_beltrami += inv_metric(i, j)
+                * (hess(i, j)
+                   - gamma[0][i][j] * grad[0]
+                   - gamma[1][i][j] * grad[1]);
+        }
+    }
+
+    return laplace_beltrami;
 }
 
 inline std::vector<RefTriangle> subdivided_reference_triangles(int n = 4)

@@ -166,7 +166,8 @@ LaplaceTransmission3D::LaplaceTransmission3D(
     const CartesianGrid3D&            grid,
     const Interface3D&                iface,
     LaplaceTransmissionMode3D         mode,
-    LaplaceTransmissionCoefficients3D coefficients)
+    LaplaceTransmissionCoefficients3D coefficients,
+    LaplaceTransmissionOptions3D      options)
     : grid_pair_(grid, iface)
     , mode_(mode)
     , coefficients_(coefficients)
@@ -176,11 +177,17 @@ LaplaceTransmission3D::LaplaceTransmission3D(
     , lambda_sq_ext_(checked_lambda_sq("exterior",
                                        coefficients.beta_ext,
                                        coefficients.kappa_sq_ext))
-    , spread_int_(grid_pair_, lambda_sq_int_)
-    , spread_ext_(grid_pair_, lambda_sq_ext_)
+    , spread_int_(grid_pair_,
+                  lambda_sq_int_,
+                  options.correction_method,
+                  options.restrict_stencil_radius)
+    , spread_ext_(grid_pair_,
+                  lambda_sq_ext_,
+                  options.correction_method,
+                  options.restrict_stencil_radius)
     , bulk_solver_int_(grid, ZfftBcType::Dirichlet, lambda_sq_int_)
     , bulk_solver_ext_(grid, ZfftBcType::Dirichlet, lambda_sq_ext_)
-    , restrict_op_(grid_pair_)
+    , restrict_op_(grid_pair_, options.restrict_stencil_radius)
     , potentials_int_(spread_int_, bulk_solver_int_, restrict_op_)
     , potentials_ext_(spread_ext_, bulk_solver_ext_, restrict_op_)
 {
