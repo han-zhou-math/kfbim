@@ -1,7 +1,9 @@
 #include "laplace_potential.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -65,6 +67,20 @@ std::vector<LaplaceJumpData2D> make_jumps_2d(
     return jumps;
 }
 
+bool profile_potential_eval_2d()
+{
+    return std::getenv("KFBIM_PROFILE_SOLVE_2D") != nullptr
+        || std::getenv("KFBIM_PROFILE_POTENTIAL_2D") != nullptr;
+}
+
+using ProfileClock2D = std::chrono::steady_clock;
+
+double profile_elapsed_2d(ProfileClock2D::time_point start,
+                          ProfileClock2D::time_point end)
+{
+    return std::chrono::duration<double>(end - start).count();
+}
+
 } // namespace
 
 LaplacePotentialEval2D::LaplacePotentialEval2D(
@@ -92,6 +108,16 @@ double LaplacePotentialEval2D::arc_h_ratio() const
     return arc_h_ratio_;
 }
 
+void LaplacePotentialEval2D::reset_profile() const
+{
+    profile_ = {};
+}
+
+LaplacePotentialEvalProfile2D LaplacePotentialEval2D::profile() const
+{
+    return profile_;
+}
+
 LaplacePotentialEvalResult2D LaplacePotentialEval2D::evaluate(
     const std::vector<LaplaceJumpData2D>& jumps,
     const Eigen::VectorXd&                f_bulk) const
@@ -109,13 +135,47 @@ LaplacePotentialEvalResult2D LaplacePotentialEval2D::evaluate(
             "LaplacePotentialEval2D::evaluate f_bulk size must match grid DOF count");
     }
 
+    const bool profile = profile_potential_eval_2d();
+    ProfileClock2D::time_point total_start;
+    ProfileClock2D::time_point stage_start;
+    double t_rhs_copy = 0.0;
+    double t_spread = 0.0;
+    double t_bulk_solve = 0.0;
+    double t_restrict = 0.0;
+    double t_average = 0.0;
+    if (profile) {
+        total_start = ProfileClock2D::now();
+        stage_start = total_start;
+    }
+
     Eigen::VectorXd rhs = f_bulk;
+    if (profile) {
+        const auto stage_end = ProfileClock2D::now();
+        t_rhs_copy = profile_elapsed_2d(stage_start, stage_end);
+        stage_start = stage_end;
+    }
+
     auto correction_polys = spread_.apply(jumps, rhs);
+    if (profile) {
+        const auto stage_end = ProfileClock2D::now();
+        t_spread = profile_elapsed_2d(stage_start, stage_end);
+        stage_start = stage_end;
+    }
 
     Eigen::VectorXd u_bulk;
     bulk_solver_.solve(-rhs, u_bulk);
+    if (profile) {
+        const auto stage_end = ProfileClock2D::now();
+        t_bulk_solve = profile_elapsed_2d(stage_start, stage_end);
+        stage_start = stage_end;
+    }
 
     auto solution_polys = restrict_op_.apply(u_bulk, correction_polys);
+    if (profile) {
+        const auto stage_end = ProfileClock2D::now();
+        t_restrict = profile_elapsed_2d(stage_start, stage_end);
+        stage_start = stage_end;
+    }
 
     Eigen::VectorXd u_avg(Nq);
     Eigen::VectorXd un_avg(Nq);
@@ -124,6 +184,17 @@ LaplacePotentialEvalResult2D LaplacePotentialEval2D::evaluate(
         u_avg[i] = solution_polys[i].coeffs[0];
         un_avg[i] = solution_polys[i].coeffs[1] * normals(i, 0)
                   + solution_polys[i].coeffs[2] * normals(i, 1);
+    }
+    if (profile) {
+        const auto stage_end = ProfileClock2D::now();
+        t_average = profile_elapsed_2d(stage_start, stage_end);
+        ++profile_.calls;
+        profile_.rhs_copy_sec += t_rhs_copy;
+        profile_.spread_sec += t_spread;
+        profile_.bulk_solve_sec += t_bulk_solve;
+        profile_.restrict_sec += t_restrict;
+        profile_.average_sec += t_average;
+        profile_.total_sec += profile_elapsed_2d(total_start, stage_end);
     }
 
     return {std::move(u_bulk), std::move(u_avg), std::move(un_avg)};

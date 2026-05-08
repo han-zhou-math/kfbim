@@ -1,6 +1,10 @@
 #include "laplace_bvp_2d.hpp"
 
+#include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -41,6 +45,55 @@ bool uses_neumann_nullspace_projection(LaplaceBvpType2D type, double eta)
 {
     return operators_detail::uses_interior_neumann_nullspace_projection(
         type == LaplaceBvpType2D::InteriorNeumann, eta);
+}
+
+bool profile_solve_2d()
+{
+    return std::getenv("KFBIM_PROFILE_SOLVE_2D") != nullptr;
+}
+
+struct StageTimer2D {
+    using Clock = std::chrono::steady_clock;
+
+    Clock::time_point start = Clock::now();
+    Clock::time_point last = start;
+
+    double lap()
+    {
+        const Clock::time_point now = Clock::now();
+        const std::chrono::duration<double> elapsed = now - last;
+        last = now;
+        return elapsed.count();
+    }
+
+    double total() const
+    {
+        return std::chrono::duration<double>(Clock::now() - start).count();
+    }
+};
+
+double profile_total_without_potential(const LaplacePotentialEvalProfile2D& profile,
+                                       double total)
+{
+    return std::max(0.0, total - profile.total_sec);
+}
+
+void print_potential_profile_2d(const char* label,
+                                const LaplacePotentialEvalProfile2D& profile)
+{
+    if (profile.calls == 0)
+        return;
+
+    std::printf("      %-15s calls=%3d total %.3fs avg %.4fs | rhs %.3fs spread %.3fs bulk %.3fs restrict %.3fs avg_trace %.3fs\n",
+                label,
+                profile.calls,
+                profile.total_sec,
+                profile.total_sec / static_cast<double>(profile.calls),
+                profile.rhs_copy_sec,
+                profile.spread_sec,
+                profile.bulk_solve_sec,
+                profile.restrict_sec,
+                profile.average_sec);
 }
 
 std::unique_ptr<ILaplaceSpread2D> make_laplace_spread_2d(
@@ -183,22 +236,37 @@ LaplaceBvpSolveResult2D LaplaceBvp2D::solve(
     double tol,
     int restart) const
 {
+    StageTimer2D timer;
+    const bool profile = profile_solve_2d();
+
     const int n_iface = grid_pair_.interface().num_points();
     require_vector_size("LaplaceBvp2D", "boundary_data", boundary_data.size(), n_iface);
     require_vector_size("LaplaceBvp2D", "f_bulk", f_bulk.size(), grid_pair_.grid().num_dofs());
+    const double t_validate = timer.lap();
 
     const auto signed_derivs = signed_rhs_derivs(
         "LaplaceBvp2D", rhs_derivs, n_iface, rhs_deriv_sign_);
+    const double t_rhs_derivs = timer.lap();
+
     const Eigen::VectorXd rhs = apply_dirichlet_boundary_elimination(f_bulk);
+    const double t_boundary_elim = timer.lap();
 
     Eigen::VectorXd volume_gamma;
+    if (profile)
+        potentials_.reset_profile();
     apply_with_rhs(Eigen::VectorXd::Zero(n_iface), rhs, signed_derivs, volume_gamma);
+    const LaplacePotentialEvalProfile2D volume_profile =
+        profile ? potentials_.profile() : LaplacePotentialEvalProfile2D{};
+    const double t_volume_apply = timer.lap();
 
     Eigen::VectorXd b = boundary_data - volume_gamma;
+    const double t_bie_rhs = timer.lap();
 
     GMRES gmres(max_iter, tol, restart);
     Eigen::VectorXd density = Eigen::VectorXd::Zero(n_iface);
     int iterations = 0;
+    if (profile)
+        potentials_.reset_profile();
     if (uses_neumann_nullspace_projection(type_, eta_)) {
         project_mean_zero(b);
 
@@ -208,12 +276,43 @@ LaplaceBvpSolveResult2D LaplaceBvp2D::solve(
     } else {
         iterations = gmres.solve(*this, b, density);
     }
+    const LaplacePotentialEvalProfile2D gmres_profile =
+        profile ? potentials_.profile() : LaplacePotentialEvalProfile2D{};
+    const double t_gmres = timer.lap();
 
     auto jumps = make_jumps(grid_pair_.interface(), density, type_, signed_derivs);
+    const double t_final_jumps = timer.lap();
+
+    if (profile)
+        potentials_.reset_profile();
     auto full_res = potentials_.evaluate(jumps, rhs);
+    const LaplacePotentialEvalProfile2D final_profile =
+        profile ? potentials_.profile() : LaplacePotentialEvalProfile2D{};
+    const double t_final_potential = timer.lap();
+
     restore_dirichlet_boundary(full_res.u_bulk);
+    const double t_restore = timer.lap();
 
     auto residuals = gmres.residuals();
+    const double t_result = timer.lap();
+    const double t_total = timer.total();
+
+    if (profile) {
+        std::printf("    LaplaceBvp2D::solve profile iface=%d grid=%d iterations=%d\n",
+                    n_iface, grid_pair_.grid().num_dofs(), iterations);
+        std::printf("      setup validate %.3fs rhs_derivs %.3fs boundary_elim %.3fs volume_apply %.3fs bie_rhs %.3fs\n",
+                    t_validate, t_rhs_derivs, t_boundary_elim,
+                    t_volume_apply, t_bie_rhs);
+        std::printf("      gmres %.3fs final_jumps %.3fs final_potential %.3fs restore %.3fs result %.3fs total %.3fs\n",
+                    t_gmres, t_final_jumps, t_final_potential, t_restore,
+                    t_result, t_total);
+        print_potential_profile_2d("volume", volume_profile);
+        print_potential_profile_2d("gmres", gmres_profile);
+        print_potential_profile_2d("final", final_profile);
+        std::printf("      gmres_nonpotential %.3fs\n",
+                    profile_total_without_potential(gmres_profile, t_gmres));
+    }
+
     return {std::move(full_res.u_bulk),
             std::move(density),
             std::move(residuals),

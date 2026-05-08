@@ -20,6 +20,16 @@ struct LaplacePotentialEvalResult2D {
     Eigen::VectorXd un_avg;    // averaged normal derivative
 };
 
+struct LaplacePotentialEvalProfile2D {
+    int    calls = 0;
+    double rhs_copy_sec = 0.0;
+    double spread_sec = 0.0;
+    double bulk_solve_sec = 0.0;
+    double restrict_sec = 0.0;
+    double average_sec = 0.0;
+    double total_sec = 0.0;
+};
+
 struct LaplacePotentialEvalResult3D {
     Eigen::VectorXd u_bulk;
     Eigen::VectorXd u_avg;
@@ -46,6 +56,9 @@ public:
 
     int problem_size() const;
     double arc_h_ratio() const;
+
+    void reset_profile() const;
+    LaplacePotentialEvalProfile2D profile() const;
 
     LaplacePotentialEvalResult2D evaluate(
         const std::vector<LaplaceJumpData2D>& jumps,
@@ -81,6 +94,7 @@ private:
     const ILaplaceBulkSolver2D& bulk_solver_;
     const ILaplaceRestrict2D&   restrict_op_;
     double                      arc_h_ratio_;
+    mutable LaplacePotentialEvalProfile2D profile_;
 };
 
 // ============================================================================
