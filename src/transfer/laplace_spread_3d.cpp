@@ -16,6 +16,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include "../geometry/p2_projection_3d.hpp"
+#include "../grid/structured_grid_ops.hpp"
 #include "../local_cauchy/laplace_patch_solver_3d.hpp"
 #include "laplace_projection_correction_3d.hpp"
 
@@ -36,18 +38,7 @@ using CSearchTree3 = CNeighborSearch3::Tree;
 
 bool is_outer_boundary_node(const CartesianGrid3D& grid, int idx)
 {
-    const auto dims = grid.dof_dims();
-    const int nx = dims[0];
-    const int ny = dims[1];
-    const int nz = dims[2];
-    const int nxy = nx * ny;
-    const int k = idx / nxy;
-    const int rem = idx % nxy;
-    const int j = rem / nx;
-    const int i = rem % nx;
-    return i == 0 || i == nx - 1
-        || j == 0 || j == ny - 1
-        || k == 0 || k == nz - 1;
+    return structured_grid::is_boundary_node(grid, idx);
 }
 
 int side_from_label(int label)
@@ -57,24 +48,17 @@ int side_from_label(int label)
 
 double stencil_weight_for_neighbor(const CartesianGrid3D& grid, int neighbor_slot)
 {
-    const auto h = grid.spacing();
-    if (neighbor_slot == 0 || neighbor_slot == 1)
-        return 1.0 / (h[0] * h[0]);
-    if (neighbor_slot == 2 || neighbor_slot == 3)
-        return 1.0 / (h[1] * h[1]);
-    return 1.0 / (h[2] * h[2]);
+    return structured_grid::stencil_weight_for_neighbor(grid, neighbor_slot);
 }
 
 Eigen::Vector3d node_coord(const CartesianGrid3D& grid, int idx)
 {
-    const auto c = grid.coord(idx);
-    return {c[0], c[1], c[2]};
+    return structured_grid::point(grid, idx);
 }
 
 double max_grid_spacing(const CartesianGrid3D& grid)
 {
-    const auto h = grid.spacing();
-    return std::max(h[0], std::max(h[1], h[2]));
+    return structured_grid::max_spacing(grid);
 }
 
 LocalPoly3D center_poly(const PatchCenterCauchyResult3D& cauchy, int idx)
@@ -352,7 +336,7 @@ LaplaceSpreadResult3D LaplaceQuadraticPatchCenterSpread3D::apply(
                                      projection_restrict_stencil_radius_);
         const ProfileClock::time_point projection_start = ProfileClock::now();
         result.projection_cache =
-            grid_pair_.project_grid_nodes_to_interface(support.nodes);
+            project_p2_grid_nodes_to_interface_3d(grid_pair_, support.nodes);
         const double t_projection = seconds_since(projection_start);
 
         const ProfileClock::time_point correction_start = ProfileClock::now();

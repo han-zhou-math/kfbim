@@ -4,6 +4,7 @@
 #include <vector>
 #include "../grid/cartesian_grid_2d.hpp"
 #include "../interface/interface_2d.hpp"
+#include "p2_projection_2d.hpp"
 
 namespace kfbim {
 
@@ -31,6 +32,10 @@ public:
     // all interface point indices within radius of a given bulk node
     // (may span multiple components; used by Corrector to accumulate all contributions)
     std::vector<int> near_interface_points(int bulk_node_idx, double radius) const;
+
+    NarrowBandProjection2D project_near_interface_nodes(double radius) const;
+    NarrowBandProjection2D project_grid_nodes_to_interface(
+        const std::vector<int>& bulk_node_indices) const;
 
     const CartesianGrid2D& grid()      const { return grid_; }
     const Interface2D&     interface() const { return interface_; }

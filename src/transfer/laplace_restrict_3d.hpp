@@ -4,6 +4,8 @@
 
 namespace kfbim {
 
+class LaplaceRestrictCorrectionEvaluator3D;
+
 // Restrict companion for LaplaceQuadraticPatchCenterSpread3D.
 class LaplaceQuadraticPatchCenterRestrict3D final : public ILaplaceRestrict3D {
 public:
@@ -18,11 +20,9 @@ public:
 
 private:
     LocalPoly3D fit_at_interface_point(
-        const Eigen::VectorXd&         bulk_solution,
-        int                            q,
-        const LaplaceSpreadResult3D&   spread_result,
-        const std::vector<int>*        nearest_center_for_grid_node,
-        const NarrowBandProjection3D*  projection_band) const;
+        const Eigen::VectorXd&                       bulk_solution,
+        int                                          q,
+        const LaplaceRestrictCorrectionEvaluator3D&  correction_evaluator) const;
 
     const GridPair3D& grid_pair_;
     int               stencil_radius_;

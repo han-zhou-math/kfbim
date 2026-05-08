@@ -2,12 +2,15 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <utility>
 #include <vector>
 
 #include "src/bulk_solvers/laplace_zfft_bulk_solver_2d.hpp"
@@ -79,6 +82,33 @@ struct SolveData {
     int    num_panels = 0;
     int    num_interface_points = 0;
 };
+
+struct StageTimer {
+    using Clock = std::chrono::steady_clock;
+
+    Clock::time_point start = Clock::now();
+
+    double lap()
+    {
+        const Clock::time_point now = Clock::now();
+        const std::chrono::duration<double> elapsed = now - start;
+        start = now;
+        return elapsed.count();
+    }
+};
+
+bool profile_enabled()
+{
+    return std::getenv("KFBIM_PROFILE_INTERFACE_2D") != nullptr;
+}
+
+int max_n_from_env()
+{
+    const char* value = std::getenv("KFBIM_INTERFACE_2D_MAX_N");
+    if (value == nullptr)
+        return 0;
+    return std::max(0, std::atoi(value));
+}
 
 Box2D make_outer_box(const ICurve2D& curve)
 {
@@ -222,11 +252,14 @@ double tail_average_order(const std::vector<double>& rates, int count = 3)
 
 SolveData solve_and_measure(int N)
 {
+    StageTimer timer;
+    const bool profile = profile_enabled();
     Star3Curve2D star;
     const Box2D box = make_outer_box(star);
     const double h = box.side_length / static_cast<double>(N);
 
     CartesianGrid2D grid(box.lower, {h, h}, {N, N}, DofLayout2D::Node);
+    const double t_grid = timer.lap();
     const auto dims = grid.dof_dims();
     const int nx = dims[0];
     const int ny = dims[1];
@@ -234,7 +267,9 @@ SolveData solve_and_measure(int N)
 
     Interface2D iface =
         CurveResampler2D::discretize(star, h, kTargetPanelLengthOverH);
+    const double t_interface = timer.lap();
     GridPair2D grid_pair(grid, iface);
+    const double t_grid_pair = timer.lap();
 
     Eigen::VectorXd f_bulk = Eigen::VectorXd::Zero(n_dof);
     Eigen::VectorXd u_exact = Eigen::VectorXd::Zero(n_dof);
@@ -250,17 +285,53 @@ SolveData solve_and_measure(int N)
             f_bulk[n] = is_outer_boundary_node(n, nx, ny) ? 0.0 : f_ext(box, x, y);
         }
     }
+    const double t_rhs = timer.lap();
 
-    LaplaceLobattoCenterSpread2D spread(grid_pair, kEta);
+    LaplaceQuadraticPanelCenterSpread2D spread(grid_pair, kEta);
     LaplaceFftBulkSolverZfft2D bulk_solver(grid, ZfftBcType::Dirichlet, kEta);
-    LaplaceLobattoCenterRestrict2D restrict_op(grid_pair);
+    LaplaceQuadraticPanelCenterRestrict2D restrict_op(grid_pair);
     LaplacePotentialEval2D potentials(spread, bulk_solver, restrict_op);
+    const double t_ops = timer.lap();
 
-    auto result = potentials.evaluate(make_jumps(iface, box), f_bulk);
+    const std::vector<LaplaceJumpData2D> jumps = make_jumps(iface, box);
+    const double t_jumps = timer.lap();
+
+    Eigen::VectorXd u_bulk;
+    double t_spread = 0.0;
+    double t_bulk_solve = 0.0;
+    double t_restrict = 0.0;
+    if (profile) {
+        Eigen::VectorXd rhs = f_bulk;
+        const std::vector<LocalPoly2D> correction_polys = spread.apply(jumps, rhs);
+        t_spread = timer.lap();
+
+        bulk_solver.solve(-rhs, u_bulk);
+        t_bulk_solve = timer.lap();
+
+        const std::vector<LocalPoly2D> solution_polys =
+            restrict_op.apply(u_bulk, correction_polys);
+        REQUIRE(solution_polys.size() == static_cast<std::size_t>(iface.num_points()));
+        t_restrict = timer.lap();
+    } else {
+        auto result = potentials.evaluate(jumps, f_bulk);
+        u_bulk = std::move(result.u_bulk);
+    }
 
     double bulk_err = 0.0;
     for (int n = 0; n < n_dof; ++n)
-        bulk_err = std::max(bulk_err, std::abs(result.u_bulk[n] - u_exact[n]));
+        bulk_err = std::max(bulk_err, std::abs(u_bulk[n] - u_exact[n]));
+    const double t_error = timer.lap();
+
+    if (profile) {
+        std::printf("    profile N=%d panels=%d iface=%d grid=%d\n",
+                    N, iface.num_panels(), iface.num_points(), n_dof);
+        std::printf("      grid %.3fs interface %.3fs grid_pair %.3fs rhs %.3fs ops %.3fs jumps %.3fs\n",
+                    t_grid, t_interface, t_grid_pair, t_rhs, t_ops, t_jumps);
+        std::printf("      spread %.3fs bulk_solve %.3fs restrict %.3fs error %.3fs total %.3fs\n",
+                    t_spread, t_bulk_solve, t_restrict, t_error,
+                    t_grid + t_interface + t_grid_pair + t_rhs + t_ops + t_jumps
+                        + t_spread + t_bulk_solve + t_restrict + t_error);
+    }
 
     return {bulk_err, iface.num_panels(), iface.num_points()};
 }
@@ -270,7 +341,15 @@ SolveData solve_and_measure(int N)
 TEST_CASE("Constant-coefficient screened interface problem converges on 3-fold star",
           "[screened][laplace][interface][lobatto][convergence][2d]")
 {
-    const std::vector<int> Ns{32, 64, 128, 256, 512};
+    std::vector<int> Ns{32, 64, 128, 256, 512};
+    const int max_n = max_n_from_env();
+    if (max_n > 0) {
+        Ns.erase(std::remove_if(Ns.begin(), Ns.end(),
+                                [max_n](int n) { return n > max_n; }),
+                 Ns.end());
+    }
+    REQUIRE_FALSE(Ns.empty());
+
     std::vector<SolveData> data(Ns.size());
     std::vector<double> rates(Ns.size(), 0.0);
 
@@ -281,7 +360,7 @@ TEST_CASE("Constant-coefficient screened interface problem converges on 3-fold s
     std::printf("\n  Constant-coefficient screened interface problem on 3-fold star\n");
     std::printf("  Manufactured sine modes vanish on the outer Cartesian box; eta = %.2f\n",
                 kEta);
-    std::printf("  Panels: Chebyshev-Lobatto; node_spacing/h = %.2f; panel_length/h = %.2f; output: %s\n",
+    std::printf("  Panels: P2 quadratic; node_spacing/h = %.2f; panel_length/h = %.2f; output: %s\n",
                 kTargetNodeSpacingOverH, kTargetPanelLengthOverH,
                 out_dir.string().c_str());
     std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "order", "GMRES");

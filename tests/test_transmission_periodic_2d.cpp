@@ -3,7 +3,7 @@
 //
 // Solves -div(beta grad u) + kappa^2 u = f on a fixed periodic unit square.
 // The manufactured interior/exterior solutions are both periodic trigonometric
-// fields, while the interface is an off-center Chebyshev-Lobatto 3-fold star.
+// fields, while the interface is an off-center P2 quadratic 3-fold star.
 // ---------------------------------------------------------------------------
 
 #include <catch2/catch_test_macros.hpp>
@@ -18,12 +18,9 @@
 #include <string>
 #include <vector>
 
-#include "src/bulk_solvers/zfft_bc_type.hpp"
-#include "src/geometry/curve_2d.hpp"
-#include "src/geometry/curve_resampler_2d.hpp"
-#include "src/geometry/grid_pair_2d.hpp"
-#include "src/grid/cartesian_grid_2d.hpp"
-#include "src/operators/laplace_transmission_2d.hpp"
+#include "kfbim/geometry.hpp"
+#include "kfbim/grid.hpp"
+#include "kfbim/laplace.hpp"
 
 using namespace kfbim;
 
@@ -290,7 +287,7 @@ TEST_CASE("Common-ratio transmission 2D: bi-periodic box convergence",
     std::printf("  beta_int=%.3f beta_ext=%.3f, lambda^2=%.3f\n",
                 kBetaInt, kBetaExt, kLambdaSq);
     std::printf("  Grid: cell-centered periodic unit square; interface: off-center 3-fold star\n");
-    std::printf("  Target Chebyshev-node spacing / h = %.2f (panel_length/h = %.2f)\n",
+    std::printf("  Target P2-node spacing / h = %.2f (panel_length/h = %.2f)\n",
                 kTargetNodeSpacingOverH, kTargetPanelLengthOverH);
     std::printf("  Output: %s\n", out_dir.string().c_str());
     std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "order", "GMRES");

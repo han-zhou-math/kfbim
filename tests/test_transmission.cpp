@@ -22,11 +22,9 @@
 #include <string>
 #include <vector>
 
-#include "src/geometry/curve_2d.hpp"
-#include "src/geometry/curve_resampler_2d.hpp"
-#include "src/geometry/grid_pair_2d.hpp"
-#include "src/grid/cartesian_grid_2d.hpp"
-#include "src/operators/laplace_transmission_2d.hpp"
+#include "kfbim/geometry.hpp"
+#include "kfbim/grid.hpp"
+#include "kfbim/laplace.hpp"
 
 using namespace kfbim;
 
@@ -375,8 +373,8 @@ void run_convergence_case(const TransmissionCaseConfig& config,
                 config.coefficients.beta_ext,
                 lambda_sq_int(config),
                 lambda_sq_ext(config));
-    std::printf("  Interface: 3-fold star; panels=Chebyshev-Lobatto; nonzero box Dirichlet BC\n");
-    std::printf("  Target Chebyshev-node spacing / h = %.2f (panel_length/h = %.2f)\n",
+    std::printf("  Interface: 3-fold star; panels=P2 quadratic; nonzero box Dirichlet BC\n");
+    std::printf("  Target P2-node spacing / h = %.2f (panel_length/h = %.2f)\n",
                 kTargetNodeSpacingOverH, kTargetPanelLengthOverH);
     std::printf("  Output: %s\n", out_dir.string().c_str());
     std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "order", "GMRES");
@@ -432,13 +430,13 @@ TransmissionCaseConfig different_ratios_case()
 
 } // namespace
 
-TEST_CASE("Common-ratio transmission 2D: Chebyshev-Lobatto convergence on 3-fold star",
+TEST_CASE("Common-ratio transmission 2D: P2 quadratic convergence on 3-fold star",
           "[transmission][laplace][interface][lobatto][convergence][2d]")
 {
     run_convergence_case(common_ratio_case(), {32, 64, 128, 256, 512});
 }
 
-TEST_CASE("Different-ratio transmission 2D: Chebyshev-Lobatto convergence on 3-fold star",
+TEST_CASE("Different-ratio transmission 2D: P2 quadratic convergence on 3-fold star",
           "[transmission][laplace][interface][different-ratio][lobatto][convergence][2d]")
 {
     run_convergence_case(different_ratios_case(), {32, 64, 128, 256, 512});

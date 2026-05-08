@@ -34,18 +34,19 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// Preferred 2D Laplace spread for Chebyshev-Lobatto panel geometry.
+// Preferred 2D Laplace spread for quadratic Lagrange P2 panel geometry.
 //
-// Interface points are 3 Lobatto geometry/jump DOFs per panel. Correction
+// Interface points are 3 P2 geometry/jump DOFs per panel. Correction
 // polynomials are solved at four generated panel-center locations. RHS and
 // restrict grid-node corrections evaluate the Taylor polynomial from the
 // nearest generated expansion center.
 // ---------------------------------------------------------------------------
 
-class LaplaceLobattoCenterSpread2D final : public ILaplaceSpread2D {
+class LaplaceQuadraticPanelCenterSpread2D final : public ILaplaceSpread2D {
 public:
-    explicit LaplaceLobattoCenterSpread2D(const GridPair2D& grid_pair,
-                                          double            kappa = 0.0);
+    explicit LaplaceQuadraticPanelCenterSpread2D(
+        const GridPair2D& grid_pair,
+        double            kappa = 0.0);
 
     std::vector<LocalPoly2D> apply(
         const std::vector<LaplaceJumpData2D>& jumps,
@@ -57,5 +58,7 @@ private:
     const GridPair2D& grid_pair_;
     double            kappa_;
 };
+
+using LaplaceLobattoCenterSpread2D = LaplaceQuadraticPanelCenterSpread2D;
 
 } // namespace kfbim

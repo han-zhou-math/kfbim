@@ -123,11 +123,11 @@ private:
     double                           lambda_sq_int_;
     double                           lambda_sq_ext_;
 
-    LaplaceLobattoCenterSpread2D   spread_int_;
-    LaplaceLobattoCenterSpread2D   spread_ext_;
+    LaplaceQuadraticPanelCenterSpread2D   spread_int_;
+    LaplaceQuadraticPanelCenterSpread2D   spread_ext_;
     LaplaceFftBulkSolverZfft2D     bulk_solver_int_;
     LaplaceFftBulkSolverZfft2D     bulk_solver_ext_;
-    LaplaceLobattoCenterRestrict2D restrict_op_;
+    LaplaceQuadraticPanelCenterRestrict2D restrict_op_;
     LaplacePotentialEval2D         potentials_int_;
     LaplacePotentialEval2D         potentials_ext_;
 };

@@ -7,31 +7,18 @@
 
 #include "../bulk_solvers/zfft_bc_type.hpp"
 #include "../gmres/gmres.hpp"
+#include "../grid/structured_grid_ops.hpp"
 #include "../local_cauchy/jump_data.hpp"
+#include "detail/laplace_operator_utils.hpp"
 
 namespace kfbim {
 
+using operators_detail::MeanProjectedOperator;
+using operators_detail::project_mean_zero;
+using operators_detail::require_vector_size;
+using operators_detail::signed_rhs_derivs;
+
 namespace {
-
-void require_vector_size(const char* context,
-                         const char* name,
-                         Eigen::Index actual,
-                         Eigen::Index expected)
-{
-    if (actual != expected) {
-        throw std::invalid_argument(
-            std::string(context) + ": " + name
-            + " has size " + std::to_string(actual)
-            + ", expected " + std::to_string(expected));
-    }
-}
-
-bool is_boundary_node(int i, int j, int k, int nx, int ny, int nz)
-{
-    return i == 0 || i == nx - 1
-        || j == 0 || j == ny - 1
-        || k == 0 || k == nz - 1;
-}
 
 bool is_neumann_type(LaplaceBvpType3D type)
 {
@@ -52,41 +39,9 @@ double side_jump_sign(LaplaceBvpType3D type)
 
 bool uses_neumann_nullspace_projection(LaplaceBvpType3D type, double eta)
 {
-    return type == LaplaceBvpType3D::InteriorNeumann && std::abs(eta) < 1.0e-14;
+    return operators_detail::uses_interior_neumann_nullspace_projection(
+        type == LaplaceBvpType3D::InteriorNeumann, eta);
 }
-
-void project_mean_zero(Eigen::VectorXd& v)
-{
-    if (v.size() == 0)
-        throw std::invalid_argument("project_mean_zero: vector must be nonempty");
-    v.array() -= v.mean();
-}
-
-class MeanProjectedOperator final : public IKFBIOperator {
-public:
-    explicit MeanProjectedOperator(const IKFBIOperator& op)
-        : op_(op)
-    {
-        if (op_.problem_size() <= 0) {
-            throw std::invalid_argument(
-                "MeanProjectedOperator: problem size must be positive");
-        }
-    }
-
-    void apply(const Eigen::VectorXd& x, Eigen::VectorXd& y) const override
-    {
-        Eigen::VectorXd x_projected = x;
-        project_mean_zero(x_projected);
-
-        op_.apply(x_projected, y);
-        project_mean_zero(y);
-    }
-
-    int problem_size() const override { return op_.problem_size(); }
-
-private:
-    const IKFBIOperator& op_;
-};
 
 double rhs_deriv_sign_for_type(LaplaceBvpType3D type)
 {
@@ -99,23 +54,6 @@ double rhs_deriv_sign_for_type(LaplaceBvpType3D type)
         return -1.0;
     }
     throw std::invalid_argument("unsupported Laplace BVP type");
-}
-
-std::vector<Eigen::VectorXd> signed_rhs_derivs(
-    const char* context,
-    const std::vector<Eigen::VectorXd>& rhs_derivs,
-    int n_iface,
-    double sign)
-{
-    if (static_cast<int>(rhs_derivs.size()) != n_iface) {
-        throw std::invalid_argument(
-            std::string(context) + ": rhs_derivs length does not match interface size");
-    }
-
-    std::vector<Eigen::VectorXd> signed_derivs(n_iface);
-    for (int q = 0; q < n_iface; ++q)
-        signed_derivs[q] = sign * rhs_derivs[q];
-    return signed_derivs;
 }
 
 std::vector<LaplaceJumpData3D> make_jumps(
@@ -183,77 +121,14 @@ int LaplaceBvp3D::problem_size() const
 Eigen::VectorXd LaplaceBvp3D::apply_dirichlet_boundary_elimination(
     const Eigen::VectorXd& rhs) const
 {
-    if (outer_dirichlet_values_.size() == 0)
-        return rhs;
-
-    const auto& grid = grid_pair_.grid();
-    const auto dims = grid.dof_dims();
-    const int nx = dims[0];
-    const int ny = dims[1];
-    const int nz = dims[2];
-
-    Eigen::VectorXd modified = rhs;
-    const double hx = grid.spacing()[0];
-    const double hy = grid.spacing()[1];
-    const double hz = grid.spacing()[2];
-    const double inv_hx2 = 1.0 / (hx * hx);
-    const double inv_hy2 = 1.0 / (hy * hy);
-    const double inv_hz2 = 1.0 / (hz * hz);
-
-    for (int k = 1; k < nz - 1; ++k) {
-        for (int j = 1; j < ny - 1; ++j) {
-            for (int i = 1; i < nx - 1; ++i) {
-                const int n = grid.index(i, j, k);
-                double boundary_lift = 0.0;
-                if (i == 1)
-                    boundary_lift += outer_dirichlet_values_[grid.index(0, j, k)] * inv_hx2;
-                if (i == nx - 2)
-                    boundary_lift += outer_dirichlet_values_[grid.index(nx - 1, j, k)] * inv_hx2;
-                if (j == 1)
-                    boundary_lift += outer_dirichlet_values_[grid.index(i, 0, k)] * inv_hy2;
-                if (j == ny - 2)
-                    boundary_lift += outer_dirichlet_values_[grid.index(i, ny - 1, k)] * inv_hy2;
-                if (k == 1)
-                    boundary_lift += outer_dirichlet_values_[grid.index(i, j, 0)] * inv_hz2;
-                if (k == nz - 2)
-                    boundary_lift += outer_dirichlet_values_[grid.index(i, j, nz - 1)] * inv_hz2;
-                modified[n] += boundary_lift;
-            }
-        }
-    }
-
-    for (int k = 0; k < nz; ++k) {
-        for (int j = 0; j < ny; ++j) {
-            for (int i = 0; i < nx; ++i) {
-                if (is_boundary_node(i, j, k, nx, ny, nz))
-                    modified[grid.index(i, j, k)] = 0.0;
-            }
-        }
-    }
-
-    return modified;
+    return structured_grid::apply_dirichlet_boundary_elimination(
+        "LaplaceBvp3D", grid_pair_.grid(), rhs, outer_dirichlet_values_);
 }
 
 void LaplaceBvp3D::restore_dirichlet_boundary(Eigen::VectorXd& u_bulk) const
 {
-    if (outer_dirichlet_values_.size() == 0)
-        return;
-
-    const auto& grid = grid_pair_.grid();
-    const auto dims = grid.dof_dims();
-    const int nx = dims[0];
-    const int ny = dims[1];
-    const int nz = dims[2];
-
-    for (int k = 0; k < nz; ++k) {
-        for (int j = 0; j < ny; ++j) {
-            for (int i = 0; i < nx; ++i) {
-                if (is_boundary_node(i, j, k, nx, ny, nz))
-                    u_bulk[grid.index(i, j, k)] =
-                        outer_dirichlet_values_[grid.index(i, j, k)];
-            }
-        }
-    }
+    structured_grid::restore_dirichlet_boundary(
+        "LaplaceBvp3D", grid_pair_.grid(), u_bulk, outer_dirichlet_values_);
 }
 
 void LaplaceBvp3D::apply_with_rhs(

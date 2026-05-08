@@ -1,4 +1,5 @@
 #include "curve_resampler_2d.hpp"
+#include "p2_curve_2d.hpp"
 #include <cmath>
 #include <algorithm>
 #include <stdexcept>
@@ -64,12 +65,13 @@ Interface2D CurveResampler2D::discretize(const ICurve2D& curve,
                                           double h,
                                           double target_L_h_ratio)
 {
-    return discretize_chebyshev_lobatto(curve, h, target_L_h_ratio);
+    return discretize_quadratic_lagrange(curve, h, target_L_h_ratio);
 }
 
-Interface2D CurveResampler2D::discretize_chebyshev_lobatto(const ICurve2D& curve,
-                                                           double h,
-                                                           double target_L_h_ratio)
+Interface2D CurveResampler2D::discretize_quadratic_lagrange(
+    const ICurve2D& curve,
+    double h,
+    double target_L_h_ratio)
 {
     if (h <= 0.0) {
         throw std::invalid_argument("CurveResampler2D: h must be positive.");
@@ -93,8 +95,7 @@ Interface2D CurveResampler2D::discretize_chebyshev_lobatto(const ICurve2D& curve
     Eigen::MatrixXi  panel_point_indices(num_panels, k);
     Eigen::VectorXi  comp = Eigen::VectorXi::Zero(num_panels);
 
-    static const double kLobatto_s[3] = {-1.0, 0.0, 1.0};
-    static const double kLobatto_w[3] = {1.0/3.0, 4.0/3.0, 1.0/3.0};
+    static const double kP2_w[3] = {1.0/3.0, 4.0/3.0, 1.0/3.0};
 
     for (int p = 0; p < num_panels; ++p) {
         const double s_q = p * L;
@@ -122,7 +123,7 @@ Interface2D CurveResampler2D::discretize_chebyshev_lobatto(const ICurve2D& curve
         panel_point_indices(p, 2) = q_right;
 
         for (int i = 0; i < k; ++i) {
-            double s_q = s_mid + half_L * kLobatto_s[i];
+            double s_q = s_mid + half_L * geometry2d::kP2NodeS[i];
             double t_q = map.get_t(s_q);
             const int q = panel_point_indices(p, i);
 
@@ -136,13 +137,21 @@ Interface2D CurveResampler2D::discretize_chebyshev_lobatto(const ICurve2D& curve
                 nml(q, 0) =  drdt.y() / speed;
                 nml(q, 1) = -drdt.x() / speed;
             }
-            wts(q) += kLobatto_w[i] * half_L;
+            wts(q) += kP2_w[i] * half_L;
         }
     }
 
     return Interface2D(std::move(pts), std::move(nml), std::move(wts), k,
                        std::move(panel_point_indices), std::move(comp),
-                       PanelNodeLayout2D::ChebyshevLobatto);
+                       PanelNodeLayout2D::QuadraticLagrange);
+}
+
+Interface2D CurveResampler2D::discretize_chebyshev_lobatto(
+    const ICurve2D& curve,
+    double h,
+    double target_L_h_ratio)
+{
+    return discretize_quadratic_lagrange(curve, h, target_L_h_ratio);
 }
 
 Interface2D CurveResampler2D::discretize_legacy_gauss(const ICurve2D& curve,

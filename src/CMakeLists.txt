@@ -20,6 +20,8 @@ add_library(kfbim_core STATIC
     # Layer 0 — Geometry
     geometry/grid_pair_2d.cpp
     geometry/grid_pair_3d.cpp
+    geometry/p2_projection_2d.cpp
+    geometry/p2_projection_3d.cpp
     geometry/curve_resampler_2d.cpp
 
     # Layer 1.5 — Local Cauchy Solver (add when implemented)
@@ -50,6 +52,7 @@ add_library(kfbim_core STATIC
 
 target_include_directories(kfbim_core PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
 
@@ -70,3 +73,24 @@ if(FFTW3_FOUND)
 endif()
 
 target_compile_features(kfbim_core PUBLIC cxx_std_17)
+
+install(TARGETS kfbim_core
+    EXPORT kfbimTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/kfbim
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/src/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/src
+    FILES_MATCHING PATTERN "*.hpp"
+)
+
+install(EXPORT kfbimTargets
+    NAMESPACE kfbim::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/kfbim
+)

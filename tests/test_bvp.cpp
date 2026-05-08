@@ -11,11 +11,9 @@
 #include <string>
 #include <vector>
 
-#include "src/geometry/curve_2d.hpp"
-#include "src/geometry/curve_resampler_2d.hpp"
-#include "src/geometry/grid_pair_2d.hpp"
-#include "src/grid/cartesian_grid_2d.hpp"
-#include "src/operators/laplace_bvp_2d.hpp"
+#include "kfbim/geometry.hpp"
+#include "kfbim/grid.hpp"
+#include "kfbim/laplace.hpp"
 
 using namespace kfbim;
 
@@ -288,7 +286,7 @@ SolveData solve_and_measure(BvpCase bvp, int N)
     }
 
     LaplaceBvpOptions2D options;
-    options.panel_method = LaplaceBvpPanelMethod2D::ChebyshevLobattoCenter;
+    options.panel_method = LaplaceBvpPanelMethod2D::QuadraticPanelCenter;
     options.eta = kEta;
     if (!is_interior(bvp))
         options.outer_dirichlet_values = outer_bc;
@@ -337,7 +335,7 @@ void check_convergence(BvpCase bvp)
     std::printf("\n  Screened %s BVP on 3-fold star: -Delta u + %.2f u = f\n",
                 bvp_name(bvp), kEta);
     std::printf("  Manufactured: sin(0.8x+0.3y) + 0.4cos(0.2x-0.7y) + 0.2sin(0.5x)cos(0.4y)\n");
-    std::printf("  Panels: Chebyshev-Lobatto; node_spacing/h = %.2f; panel_length/h = %.2f; output: %s\n",
+    std::printf("  Panels: P2 quadratic; node_spacing/h = %.2f; panel_length/h = %.2f; output: %s\n",
                 kTargetNodeSpacingOverH, kTargetPanelLengthOverH,
                 csv_path.string().c_str());
     std::printf("  %6s  %8s  %10s  %11s  %12s  %8s  %6s\n",

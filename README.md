@@ -11,10 +11,11 @@ Spread interface jumps -> solve bulk PDE -> restrict solution to interface
 ```
 
 The current stable problem wrappers are 2D and 3D Laplace BVP and transmission
-solvers. The 2D path uses Chebyshev-Lobatto panels, while the 3D path uses
-shared P2 triangular patches and is covered on spherical, ellipsoidal, and
-torus interfaces. The repository is structured as a reusable library rather
-than a one-off solver.
+solvers. The 2D path uses quadratic Lagrange P2 panels, with the former
+Chebyshev-Lobatto API names kept as source-compatible aliases. The 3D path
+uses shared P2 triangular patches and is covered on spherical, ellipsoidal,
+and torus interfaces. The repository is structured as a reusable library
+rather than a one-off solver.
 
 ## Status
 
@@ -23,10 +24,13 @@ Implemented:
 - Cartesian and MAC grid types in 2D and 3D
 - 2D and 3D interface containers with panel connectivity, quadrature points, normals, and weights
 - 2D and 3D grid/interface pairing with closest-point, domain-label, and
-  3D P2 narrow-band projection queries
+  P2 narrow-band projection queries
 - Quasi-uniform arc-length curve resampling for stable interface discretization
-- 2D Laplace panel Cauchy solver for local jump reconstruction
-- 2D Laplace spread and restrict transfer operators
+- 2D P2 Laplace panel Cauchy solver with four expansion centers per panel
+- 2D P2 Laplace spread and restrict transfer operators
+- 2D P2 curve geometry helpers and `GridPair2D` projection cache returning
+  panel/local coordinates, projected points, normals, signed distances, and
+  convergence flags for narrow-band grid nodes
 - 3D P2 triangular-patch Laplace local Cauchy solver with 16 expansion centers
   per parent triangle
 - 3D P2 curved-surface geometry helpers and `GridPair3D` projection cache
@@ -39,9 +43,11 @@ Implemented:
 - Restarted GMRES outer solver
 - Modular `LaplacePotentialEval2D/3D` operators for D/S/N jump primitives and
   combined D+S layer evaluations
-- End-to-end 2D Laplace BVP and transmission tests with current
-  Chebyshev-Lobatto convergence coverage, including star boundaries and a
-  bi-periodic transmission case
+- Public forwarding headers under `include/kfbim/` and CMake install/export
+  rules for `kfbim_core`
+- End-to-end 2D Laplace BVP and transmission tests with current P2 quadratic
+  panel convergence coverage, including star boundaries and a bi-periodic
+  transmission case
 - End-to-end 3D screened Laplace BVP and transmission tests on shared P2
   triangular interfaces, including sphere, ellipsoid, and torus transmission
   coverage
@@ -64,6 +70,7 @@ See [AGENTS.md](AGENTS.md) for current development notes and handoff plans.
 ## Repository Layout
 
 ```text
+include/kfbim/    Public forwarding headers for the current library API
 src/
   grid/           Cartesian and MAC grids
   interface/      Interface quadrature and panel data
@@ -133,11 +140,11 @@ Run a specific executable directly when you want Catch2 output:
 ```
 
 Primary PDE/convergence executables are `test_interface`, `test_interface_3d`,
-`test_projection_3d`, `test_bvp`, `test_bvp_3d`, `test_transmission`,
-`test_transmission_3d`, `test_transmission_ellipsoid_3d`,
-`test_transmission_torus_3d`, and `test_transmission_periodic_2d`. The 3D
-PDE tests use power-of-two grid sizes; set `KFBIM_HIGH_RES_3D=1` to include
-the highest-resolution 3D levels.
+`test_projection_2d`, `test_projection_3d`, `test_bvp`, `test_bvp_3d`,
+`test_transmission`, `test_transmission_3d`,
+`test_transmission_ellipsoid_3d`, `test_transmission_torus_3d`, and
+`test_transmission_periodic_2d`. The 3D PDE tests use power-of-two grid sizes;
+set `KFBIM_HIGH_RES_3D=1` to include the highest-resolution 3D levels.
 
 The current periodic 2D transmission test uses a cell-centered periodic bulk
 solver and an interface well away from the box edge. The 2D transfer operators
@@ -196,8 +203,10 @@ interface pipeline and the 3D P2 Laplace BVP/transmission paths. When adding a
 new component, prefer a focused component test and one integration test that
 verifies convergence or conservation behavior.
 For new 2D Laplace work, use `CurveResampler2D::discretize()` and
-`LaplaceBvpPanelMethod2D::ChebyshevLobattoCenter`; keep the legacy
-Gauss path only for explicit regression or comparison tests.
+`LaplaceBvpPanelMethod2D::QuadraticPanelCenter`. The old
+`ChebyshevLobattoCenter` and Lobatto transfer names remain compatibility
+aliases; keep the legacy Gauss path only for explicit regression or comparison
+tests.
 For new 3D Laplace work, use shared six-node P2 triangular patches with
 `PanelNodeLayout3D::QuadraticLagrange`, 16 expansion centers per parent
 triangle, and target adjacent P2 node spacing over grid spacing of about `1.5`.

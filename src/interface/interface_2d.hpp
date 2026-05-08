@@ -6,8 +6,11 @@ namespace kfbim {
 
 enum class PanelNodeLayout2D {
     LegacyGaussLegendre,
-    ChebyshevLobatto,
+    QuadraticLagrange,
     Raw,
+
+    // Backward-compatible alias for older active 2D call sites.
+    ChebyshevLobatto = QuadraticLagrange,
 
     // Backward-compatible alias for older call sites.
     GaussLegendre = LegacyGaussLegendre
@@ -16,13 +19,13 @@ enum class PanelNodeLayout2D {
 // Isoparametric piecewise-polynomial curve interface in 2D.
 //
 // The interface is divided into Np panels. Each panel has k = points_per_panel
-// Chebyshev-Lobatto, legacy Gauss-Legendre, or raw points that serve as both
+// quadratic Lagrange, legacy Gauss-Legendre, or raw points that serve as both
 // the geometric nodes (defining a degree k-1 polynomial curve segment) and the
 // DOF/quadrature locations.
 //
 // Panels reference point rows through panel_point_indices. The legacy
-// constructor builds panel-major connectivity, while Lobatto panels may share
-// endpoint point rows between adjacent panels.
+// constructor builds panel-major connectivity, while quadratic Lagrange panels
+// may share endpoint point rows between adjacent panels.
 //
 // Supports multiple disconnected components (e.g. several circles) via
 // panel_components: one integer component id per panel.

@@ -41,7 +41,7 @@ enum class LaplaceCorrectionMethod3D {
     ProjectionPoint
 };
 
-struct LaplaceSpreadResult3D {
+struct LaplaceCorrectionContext3D {
     LaplaceCorrectionMethod3D correction_method =
         LaplaceCorrectionMethod3D::NearestExpansionCenter;
 
@@ -61,6 +61,9 @@ struct LaplaceSpreadResult3D {
     // Projection-point cache for grid nodes where C(x) is actually needed.
     NarrowBandProjection3D projection_cache;
 };
+
+// Temporary compatibility name for the 3D spread -> restrict contract.
+using LaplaceSpreadResult3D = LaplaceCorrectionContext3D;
 
 class ILaplaceSpread3D {
 public:

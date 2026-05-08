@@ -5,24 +5,24 @@
 #include <limits>
 #include <stdexcept>
 
+#include "../grid/structured_grid_ops.hpp"
+
 namespace kfbim {
 
 namespace {
 
-constexpr int kLobattoExpansionCentersPerPanel = 4;
+constexpr int kQuadraticExpansionCentersPerPanel = 4;
 
 Eigen::Vector2d interface_point(const Interface2D& iface, int q) {
     return iface.points().row(q).transpose();
 }
 
 Eigen::Vector2d grid_point(const CartesianGrid2D& grid, int idx) {
-    const auto c = grid.coord(idx);
-    return {c[0], c[1]};
+    return structured_grid::point(grid, idx);
 }
 
 double max_grid_spacing(const CartesianGrid2D& grid) {
-    const auto h = grid.spacing();
-    return std::max(h[0], h[1]);
+    return structured_grid::max_spacing(grid);
 }
 
 int nearest_poly_index(const std::vector<LocalPoly2D>& center_polys,
@@ -65,33 +65,33 @@ int nearest_center_for_grid_node(const CartesianGrid2D&           grid,
 
 } // namespace
 
-LaplaceLobattoCenterRestrict2D::LaplaceLobattoCenterRestrict2D(
+LaplaceQuadraticPanelCenterRestrict2D::LaplaceQuadraticPanelCenterRestrict2D(
     const GridPair2D& grid_pair,
     int               stencil_radius)
     : grid_pair_(grid_pair)
     , stencil_radius_(stencil_radius)
 {
     if (stencil_radius_ < 1)
-        throw std::invalid_argument("LaplaceLobattoCenterRestrict2D stencil_radius must be positive");
+        throw std::invalid_argument("LaplaceQuadraticPanelCenterRestrict2D stencil_radius must be positive");
 }
 
-std::vector<LocalPoly2D> LaplaceLobattoCenterRestrict2D::apply(
+std::vector<LocalPoly2D> LaplaceQuadraticPanelCenterRestrict2D::apply(
     const Eigen::VectorXd&          bulk_solution,
     const std::vector<LocalPoly2D>& correction_polys) const
 {
     const auto& grid = grid_pair_.grid();
     const auto& iface = grid_pair_.interface();
     const int n_iface = iface.num_points();
-    const int expected_centers = kLobattoExpansionCentersPerPanel * iface.num_panels();
+    const int expected_centers = kQuadraticExpansionCentersPerPanel * iface.num_panels();
 
     if (bulk_solution.size() != grid.num_dofs())
-        throw std::invalid_argument("LaplaceLobattoCenterRestrict2D bulk_solution size must equal grid DOF count");
+        throw std::invalid_argument("LaplaceQuadraticPanelCenterRestrict2D bulk_solution size must equal grid DOF count");
     if (iface.points_per_panel() != 3
-        || iface.panel_node_layout() != PanelNodeLayout2D::ChebyshevLobatto) {
-        throw std::invalid_argument("LaplaceLobattoCenterRestrict2D requires Chebyshev-Lobatto 3-point panels");
+        || iface.panel_node_layout() != PanelNodeLayout2D::QuadraticLagrange) {
+        throw std::invalid_argument("LaplaceQuadraticPanelCenterRestrict2D requires P2 quadratic 3-point panels");
     }
     if (static_cast<int>(correction_polys.size()) != expected_centers) {
-        throw std::invalid_argument("LaplaceLobattoCenterRestrict2D correction_polys size must equal 4*num_panels");
+        throw std::invalid_argument("LaplaceQuadraticPanelCenterRestrict2D correction_polys size must equal 4*num_panels");
     }
 
     const double band_radius = (static_cast<double>(stencil_radius_) + 1.0)
@@ -108,7 +108,7 @@ std::vector<LocalPoly2D> LaplaceLobattoCenterRestrict2D::apply(
     return result;
 }
 
-LocalPoly2D LaplaceLobattoCenterRestrict2D::fit_at_interface_point(
+LocalPoly2D LaplaceQuadraticPanelCenterRestrict2D::fit_at_interface_point(
     const Eigen::VectorXd&          bulk_solution,
     int                             q,
     const std::vector<LocalPoly2D>& center_polys,
@@ -145,7 +145,7 @@ LocalPoly2D LaplaceLobattoCenterRestrict2D::fit_at_interface_point(
     }
 
     if (samples.size() < 6)
-        throw std::runtime_error("LaplaceLobattoCenterRestrict2D needs at least 6 stencil samples");
+        throw std::runtime_error("LaplaceQuadraticPanelCenterRestrict2D needs at least 6 stencil samples");
 
     std::sort(samples.begin(), samples.end(),
               [](const Sample& a, const Sample& b) {

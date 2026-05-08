@@ -8,6 +8,7 @@
 
 #include "p2_sphere_fixture_3d.hpp"
 #include "src/geometry/grid_pair_3d.hpp"
+#include "src/geometry/p2_projection_3d.hpp"
 #include "src/geometry/p2_surface_3d.hpp"
 #include "src/grid/cartesian_grid_3d.hpp"
 #include "src/transfer/laplace_projection_correction_3d.hpp"
@@ -64,6 +65,31 @@ Eigen::VectorXd flat_phi_values(const Interface3D& iface)
         values[q] = x * x + y * y;
     }
     return values;
+}
+
+void require_same_projection_band(const NarrowBandProjection3D& a,
+                                  const NarrowBandProjection3D& b)
+{
+    REQUIRE(a.radius() == Catch::Approx(b.radius()));
+    REQUIRE(a.nodes() == b.nodes());
+    REQUIRE(a.projections().size() == b.projections().size());
+    for (int node : a.nodes()) {
+        REQUIRE(a.has_projection(node));
+        REQUIRE(b.has_projection(node));
+        const SurfaceProjection3D& pa = a.projection(node);
+        const SurfaceProjection3D& pb = b.projection(node);
+        REQUIRE(pa.grid_node == pb.grid_node);
+        REQUIRE(pa.panel == pb.panel);
+        REQUIRE(pa.component == pb.component);
+        REQUIRE(pa.barycentric.isApprox(pb.barycentric, 1.0e-12));
+        REQUIRE(pa.point.isApprox(pb.point, 1.0e-12));
+        REQUIRE(pa.normal.isApprox(pb.normal, 1.0e-12));
+        REQUIRE(pa.signed_distance == Catch::Approx(pb.signed_distance).margin(1.0e-12));
+        REQUIRE(pa.distance == Catch::Approx(pb.distance).margin(1.0e-12));
+        REQUIRE(pa.tangential_residual == Catch::Approx(pb.tangential_residual).margin(1.0e-12));
+        REQUIRE(pa.iterations == pb.iterations);
+        REQUIRE(pa.converged == pb.converged);
+    }
 }
 
 } // namespace
@@ -148,6 +174,36 @@ TEST_CASE("Projection-point spread option preserves zero correction",
     REQUIRE(polys.size() == static_cast<std::size_t>(iface.num_points()));
     for (const LocalPoly3D& poly : polys)
         REQUIRE(poly.coeffs.norm() == Catch::Approx(0.0).margin(1.0e-12));
+}
+
+TEST_CASE("P2 projection service matches GridPair3D compatibility methods",
+          "[projection][3d]")
+{
+    const int N = 12;
+    const Box3D box = standard_box();
+    const double h = box.side_length / static_cast<double>(N);
+
+    CartesianGrid3D grid(box.lower, {h, h, h}, {N, N, N}, DofLayout3D::Node);
+    const Interface3D iface = make_p2_sphere(surface_subdivision_for_grid(N));
+    GridPair3D gp(grid, iface);
+
+    const double radius = 2.0 * std::sqrt(3.0) * h;
+    const NarrowBandProjection3D via_grid_pair =
+        gp.project_near_interface_nodes(radius);
+    const NarrowBandProjection3D via_service =
+        project_p2_near_interface_nodes_3d(gp, radius);
+    require_same_projection_band(via_grid_pair, via_service);
+
+    std::vector<int> support;
+    const auto nodes = gp.near_interface_nodes(radius);
+    for (std::size_t i = 0; i < nodes.size() && i < 24; ++i)
+        support.push_back(nodes[i]);
+    REQUIRE_FALSE(support.empty());
+    const NarrowBandProjection3D explicit_via_grid_pair =
+        gp.project_grid_nodes_to_interface(support);
+    const NarrowBandProjection3D explicit_via_service =
+        project_p2_grid_nodes_to_interface_3d(gp, support);
+    require_same_projection_band(explicit_via_grid_pair, explicit_via_service);
 }
 
 TEST_CASE("GridPair3D projection projects narrow-band nodes onto curved P2 panels",

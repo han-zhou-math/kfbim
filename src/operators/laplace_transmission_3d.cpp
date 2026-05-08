@@ -8,7 +8,9 @@
 
 #include "../bulk_solvers/zfft_bc_type.hpp"
 #include "../gmres/gmres.hpp"
+#include "../grid/structured_grid_ops.hpp"
 #include "../local_cauchy/jump_data.hpp"
+#include "detail/laplace_operator_utils.hpp"
 
 namespace kfbim {
 
@@ -18,61 +20,24 @@ constexpr const char* kContext = "LaplaceTransmission3D";
 
 void require_vector_size(const char* name, Eigen::Index actual, Eigen::Index expected)
 {
-    if (actual != expected) {
-        throw std::invalid_argument(
-            std::string(kContext) + ": " + name
-            + " has size " + std::to_string(actual)
-            + ", expected " + std::to_string(expected));
-    }
-}
-
-bool is_boundary_node(int i, int j, int k, int nx, int ny, int nz)
-{
-    return i == 0 || i == nx - 1
-        || j == 0 || j == ny - 1
-        || k == 0 || k == nz - 1;
+    operators_detail::require_vector_size(kContext, name, actual, expected);
 }
 
 double checked_lambda_sq(const char* phase, double beta, double kappa_sq)
 {
-    if (beta <= 0.0) {
-        throw std::invalid_argument(
-            std::string(kContext) + ": " + phase + " beta must be positive");
-    }
-    if (kappa_sq < 0.0) {
-        throw std::invalid_argument(
-            std::string(kContext) + ": " + phase + " kappa_sq must be nonnegative");
-    }
-    return kappa_sq / beta;
+    return operators_detail::checked_lambda_sq(kContext, phase, beta, kappa_sq);
 }
 
 void require_common_ratio(double lambda_sq_int, double lambda_sq_ext)
 {
-    const double scale = std::max({1.0, std::abs(lambda_sq_int), std::abs(lambda_sq_ext)});
-    if (std::abs(lambda_sq_int - lambda_sq_ext) > 1.0e-12 * scale) {
-        throw std::invalid_argument(
-            std::string(kContext)
-            + ": CommonRatio mode requires kappa_sq_int/beta_int == "
-              "kappa_sq_ext/beta_ext");
-    }
+    operators_detail::require_common_ratio(kContext, lambda_sq_int, lambda_sq_ext);
 }
 
 void validate_rhs_derivs(const char* name,
                          const std::vector<Eigen::VectorXd>& derivs,
                          int n_iface)
 {
-    if (static_cast<int>(derivs.size()) != n_iface) {
-        throw std::invalid_argument(
-            std::string(kContext) + ": " + name
-            + " length does not match interface size");
-    }
-    for (int q = 0; q < n_iface; ++q) {
-        if (derivs[q].size() == 0) {
-            throw std::invalid_argument(
-                std::string(kContext) + ": " + name
-                + " entries must contain at least the value derivative");
-        }
-    }
+    operators_detail::validate_rhs_derivs(kContext, name, derivs, n_iface);
 }
 
 void validate_rhs_data(const LaplaceTransmissionRhsData3D& rhs_data,
@@ -94,33 +59,19 @@ std::vector<Eigen::VectorXd> combine_rhs_derivs(
     const std::vector<Eigen::VectorXd>& int_derivs,
     const std::vector<Eigen::VectorXd>& ext_derivs)
 {
-    const int n_iface = static_cast<int>(int_derivs.size());
-    std::vector<Eigen::VectorXd> combined(n_iface);
-    for (int q = 0; q < n_iface; ++q) {
-        if (int_derivs[q].size() != ext_derivs[q].size()) {
-            throw std::invalid_argument(
-                std::string(kContext)
-                + ": interior and exterior rhs derivative entries must have matching sizes");
-        }
-        combined[q] = int_derivs[q] - ext_derivs[q];
-    }
-    return combined;
+    return operators_detail::combine_rhs_derivs(kContext, int_derivs, ext_derivs);
 }
 
 std::vector<Eigen::VectorXd> scaled_rhs_derivs(
     const std::vector<Eigen::VectorXd>& derivs,
     double scale)
 {
-    const int n_iface = static_cast<int>(derivs.size());
-    std::vector<Eigen::VectorXd> scaled(n_iface);
-    for (int q = 0; q < n_iface; ++q)
-        scaled[q] = scale * derivs[q];
-    return scaled;
+    return operators_detail::scaled_rhs_derivs(derivs, scale);
 }
 
 std::vector<Eigen::VectorXd> zero_rhs_derivs(int n_iface)
 {
-    return std::vector<Eigen::VectorXd>(n_iface, Eigen::VectorXd::Zero(1));
+    return operators_detail::zero_rhs_derivs(n_iface);
 }
 
 std::vector<LaplaceJumpData3D> make_jumps(
@@ -129,17 +80,8 @@ std::vector<LaplaceJumpData3D> make_jumps(
     const Eigen::VectorXd&             un_jump,
     const std::vector<Eigen::VectorXd>& rhs_derivs)
 {
-    require_vector_size("u_jump", u_jump.size(), n_iface);
-    require_vector_size("un_jump", un_jump.size(), n_iface);
-    validate_rhs_derivs("rhs_derivs", rhs_derivs, n_iface);
-
-    std::vector<LaplaceJumpData3D> jumps(n_iface);
-    for (int q = 0; q < n_iface; ++q) {
-        jumps[q].u_jump = u_jump[q];
-        jumps[q].un_jump = un_jump[q];
-        jumps[q].rhs_derivs = rhs_derivs[q];
-    }
-    return jumps;
+    return operators_detail::make_laplace_jumps_3d(
+        kContext, n_iface, u_jump, un_jump, rhs_derivs);
 }
 
 void split_phase_rhs(const GridPair3D&      grid_pair,
@@ -147,17 +89,8 @@ void split_phase_rhs(const GridPair3D&      grid_pair,
                      Eigen::VectorXd&       rhs_int,
                      Eigen::VectorXd&       rhs_ext)
 {
-    const int n_dof = grid_pair.grid().num_dofs();
-    require_vector_size("rhs_data.reduced_rhs_bulk", rhs_bulk.size(), n_dof);
-
-    rhs_int = Eigen::VectorXd::Zero(n_dof);
-    rhs_ext = Eigen::VectorXd::Zero(n_dof);
-    for (int n = 0; n < n_dof; ++n) {
-        if (grid_pair.domain_label(n) > 0)
-            rhs_int[n] = rhs_bulk[n];
-        else
-            rhs_ext[n] = rhs_bulk[n];
-    }
+    operators_detail::split_phase_rhs(
+        kContext, grid_pair, rhs_bulk, rhs_int, rhs_ext);
 }
 
 } // namespace
@@ -227,57 +160,14 @@ Eigen::VectorXd LaplaceTransmission3D::apply_dirichlet_boundary_elimination(
     const Eigen::VectorXd& outer_dirichlet_values) const
 {
     const auto& grid = grid_pair_.grid();
-    const auto dims = grid.dof_dims();
-    const int nx = dims[0];
-    const int ny = dims[1];
-    const int nz = dims[2];
     const int n_dof = grid.num_dofs();
 
     require_vector_size("reduced_rhs_bulk", reduced_rhs_bulk.size(), n_dof);
     if (outer_dirichlet_values.size() == 0)
         return reduced_rhs_bulk;
-    require_vector_size("outer_dirichlet_values", outer_dirichlet_values.size(), n_dof);
 
-    Eigen::VectorXd modified = reduced_rhs_bulk;
-    const double hx = grid.spacing()[0];
-    const double hy = grid.spacing()[1];
-    const double hz = grid.spacing()[2];
-    const double inv_hx2 = 1.0 / (hx * hx);
-    const double inv_hy2 = 1.0 / (hy * hy);
-    const double inv_hz2 = 1.0 / (hz * hz);
-
-    for (int k = 1; k < nz - 1; ++k) {
-        for (int j = 1; j < ny - 1; ++j) {
-            for (int i = 1; i < nx - 1; ++i) {
-                const int n = grid.index(i, j, k);
-                double boundary_lift = 0.0;
-                if (i == 1)
-                    boundary_lift += outer_dirichlet_values[grid.index(0, j, k)] * inv_hx2;
-                if (i == nx - 2)
-                    boundary_lift += outer_dirichlet_values[grid.index(nx - 1, j, k)] * inv_hx2;
-                if (j == 1)
-                    boundary_lift += outer_dirichlet_values[grid.index(i, 0, k)] * inv_hy2;
-                if (j == ny - 2)
-                    boundary_lift += outer_dirichlet_values[grid.index(i, ny - 1, k)] * inv_hy2;
-                if (k == 1)
-                    boundary_lift += outer_dirichlet_values[grid.index(i, j, 0)] * inv_hz2;
-                if (k == nz - 2)
-                    boundary_lift += outer_dirichlet_values[grid.index(i, j, nz - 1)] * inv_hz2;
-                modified[n] += boundary_lift;
-            }
-        }
-    }
-
-    for (int k = 0; k < nz; ++k) {
-        for (int j = 0; j < ny; ++j) {
-            for (int i = 0; i < nx; ++i) {
-                if (is_boundary_node(i, j, k, nx, ny, nz))
-                    modified[grid.index(i, j, k)] = 0.0;
-            }
-        }
-    }
-
-    return modified;
+    return structured_grid::apply_dirichlet_boundary_elimination(
+        kContext, grid, reduced_rhs_bulk, outer_dirichlet_values);
 }
 
 void LaplaceTransmission3D::restore_dirichlet_boundary(
@@ -288,22 +178,8 @@ void LaplaceTransmission3D::restore_dirichlet_boundary(
         return;
 
     const auto& grid = grid_pair_.grid();
-    const auto dims = grid.dof_dims();
-    const int nx = dims[0];
-    const int ny = dims[1];
-    const int nz = dims[2];
-    require_vector_size("u_bulk", u_bulk.size(), grid.num_dofs());
-    require_vector_size("outer_dirichlet_values", outer_dirichlet_values.size(), grid.num_dofs());
-
-    for (int k = 0; k < nz; ++k) {
-        for (int j = 0; j < ny; ++j) {
-            for (int i = 0; i < nx; ++i) {
-                if (is_boundary_node(i, j, k, nx, ny, nz))
-                    u_bulk[grid.index(i, j, k)] =
-                        outer_dirichlet_values[grid.index(i, j, k)];
-            }
-        }
-    }
+    structured_grid::restore_dirichlet_boundary(
+        kContext, grid, u_bulk, outer_dirichlet_values);
 }
 
 void LaplaceTransmission3D::apply_common_ratio(

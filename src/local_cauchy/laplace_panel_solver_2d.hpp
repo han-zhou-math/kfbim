@@ -6,6 +6,7 @@
 #include <vector>
 #include <Eigen/Dense>
 #include "../interface/interface_2d.hpp"
+#include "../geometry/p2_curve_2d.hpp"
 
 namespace kfbim {
 
@@ -46,13 +47,22 @@ inline constexpr double kPanelGLS[3] = {
      0.7745966692414834
 };
 
-inline constexpr double kPanelLobattoS[3] = {
+inline constexpr double kPanelP2S[3] = {
     -1.0,
      0.0,
      1.0
 };
 
-inline constexpr int kLobattoExpansionCount = 4;
+inline constexpr int kQuadraticPanelExpansionCount = 4;
+inline constexpr double kQuadraticPanelExpansionS[kQuadraticPanelExpansionCount] = {
+    -0.75,
+    -0.25,
+     0.25,
+     0.75
+};
+
+inline constexpr double kPanelLobattoS[3] = {-1.0, 0.0, 1.0};
+inline constexpr int kLobattoExpansionCount = kQuadraticPanelExpansionCount;
 inline constexpr double kLobattoExpansionS[kLobattoExpansionCount] = {
     -0.75,
     -0.25,
@@ -295,9 +305,9 @@ struct PanelCauchyResult2D {
 };
 
 // ---------------------------------------------------------------------------
-// Output type for Chebyshev-Lobatto geometry panels.
+// Output type for quadratic Lagrange P2 geometry panels.
 //
-// One panel has 3 Chebyshev-Lobatto geometry/jump nodes at s={-1,0,1}; the
+// One panel has 3 quadratic geometry/jump nodes at s={-1,0,1}; the
 // local Cauchy solve is performed at four generated expansion centers per
 // panel, s={-0.75,-0.25,0.25,0.75}.
 // ---------------------------------------------------------------------------
@@ -438,15 +448,15 @@ inline PanelCauchyResult2D laplace_panel_cauchy_2d(
 }
 
 // ---------------------------------------------------------------------------
-// Chebyshev-Lobatto panel solve.
+// Quadratic Lagrange P2 panel-center solve.
 //
 // Requires iface.points_per_panel() == 3, interpreted as panel geometry and
-// jump DOFs at Lobatto nodes s={-1,0,1}.  Jump data and geometry are
+// jump DOFs at P2 nodes s={-1,0,1}. Jump data and geometry are
 // interpolated to generated expansion centers and shifted collocation points.
 // The spread/restrict pipeline stores correction polynomials at these generated
 // centers and evaluates grid-node corrections from the nearest center.
 // ---------------------------------------------------------------------------
-inline PanelCenterCauchyResult2D laplace_panel_lobatto_center_cauchy_2d(
+inline PanelCenterCauchyResult2D laplace_panel_quadratic_center_cauchy_2d(
     const Interface2D&     iface,
     const Eigen::VectorXd& a,
     const Eigen::VectorXd& b,
@@ -455,7 +465,7 @@ inline PanelCenterCauchyResult2D laplace_panel_lobatto_center_cauchy_2d(
 {
     assert(iface.points_per_panel() == 3);
     const int Np = iface.num_panels();
-    const int Nc = detail::kLobattoExpansionCount * Np;
+    const int Nc = detail::kQuadraticPanelExpansionCount * Np;
 
     PanelCenterCauchyResult2D res;
     res.centers     = Eigen::MatrixX2d::Zero(Nc, 2);
@@ -489,46 +499,46 @@ inline PanelCenterCauchyResult2D laplace_panel_lobatto_center_cauchy_2d(
         const double panel_Lu[3] = { Lu_iface[g0], Lu_iface[g1], Lu_iface[g2] };
         const double panel_length = detail::panel_chord_length_2d(panel_pts);
 
-        for (int i = 0; i < detail::kLobattoExpansionCount; ++i) {
-            const int ci = detail::kLobattoExpansionCount * p + i;
-            const double t = detail::kLobattoExpansionS[i];
+        for (int i = 0; i < detail::kQuadraticPanelExpansionCount; ++i) {
+            const int ci = detail::kQuadraticPanelExpansionCount * p + i;
+            const double t = detail::kQuadraticPanelExpansionS[i];
             const double s_minus = t - detail::kCollocationDelta;
             const double s_plus  = t + detail::kCollocationDelta;
 
             double center[2];
-            detail::interpolate_vector_3_at_nodes(detail::kPanelLobattoS, panel_pts, t, center);
+            detail::interpolate_vector_3_at_nodes(detail::kPanelP2S, panel_pts, t, center);
 
             double center_normal[2];
-            detail::panel_normal_2d_at_nodes(detail::kPanelLobattoS,
+            detail::panel_normal_2d_at_nodes(detail::kPanelP2S,
                                              panel_pts, panel_nml, t, center_normal);
 
             double bdry1[3][2];
-            detail::interpolate_vector_3_at_nodes(detail::kPanelLobattoS, panel_pts, s_minus, bdry1[0]);
-            detail::interpolate_vector_3_at_nodes(detail::kPanelLobattoS, panel_pts, t,       bdry1[1]);
-            detail::interpolate_vector_3_at_nodes(detail::kPanelLobattoS, panel_pts, s_plus,  bdry1[2]);
+            detail::interpolate_vector_3_at_nodes(detail::kPanelP2S, panel_pts, s_minus, bdry1[0]);
+            detail::interpolate_vector_3_at_nodes(detail::kPanelP2S, panel_pts, t,       bdry1[1]);
+            detail::interpolate_vector_3_at_nodes(detail::kPanelP2S, panel_pts, s_plus,  bdry1[2]);
             double av[3] = {
-                detail::interpolate_scalar_3_at_nodes(detail::kPanelLobattoS, panel_a, s_minus),
-                detail::interpolate_scalar_3_at_nodes(detail::kPanelLobattoS, panel_a, t),
-                detail::interpolate_scalar_3_at_nodes(detail::kPanelLobattoS, panel_a, s_plus)
+                detail::interpolate_scalar_3_at_nodes(detail::kPanelP2S, panel_a, s_minus),
+                detail::interpolate_scalar_3_at_nodes(detail::kPanelP2S, panel_a, t),
+                detail::interpolate_scalar_3_at_nodes(detail::kPanelP2S, panel_a, s_plus)
             };
 
             double bdry2[2][2];
-            detail::interpolate_vector_3_at_nodes(detail::kPanelLobattoS, panel_pts, s_minus, bdry2[0]);
-            detail::interpolate_vector_3_at_nodes(detail::kPanelLobattoS, panel_pts, s_plus,  bdry2[1]);
+            detail::interpolate_vector_3_at_nodes(detail::kPanelP2S, panel_pts, s_minus, bdry2[0]);
+            detail::interpolate_vector_3_at_nodes(detail::kPanelP2S, panel_pts, s_plus,  bdry2[1]);
             double bdry2_nml[2][2];
-            detail::panel_normal_2d_at_nodes(detail::kPanelLobattoS,
+            detail::panel_normal_2d_at_nodes(detail::kPanelP2S,
                                              panel_pts, panel_nml, s_minus, bdry2_nml[0]);
-            detail::panel_normal_2d_at_nodes(detail::kPanelLobattoS,
+            detail::panel_normal_2d_at_nodes(detail::kPanelP2S,
                                              panel_pts, panel_nml, s_plus,  bdry2_nml[1]);
             double bv[2] = {
-                detail::interpolate_scalar_3_at_nodes(detail::kPanelLobattoS, panel_b, s_minus),
-                detail::interpolate_scalar_3_at_nodes(detail::kPanelLobattoS, panel_b, s_plus)
+                detail::interpolate_scalar_3_at_nodes(detail::kPanelP2S, panel_b, s_minus),
+                detail::interpolate_scalar_3_at_nodes(detail::kPanelP2S, panel_b, s_plus)
             };
 
             double bulk[2];
-            detail::interpolate_vector_3_at_nodes(detail::kPanelLobattoS, panel_pts, t, bulk);
+            detail::interpolate_vector_3_at_nodes(detail::kPanelP2S, panel_pts, t, bulk);
             const double Lu =
-                detail::interpolate_scalar_3_at_nodes(detail::kPanelLobattoS, panel_Lu, t);
+                detail::interpolate_scalar_3_at_nodes(detail::kPanelP2S, panel_Lu, t);
 
             double h = 0.0;
             for (int l = 0; l < 3; ++l) {
@@ -561,6 +571,17 @@ inline PanelCenterCauchyResult2D laplace_panel_lobatto_center_cauchy_2d(
     }
 
     return res;
+}
+
+inline PanelCenterCauchyResult2D laplace_panel_lobatto_center_cauchy_2d(
+    const Interface2D&     iface,
+    const Eigen::VectorXd& a,
+    const Eigen::VectorXd& b,
+    const Eigen::VectorXd& Lu_iface,
+    double                 kappa = 0.0)
+{
+    return laplace_panel_quadratic_center_cauchy_2d(
+        iface, a, b, Lu_iface, kappa);
 }
 
 } // namespace kfbim

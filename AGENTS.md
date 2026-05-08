@@ -6,7 +6,7 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
 
 ## Current Status
 - Branch `main`; run `git log --oneline -n 3` for the exact current commit.
-- This guide reflects the 2026-05-04 2D Laplace Chebyshev-Lobatto,
+- This guide reflects the 2026-05-04 2D Laplace P2 quadratic panel,
   screened-Poisson, merged potential-evaluation, screened BVP wrapper,
   transmission, three-program PDE convergence-test reorganization work, the
   first verified 3D P2 Laplace potential pipeline, and the 2026-05-05 3D
@@ -15,14 +15,31 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   transmission test, combined D+S potential-evaluation optimization, shortened
   note filenames, parallel KFBI planning note, 2026-05-07 3D P2
   narrow-band projection geometry, and the 2026-05-07 projection-point
-  correction prototype. The default 3D correction path remains nearest
-  expansion-center expansion.
+  correction prototype. It also reflects the 2026-05-08 staged organization
+  refactor, public forwarding headers, shared grid/operator utilities, 2D/3D
+  P2 projection split, and 2D P2 geometry/center-sampling unification. The
+  default 3D correction path remains nearest expansion-center expansion.
 - **Completed modules** (active tests passing):
   - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
-    - `Interface2D` tracks panel node layout: `ChebyshevLobatto`, `LegacyGaussLegendre`, or `Raw`.
-    - Chebyshev-Lobatto panels use explicit connectivity with shared adjacent
+    - `Interface2D` tracks panel node layout: `QuadraticLagrange`,
+      `LegacyGaussLegendre`, or `Raw`. `ChebyshevLobatto` remains a
+      source-compatible alias for the P2 quadratic layout.
+    - Quadratic Lagrange panels use explicit connectivity with shared adjacent
       endpoints, so a closed curve has `num_points() = 2*num_panels()`.
-    - `GridPair2D::domain_label()` uses oversampled curved-panel polygons for 3-point panels.
+    - `GridPair2D::domain_label()` uses nearest-sample local normals for P2
+      panels, with interface DOFs plus the shared four expansion-center samples
+      per panel. Raw/legacy polygon labeling remains available for fallback
+      paths.
+    - `GridPair2D::project_near_interface_nodes(radius)` returns cached P2
+      curve projections for narrow-band grid nodes. Each `CurveProjection2D`
+      stores the grid node, parent panel, component, local coordinate,
+      projected point, oriented normal, signed distance, distance, tangential
+      residual, Newton iteration count, and convergence flag. The Newton
+      initial guesses are the same four expansion-center locations per panel
+      used by the active 2D local Cauchy path.
+    - `GridPair2D::project_grid_nodes_to_interface(nodes)` projects an explicit
+      grid-node support set and caches lookup results for future 2D
+      projection-point transfer work.
   - Layer 0 3D additions:
     - `Interface3D` tracks panel node layout: `Raw` or `QuadraticLagrange`.
     - P2 triangular patches store explicit six-node connectivity
@@ -49,12 +66,15 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     - Current P2 domain labeling is local-normal based at the nearest curved
       surface sample, not a full CGAL inside/outside query on the curved
       tessellation.
-  - Layer 1: preferred Chebyshev-Lobatto transfer path:
-    - `LaplaceLobattoCenterSpread2D`
-    - `LaplaceLobattoCenterRestrict2D`
+  - Layer 1: preferred 2D P2 quadratic transfer path:
+    - `LaplaceQuadraticPanelCenterSpread2D`
+    - `LaplaceQuadraticPanelCenterRestrict2D`
+    - `LaplaceLobattoCenterSpread2D` and `LaplaceLobattoCenterRestrict2D`
+      remain source-compatible aliases.
   - Layer 1.5: `LaplacePanelCauchySolver2D`
     - Legacy Gauss Cauchy solve at the three panel points remains for archived/reference paths.
-    - Chebyshev-Lobatto Cauchy solve at four generated expansion centers per panel, `s={-0.75,-0.25,0.25,0.75}`.
+    - Quadratic Lagrange/P2 Cauchy solve at four generated expansion centers
+      per panel, `s={-0.75,-0.25,0.25,0.75}`.
     - Current collocation offset is `0.05`.
   - Layer 2: `LaplaceFftBulkSolverZfft2D` (DST, Dirichlet BC, optional screened shift)
   - Layer 3: `IKFBIOperator`, implemented directly by active Laplace problem
@@ -87,10 +107,16 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
       solution plus averaged trace/flux, matching the 2D potential-evaluation
       convention. It also exposes `eval_layer_combination(phi, psi)`.
   - Layer 4: GMRES outer solver
+  - Public API boundary:
+    - `include/kfbim/kfbim.hpp` includes focused forwarding headers for grid,
+      interface, geometry, potentials, and Laplace operators.
+    - `kfbim_core` has CMake install/export rules. Existing `src/...` includes
+      still work during the transition.
   - Layer 5: 2D Laplace BVP API
     - `LaplaceBvp2D`
     - Solves `-Delta u + eta*u = f` in the selected interior/exterior domain.
-    - Default panel method is `ChebyshevLobattoCenter`.
+    - Default panel method is `QuadraticPanelCenter`.
+      `ChebyshevLobattoCenter` remains a source-compatible alias.
     - Interior Neumann uses an unweighted mean-zero vector projection only for
       the pure Laplace nullspace case `eta=0`; screened cases do not project.
   - Layer 5: 3D Laplace BVP API
@@ -115,14 +141,20 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     - `LaplaceTransmission3D` mirrors the 2D common-ratio and different-ratio
       density layouts on the 3D P2 potential pipeline.
 - **Recent implementation notes:**
-  - Chebyshev-Lobatto panel/expansion-center path is implemented and verified.
+  - 2D P2 quadratic panel/expansion-center path is implemented and verified.
+    Old Chebyshev-Lobatto names are compatibility aliases.
+  - `GridPair2D` uses the same four P2 center samples per panel as the active
+    2D expansion-center correction path, plus interface DOF nodes, for its
+    nearest-sample kd-tree.
+  - The unused 2D P2 projection service is implemented for future
+    projection-point correction work and mirrors the 3D projection-cache shape.
   - Gauss-point restrictor/problem-wrapper paths were removed from active code.
   - Archived component tests include direct D/S/N jump-relation coverage for
     `LaplacePotentialEval2D`.
   - Active convergence tests use the same off-center 3-fold star convention:
-    center `(0.07,-0.04)`, Chebyshev-Lobatto panels, outer box from sampled
-    interface bounds plus margin, target adjacent Chebyshev-node spacing
-    `1.5h`, and `panel_length/h = 3.0`.
+    center `(0.07,-0.04)`, P2 quadratic panels, outer box from sampled
+    interface bounds plus margin, target adjacent P2-node spacing `1.5h`, and
+    `panel_length/h = 3.0`.
   - `tests/test_interface.cpp` solves a direct prescribed-jump constant-
     coefficient screened interface problem using `LaplacePotentialEval2D`;
     it reports `GMRES=0` because there is no outer Krylov solve.
@@ -135,6 +167,10 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - `tests/test_transmission_periodic_2d.cpp` covers
     `LaplaceTransmission2D::CommonRatio` on a cell-centered bi-periodic unit
     square with periodic trigonometric manufactured solutions.
+  - `tests/test_projection_2d.cpp` covers 2D P2 naming aliases, the shared
+    four-center sample set, and `GridPair2D` P2 projection lookup behavior.
+  - `KFBIM_PROFILE_INTERFACE_2D=1 build/tests/test_interface -s` reports
+    coarse per-component timings plus `GridPair2D` sample counts.
   - `tests/test_interface_3d.cpp` covers the direct prescribed-jump screened
     3D interface problem on a unit P2 sphere centered at the origin in
     `(-1.5,1.5)^3`, with `eta=1.1`, 16 expansion centers per parent triangle,
@@ -184,6 +220,18 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     `notes/math.md`, `notes/theory.md`, `notes/parallel_plan.md`, and
     `notes/stokes.pdf`.
 - **Current convergence test status:**
+  - 2026-05-08 staged organization refactor and 2D P2 unification:
+    - `cmake -B build`
+    - `cmake --build build`
+    - `build/tests/test_projection_2d -s`
+    - `build/tests/test_projection_3d`
+    - `build/tests/test_refactor_utilities`
+    - `build/tests/test_interface -s`
+    - `build/tests/test_bvp`
+    - `build/tests/test_transmission`
+    - `build/tests/test_transmission_periodic_2d`
+    - `KFBIM_PROFILE_INTERFACE_3D=1 KFBIM_INTERFACE_3D_MAX_N=64 build/tests/test_interface_3d -s`
+    - `git diff --check`
   - 2026-05-07 3D P2 projection geometry:
     - `cmake --build build`
     - `build/tests/test_projection_3d`
@@ -216,16 +264,18 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - Earlier 2026-05-05 smoke runs also verified `build/tests/test_bvp_3d -s`
     before the final 3D ratio update.
 
-## Next Agent Handoff — Post 3D Laplace Wrappers
+## Next Agent Handoff — Post 2D/3D P2 Refactor
 
 The 3D scalar Laplace wrappers now exist. When resuming this project, preserve
 the 2D public API and the verified 3D P2 potential conventions while improving
 coverage, runtime, and numerical robustness.
 
 1. **Keep the foundation stable first.**
-   - Preserve `LaplaceBvp2D` behavior and the default `ChebyshevLobattoCenter`
-     panel method.
-   - Keep the active 2D Laplace path on Chebyshev-Lobatto panels.
+   - Preserve `LaplaceBvp2D` behavior and the default
+     `QuadraticPanelCenter` panel method.
+   - Keep the active 2D Laplace path on P2 quadratic panels.
+   - Keep old Chebyshev-Lobatto method and transfer names working as
+     source-compatible aliases.
    - Preserve the 3D P2 convention: `PanelNodeLayout3D::QuadraticLagrange`,
      six-node shared triangular patches, 16 expansion centers per parent
      triangle, and target P2 `node_spacing/h ~= 1.5`.
@@ -262,24 +312,26 @@ coverage, runtime, and numerical robustness.
 
 ### Preferred 2D panel method
 
-Use Chebyshev-Lobatto panels for new 2D Laplace work.
+Use P2 quadratic Lagrange panels for new 2D Laplace work.
 
 - Geometry/DOF nodes per panel: `s={-1,0,1}`.
 - Adjacent panels share endpoint DOFs. For a closed curve with `Np` panels,
   the unknown/vector length is `2*Np`: `Np` shared endpoints plus `Np` panel
   midpoints.
 - Correction expansion centers per panel: `s={-0.75,-0.25,0.25,0.75}`.
-- `CurveResampler2D::discretize()` now returns Chebyshev-Lobatto panels.
-- Current active convergence tests set target adjacent Chebyshev-node spacing
-  over grid spacing to `1.5`, so `panel_length/h = 3.0`.
-- `LaplaceBvp2D` defaults to `LaplaceBvpPanelMethod2D::ChebyshevLobattoCenter`.
+- `CurveResampler2D::discretize()` now returns P2 quadratic panels.
+- Current active convergence tests set target adjacent P2-node spacing over
+  grid spacing to `1.5`, so `panel_length/h = 3.0`.
+- `LaplaceBvp2D` defaults to `LaplaceBvpPanelMethod2D::QuadraticPanelCenter`.
+- `ChebyshevLobatto`, `ChebyshevLobattoCenter`, and old Lobatto transfer class
+  names are compatibility aliases.
 - Legacy Gauss comparison code belongs in `tests/archive/`, not active problem wrappers.
 
 ### Latest convergence snapshot
 
 The active 2D tests use the same off-center 3-fold star and target adjacent
-Chebyshev-node spacing/h of `1.5` (`panel_length/h = 3.0`). Active 3D sphere
-tests target P2 node spacing/h of about `1.5`.
+P2-node spacing/h of `1.5` (`panel_length/h = 3.0`). Active 3D sphere tests
+target P2 node spacing/h of about `1.5`.
 
 `test_interface`, direct prescribed-jump screened interface problem,
 `eta=1.1`, homogeneous outer Cartesian Dirichlet data:
@@ -287,10 +339,10 @@ tests target P2 node spacing/h of about `1.5`.
 | N | max err | order | GMRES |
 |---:|--------:|------:|------:|
 | 32 | 2.8477e-03 | - | 0 |
-| 64 | 6.0155e-04 | 2.243 | 0 |
-| 128 | 1.5419e-04 | 1.964 | 0 |
-| 256 | 3.6192e-05 | 2.091 | 0 |
-| 512 | 9.5274e-06 | 1.926 | 0 |
+| 64 | 5.9548e-04 | 2.258 | 0 |
+| 128 | 1.5400e-04 | 1.951 | 0 |
+| 256 | 3.6164e-05 | 2.090 | 0 |
+| 512 | 9.5274e-06 | 1.924 | 0 |
 
 `test_interface_3d`, direct prescribed-jump screened 3D interface problem,
 unit P2 sphere centered at the origin in `(-1.5,1.5)^3`, `eta=1.1`, target P2
@@ -322,13 +374,13 @@ Opt-in projection-point comparison for the same benchmark, run with
 
 | BVP | N=32 | N=64 | N=128 | N=256 | N=512 |
 |-----|-----:|-----:|------:|------:|------:|
-| Interior Dirichlet error | 1.4467e-03 | 3.5812e-04 | 4.1393e-05 | 7.5059e-06 | 9.6317e-07 |
+| Interior Dirichlet error | 1.4467e-03 | 3.5814e-04 | 4.1393e-05 | 7.5058e-06 | 9.6317e-07 |
 | Interior Dirichlet GMRES | 13 | 12 | 10 | 10 | 8 |
 | Exterior Dirichlet error | 1.3045e-03 | 2.2355e-04 | 2.8239e-05 | 3.3656e-06 | 5.4422e-07 |
 | Exterior Dirichlet GMRES | 15 | 14 | 14 | 13 | 12 |
-| Interior Neumann error | 6.0970e-02 | 7.8588e-03 | 1.1521e-03 | 2.0021e-04 | 6.4093e-05 |
+| Interior Neumann error | 6.0970e-02 | 7.8158e-03 | 1.1384e-03 | 2.1466e-04 | 6.4093e-05 |
 | Interior Neumann GMRES | 14 | 13 | 12 | 11 | 11 |
-| Exterior Neumann error | 1.9263e-03 | 6.1171e-04 | 2.1360e-04 | 2.3042e-05 | 7.4770e-06 |
+| Exterior Neumann error | 1.9263e-03 | 6.1209e-04 | 2.1355e-04 | 2.3041e-05 | 7.4770e-06 |
 | Exterior Neumann GMRES | 11 | 10 | 10 | 9 | 9 |
 
 `test_transmission`, `LaplaceTransmission2D::CommonRatio`,
@@ -337,10 +389,10 @@ Opt-in projection-point comparison for the same benchmark, run with
 | N | max err | order | GMRES |
 |---:|--------:|------:|------:|
 | 32 | 8.6829e-04 | - | 8 |
-| 64 | 1.4075e-04 | 2.625 | 8 |
-| 128 | 3.8581e-05 | 1.867 | 7 |
-| 256 | 3.6765e-06 | 3.391 | 7 |
-| 512 | 1.2467e-06 | 1.560 | 7 |
+| 64 | 1.3892e-04 | 2.644 | 8 |
+| 128 | 3.8615e-05 | 1.847 | 7 |
+| 256 | 3.7075e-06 | 3.381 | 7 |
+| 512 | 1.2467e-06 | 1.572 | 7 |
 
 `test_transmission`, `LaplaceTransmission2D::DifferentRatios`,
 `beta_int=10`, `beta_ext=1`, `kappa_int^2=11`, `kappa_ext^2=0.7`:
@@ -348,10 +400,10 @@ Opt-in projection-point comparison for the same benchmark, run with
 | N | max err | order | GMRES |
 |---:|--------:|------:|------:|
 | 32 | 2.3241e-02 | - | 15 |
-| 64 | 2.9657e-03 | 2.970 | 14 |
-| 128 | 5.5521e-04 | 2.417 | 14 |
-| 256 | 1.1830e-04 | 2.231 | 13 |
-| 512 | 3.3862e-05 | 1.805 | 12 |
+| 64 | 2.9662e-03 | 2.970 | 14 |
+| 128 | 5.4755e-04 | 2.438 | 14 |
+| 256 | 1.2048e-04 | 2.184 | 13 |
+| 512 | 3.3862e-05 | 1.831 | 12 |
 
 `test_transmission_periodic_2d`, cell-centered bi-periodic unit square,
 `LaplaceTransmission2D::CommonRatio`, `beta_int=2`, `beta_ext=1`,
@@ -359,11 +411,11 @@ Opt-in projection-point comparison for the same benchmark, run with
 
 | N | max err | order | GMRES |
 |---:|--------:|------:|------:|
-| 32 | 3.4118e-02 | - | 8 |
-| 64 | 1.0923e-02 | 1.643 | 7 |
-| 128 | 1.8616e-03 | 2.553 | 7 |
-| 256 | 3.4085e-04 | 2.449 | 7 |
-| 512 | 8.3662e-05 | 2.026 | 7 |
+| 32 | 3.2251e-02 | - | 8 |
+| 64 | 1.1093e-02 | 1.540 | 7 |
+| 128 | 1.8616e-03 | 2.575 | 7 |
+| 256 | 3.5124e-04 | 2.406 | 7 |
+| 512 | 8.3662e-05 | 2.070 | 7 |
 
 `test_transmission_3d`, off-center P2 sphere, target P2
 `node_spacing/h ~= 1.5`, nonzero outer Cartesian Dirichlet data,
@@ -541,7 +593,7 @@ src/
   grid/           # CartesianGrid2D/3D, MACGrid2D/3D, DofLayout, grid interfaces
   interface/      # Interface2D, Interface3D and panel node-layout metadata
   geometry/       # Curve2D, CurveResampler2D, GridPair2D/3D
-  transfer/       # ISpread/IRestrict plus 2D Lobatto and 3D P2 Laplace spread/restrict
+  transfer/       # ISpread/IRestrict plus 2D and 3D P2 Laplace spread/restrict
   local_cauchy/   # Local Cauchy interfaces, jump data, 2D panel and 3D P2 patch solvers, local polynomials
   bulk_solvers/   # BulkSolver API, FFT/zFFT engines, Laplace FFT/zFFT solvers, IIM helpers
   potentials/     # LaplacePotentialEval2D/3D reusable potential pipelines
@@ -557,6 +609,7 @@ potential-building code should live in `src/potentials/`.
 Other repository paths:
 
 ```
+include/kfbim/    # public forwarding headers for current library API
 python/           # visualization/diagnostic scripts
 bindings/         # pybind11 wrappers (future)
 tests/            # active PDE convergence programs only

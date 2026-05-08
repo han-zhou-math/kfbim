@@ -3,6 +3,7 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include "../grid/structured_grid_ops.hpp"
 #include "../local_cauchy/laplace_panel_solver_2d.hpp"
 
 namespace kfbim {
@@ -10,12 +11,7 @@ namespace kfbim {
 namespace {
 
 bool is_outer_boundary_node(const CartesianGrid2D& grid, int idx) {
-    const auto dims = grid.dof_dims();
-    const int nx = dims[0];
-    const int ny = dims[1];
-    const int i = idx % nx;
-    const int j = idx / nx;
-    return i == 0 || i == nx - 1 || j == 0 || j == ny - 1;
+    return structured_grid::is_boundary_node(grid, idx);
 }
 
 int side_from_label(int label) {
@@ -23,20 +19,15 @@ int side_from_label(int label) {
 }
 
 double stencil_weight_for_neighbor(const CartesianGrid2D& grid, int neighbor_slot) {
-    const auto h = grid.spacing();
-    if (neighbor_slot == 0 || neighbor_slot == 1)
-        return 1.0 / (h[0] * h[0]);
-    return 1.0 / (h[1] * h[1]);
+    return structured_grid::stencil_weight_for_neighbor(grid, neighbor_slot);
 }
 
 Eigen::Vector2d node_coord(const CartesianGrid2D& grid, int idx) {
-    const auto c = grid.coord(idx);
-    return {c[0], c[1]};
+    return structured_grid::point(grid, idx);
 }
 
 double max_grid_spacing(const CartesianGrid2D& grid) {
-    const auto h = grid.spacing();
-    return std::max(h[0], h[1]);
+    return structured_grid::max_spacing(grid);
 }
 
 LocalPoly2D center_poly(const PanelCenterCauchyResult2D& cauchy, int idx) {
@@ -171,14 +162,14 @@ std::vector<LocalPoly2D> LaplacePanelSpread2D::apply(
     return polys;
 }
 
-LaplaceLobattoCenterSpread2D::LaplaceLobattoCenterSpread2D(
+LaplaceQuadraticPanelCenterSpread2D::LaplaceQuadraticPanelCenterSpread2D(
     const GridPair2D& grid_pair,
     double            kappa)
     : grid_pair_(grid_pair)
     , kappa_(kappa)
 {}
 
-std::vector<LocalPoly2D> LaplaceLobattoCenterSpread2D::apply(
+std::vector<LocalPoly2D> LaplaceQuadraticPanelCenterSpread2D::apply(
     const std::vector<LaplaceJumpData2D>& jumps,
     Eigen::VectorXd&                      rhs_correction) const
 {
@@ -188,27 +179,27 @@ std::vector<LocalPoly2D> LaplaceLobattoCenterSpread2D::apply(
     const int n_iface = iface.num_points();
 
     if (iface.points_per_panel() != 3)
-        throw std::invalid_argument("LaplaceLobattoCenterSpread2D requires 3 interface points per panel");
-    if (iface.panel_node_layout() != PanelNodeLayout2D::ChebyshevLobatto)
-        throw std::invalid_argument("LaplaceLobattoCenterSpread2D requires Chebyshev-Lobatto panel nodes");
+        throw std::invalid_argument("LaplaceQuadraticPanelCenterSpread2D requires 3 interface points per panel");
+    if (iface.panel_node_layout() != PanelNodeLayout2D::QuadraticLagrange)
+        throw std::invalid_argument("LaplaceQuadraticPanelCenterSpread2D requires P2 quadratic panel nodes");
     if (static_cast<int>(jumps.size()) != n_iface)
-        throw std::invalid_argument("LaplaceLobattoCenterSpread2D jumps size must equal interface point count");
+        throw std::invalid_argument("LaplaceQuadraticPanelCenterSpread2D jumps size must equal interface point count");
     if (rhs_correction.size() != n_grid)
-        throw std::invalid_argument("LaplaceLobattoCenterSpread2D rhs_correction size must equal grid DOF count");
+        throw std::invalid_argument("LaplaceQuadraticPanelCenterSpread2D rhs_correction size must equal grid DOF count");
 
     Eigen::VectorXd u_jump(n_iface);
     Eigen::VectorXd un_jump(n_iface);
     Eigen::VectorXd rhs_jump(n_iface);
     for (int q = 0; q < n_iface; ++q) {
         if (jumps[q].rhs_derivs.size() < 1)
-            throw std::invalid_argument("LaplaceLobattoCenterSpread2D requires rhs_derivs[0] at every interface point");
+            throw std::invalid_argument("LaplaceQuadraticPanelCenterSpread2D requires rhs_derivs[0] at every interface point");
         u_jump[q] = jumps[q].u_jump;
         un_jump[q] = jumps[q].un_jump;
         rhs_jump[q] = jumps[q].rhs_derivs[0];
     }
 
     const PanelCenterCauchyResult2D cauchy =
-        laplace_panel_lobatto_center_cauchy_2d(iface, u_jump, un_jump, rhs_jump, kappa_);
+        laplace_panel_quadratic_center_cauchy_2d(iface, u_jump, un_jump, rhs_jump, kappa_);
 
     std::vector<LocalPoly2D> center_polys(cauchy.centers.rows());
     for (int i = 0; i < cauchy.centers.rows(); ++i)

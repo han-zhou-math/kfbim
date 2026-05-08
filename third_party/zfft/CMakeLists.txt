@@ -5,6 +5,7 @@ add_library(zfft STATIC
 
 target_include_directories(zfft PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 # Optional OpenMP support
@@ -14,3 +15,14 @@ if(OpenMP_CXX_FOUND)
 endif()
 
 target_compile_features(zfft PUBLIC cxx_std_17)
+
+install(TARGETS zfft
+    EXPORT kfbimTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(DIRECTORY include/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)

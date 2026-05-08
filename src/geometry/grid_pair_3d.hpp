@@ -5,40 +5,9 @@
 #include <vector>
 #include "../grid/cartesian_grid_3d.hpp"
 #include "../interface/interface_3d.hpp"
+#include "p2_projection_3d.hpp"
 
 namespace kfbim {
-
-struct SurfaceProjection3D {
-    int             grid_node = -1;
-    int             panel = -1;
-    int             component = -1;
-    Eigen::Vector3d barycentric = Eigen::Vector3d::Zero();
-    Eigen::Vector3d point = Eigen::Vector3d::Zero();
-    Eigen::Vector3d normal = Eigen::Vector3d::Zero();
-    double          signed_distance = 0.0;
-    double          distance = 0.0;
-    double          tangential_residual = 0.0;
-    int             iterations = 0;
-    bool            converged = false;
-};
-
-class NarrowBandProjection3D {
-public:
-    double radius() const { return radius_; }
-    const std::vector<int>& nodes() const { return nodes_; }
-    const std::vector<SurfaceProjection3D>& projections() const { return projections_; }
-
-    bool has_projection(int bulk_node_idx) const;
-    const SurfaceProjection3D& projection(int bulk_node_idx) const;
-
-private:
-    friend class GridPair3D;
-
-    double radius_ = 0.0;
-    std::vector<int> nodes_;
-    std::vector<SurfaceProjection3D> projections_;
-    std::vector<int> projection_index_by_grid_node_;
-};
 
 // Owns the CGAL spatial structures relating a CartesianGrid3D and an Interface3D.
 // Built once at setup; queries are read-only after construction.

@@ -16,6 +16,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "../grid/structured_grid_ops.hpp"
 #include "laplace_projection_correction_3d.hpp"
 
 namespace kfbim {
@@ -42,14 +43,12 @@ Eigen::Vector3d interface_point(const Interface3D& iface, int q)
 
 Eigen::Vector3d grid_point(const CartesianGrid3D& grid, int idx)
 {
-    const auto c = grid.coord(idx);
-    return {c[0], c[1], c[2]};
+    return structured_grid::point(grid, idx);
 }
 
 double max_grid_spacing(const CartesianGrid3D& grid)
 {
-    const auto h = grid.spacing();
-    return std::max(h[0], std::max(h[1], h[2]));
+    return structured_grid::max_spacing(grid);
 }
 
 class NearestCenterFinder3D {
@@ -121,6 +120,101 @@ double seconds_since(ProfileClock::time_point start)
 
 } // namespace
 
+class LaplaceRestrictCorrectionEvaluator3D {
+public:
+    virtual ~LaplaceRestrictCorrectionEvaluator3D() = default;
+    virtual double half_correction(int grid_node, Eigen::Vector3d pt) const = 0;
+};
+
+namespace {
+
+class NearestExpansionCenterRestrictCorrectionEvaluator3D final
+    : public LaplaceRestrictCorrectionEvaluator3D {
+public:
+    NearestExpansionCenterRestrictCorrectionEvaluator3D(
+        const GridPair3D& grid_pair,
+        const LaplaceSpreadResult3D& spread_result,
+        double band_radius)
+        : correction_polys_(spread_result.correction_polys)
+        , nearest_center_for_node_(
+              build_nearest_center_map(grid_pair,
+                                       NearestCenterFinder3D(correction_polys_),
+                                       band_radius))
+    {}
+
+    double half_correction(int grid_node, Eigen::Vector3d pt) const override
+    {
+        const int center_idx =
+            nearest_center_for_grid_node(nearest_center_for_node_, grid_node);
+        return 0.5 * evaluate_taylor_poly_3d(correction_polys_[center_idx], pt);
+    }
+
+private:
+    const std::vector<LocalPoly3D>& correction_polys_;
+    std::vector<int> nearest_center_for_node_;
+};
+
+class ProjectionPointRestrictCorrectionEvaluator3D final
+    : public LaplaceRestrictCorrectionEvaluator3D {
+public:
+    ProjectionPointRestrictCorrectionEvaluator3D(
+        const GridPair3D& grid_pair,
+        const LaplaceSpreadResult3D& spread_result)
+        : grid_pair_(grid_pair)
+        , spread_result_(spread_result)
+        , projection_band_(spread_result.projection_cache)
+    {}
+
+    double half_correction(int grid_node, Eigen::Vector3d) const override
+    {
+        return 0.5 * evaluate_projection_point_correction_3d(grid_pair_,
+                                                             projection_band_,
+                                                             grid_node,
+                                                             spread_result_);
+    }
+
+private:
+    const GridPair3D& grid_pair_;
+    const LaplaceSpreadResult3D& spread_result_;
+    const NarrowBandProjection3D& projection_band_;
+};
+
+std::unique_ptr<LaplaceRestrictCorrectionEvaluator3D> make_restrict_correction_evaluator(
+    const GridPair3D& grid_pair,
+    const LaplaceSpreadResult3D& spread_result,
+    int expected_centers,
+    double band_radius)
+{
+    const auto& iface = grid_pair.interface();
+    if (spread_result.correction_method
+        == LaplaceCorrectionMethod3D::NearestExpansionCenter) {
+        if (static_cast<int>(spread_result.correction_polys.size())
+            != expected_centers) {
+            throw std::invalid_argument(
+                "LaplaceQuadraticPatchCenterRestrict3D correction_polys size must equal 16*num_panels");
+        }
+        return std::make_unique<NearestExpansionCenterRestrictCorrectionEvaluator3D>(
+            grid_pair, spread_result, band_radius);
+    }
+
+    if (spread_result.correction_method
+        == LaplaceCorrectionMethod3D::ProjectionPoint) {
+        require_projection_surface_data(iface, spread_result);
+        if (profile_projection_transfer_3d()) {
+            std::printf("      restrict projection_cache nodes=%zu projections=%zu\n",
+                        spread_result.projection_cache.nodes().size(),
+                        spread_result.projection_cache.projections().size());
+        }
+        return std::make_unique<ProjectionPointRestrictCorrectionEvaluator3D>(
+            grid_pair, spread_result);
+    }
+
+    throw std::invalid_argument(
+        "LaplaceQuadraticPatchCenterRestrict3D unsupported correction method");
+}
+
+} // namespace
+
 LaplaceQuadraticPatchCenterRestrict3D::LaplaceQuadraticPatchCenterRestrict3D(
     const GridPair3D& grid_pair,
     int               stencil_radius)
@@ -154,43 +248,18 @@ std::vector<LocalPoly3D> LaplaceQuadraticPatchCenterRestrict3D::apply(
     const double band_radius = (static_cast<double>(stencil_radius_) + 1.0)
                                * std::sqrt(3.0) * max_grid_spacing(grid);
 
-    std::vector<int> nearest_center_for_node;
-    const std::vector<int>* nearest_center_map = nullptr;
-    const NarrowBandProjection3D* projection_band_ptr = nullptr;
-
-    if (spread_result.correction_method
-        == LaplaceCorrectionMethod3D::NearestExpansionCenter) {
-        if (static_cast<int>(spread_result.correction_polys.size())
-            != expected_centers) {
-            throw std::invalid_argument(
-                "LaplaceQuadraticPatchCenterRestrict3D correction_polys size must equal 16*num_panels");
-        }
-        const NearestCenterFinder3D center_finder(spread_result.correction_polys);
-        nearest_center_for_node =
-            build_nearest_center_map(grid_pair_, center_finder, band_radius);
-        nearest_center_map = &nearest_center_for_node;
-    } else if (spread_result.correction_method
-               == LaplaceCorrectionMethod3D::ProjectionPoint) {
-        require_projection_surface_data(iface, spread_result);
-        projection_band_ptr = &spread_result.projection_cache;
-        if (profile_projection_transfer_3d()) {
-            std::printf("      restrict projection_cache nodes=%zu projections=%zu\n",
-                        projection_band_ptr->nodes().size(),
-                        projection_band_ptr->projections().size());
-        }
-    } else {
-        throw std::invalid_argument(
-            "LaplaceQuadraticPatchCenterRestrict3D unsupported correction method");
-    }
+    const auto correction_evaluator =
+        make_restrict_correction_evaluator(grid_pair_,
+                                           spread_result,
+                                           expected_centers,
+                                           band_radius);
 
     const ProfileClock::time_point fit_start = ProfileClock::now();
     std::vector<LocalPoly3D> result(n_iface);
     for (int q = 0; q < n_iface; ++q) {
         result[q] = fit_at_interface_point(bulk_solution,
                                            q,
-                                           spread_result,
-                                           nearest_center_map,
-                                           projection_band_ptr);
+                                           *correction_evaluator);
     }
     const double t_fit = seconds_since(fit_start);
     if (profile_projection_transfer_3d()) {
@@ -204,11 +273,9 @@ std::vector<LocalPoly3D> LaplaceQuadraticPatchCenterRestrict3D::apply(
 }
 
 LocalPoly3D LaplaceQuadraticPatchCenterRestrict3D::fit_at_interface_point(
-    const Eigen::VectorXd&        bulk_solution,
-    int                           q,
-    const LaplaceSpreadResult3D&  spread_result,
-    const std::vector<int>*       nearest_center_for_grid_node_map,
-    const NarrowBandProjection3D* projection_band) const
+    const Eigen::VectorXd&                      bulk_solution,
+    int                                         q,
+    const LaplaceRestrictCorrectionEvaluator3D& correction_evaluator) const
 {
     const auto& grid = grid_pair_.grid();
     const auto& iface = grid_pair_.interface();
@@ -282,34 +349,8 @@ LocalPoly3D LaplaceQuadraticPatchCenterRestrict3D::fit_at_interface_point(
         A(r, 9) = 0.5 * dz * dz;
 
         double val = bulk_solution[idx];
-        double correction = 0.0;
-        if (spread_result.correction_method
-            == LaplaceCorrectionMethod3D::NearestExpansionCenter) {
-            if (nearest_center_for_grid_node_map == nullptr) {
-                throw std::runtime_error(
-                    "LaplaceQuadraticPatchCenterRestrict3D missing nearest-center map");
-            }
-            const int center_idx =
-                nearest_center_for_grid_node(*nearest_center_for_grid_node_map,
-                                             idx);
-            correction =
-                0.5 * evaluate_taylor_poly_3d(
-                    spread_result.correction_polys[center_idx], pt);
-        } else if (spread_result.correction_method
-                   == LaplaceCorrectionMethod3D::ProjectionPoint) {
-            if (projection_band == nullptr) {
-                throw std::runtime_error(
-                    "LaplaceQuadraticPatchCenterRestrict3D missing projection band");
-            }
-            correction =
-                0.5 * evaluate_projection_point_correction_3d(grid_pair_,
-                                                              *projection_band,
-                                                              idx,
-                                                              spread_result);
-        } else {
-            throw std::invalid_argument(
-                "LaplaceQuadraticPatchCenterRestrict3D unsupported correction method");
-        }
+        const double correction =
+            correction_evaluator.half_correction(idx, pt);
         if (grid_pair_.domain_label(idx) == 0)
             val += correction;
         else

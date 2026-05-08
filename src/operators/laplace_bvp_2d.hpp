@@ -24,15 +24,16 @@ enum class LaplaceBvpType2D {
 };
 
 enum class LaplaceBvpPanelMethod2D {
-    ChebyshevLobattoCenter,
+    QuadraticPanelCenter,
 
-    // Backward-compatible alias for older Lobatto call sites.
-    LobattoCenter = ChebyshevLobattoCenter
+    // Backward-compatible aliases for older active 2D call sites.
+    ChebyshevLobattoCenter = QuadraticPanelCenter,
+    LobattoCenter = QuadraticPanelCenter
 };
 
 struct LaplaceBvpOptions2D {
     LaplaceBvpPanelMethod2D panel_method =
-        LaplaceBvpPanelMethod2D::ChebyshevLobattoCenter;
+        LaplaceBvpPanelMethod2D::QuadraticPanelCenter;
     double eta = 0.0;
     Eigen::VectorXd outer_dirichlet_values;
 };

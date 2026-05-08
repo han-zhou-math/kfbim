@@ -5,7 +5,7 @@
 namespace kfbim {
 
 // ---------------------------------------------------------------------------
-// Restrict companion for LaplaceLobattoCenterSpread2D.
+// Restrict companion for LaplaceQuadraticPanelCenterSpread2D.
 //
 // The incoming correction_polys are expansion-center Taylor polynomials, not
 // interface-point polynomials.  Grid samples in each local restrict stencil
@@ -13,10 +13,11 @@ namespace kfbim {
 // interior samples subtract C/2, exterior samples add C/2.
 // ---------------------------------------------------------------------------
 
-class LaplaceLobattoCenterRestrict2D final : public ILaplaceRestrict2D {
+class LaplaceQuadraticPanelCenterRestrict2D final : public ILaplaceRestrict2D {
 public:
-    explicit LaplaceLobattoCenterRestrict2D(const GridPair2D& grid_pair,
-                                            int               stencil_radius = 2);
+    explicit LaplaceQuadraticPanelCenterRestrict2D(
+        const GridPair2D& grid_pair,
+        int               stencil_radius = 2);
 
     std::vector<LocalPoly2D> apply(
         const Eigen::VectorXd&          bulk_solution,
@@ -34,5 +35,7 @@ private:
     const GridPair2D& grid_pair_;
     int               stencil_radius_;
 };
+
+using LaplaceLobattoCenterRestrict2D = LaplaceQuadraticPanelCenterRestrict2D;
 
 } // namespace kfbim

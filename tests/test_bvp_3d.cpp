@@ -11,9 +11,9 @@
 #include <vector>
 
 #include "p2_sphere_fixture_3d.hpp"
-#include "src/geometry/grid_pair_3d.hpp"
-#include "src/grid/cartesian_grid_3d.hpp"
-#include "src/operators/laplace_bvp_3d.hpp"
+#include "kfbim/geometry.hpp"
+#include "kfbim/grid.hpp"
+#include "kfbim/laplace.hpp"
 
 using namespace kfbim;
 using namespace kfbim_test_3d;
