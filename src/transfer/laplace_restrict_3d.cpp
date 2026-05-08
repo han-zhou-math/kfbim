@@ -7,6 +7,7 @@
 #include <CGAL/property_map.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -263,7 +264,7 @@ std::vector<LocalPoly3D> LaplaceQuadraticPatchCenterRestrict3D::apply(
     }
     const double t_fit = seconds_since(fit_start);
     if (profile_projection_transfer_3d()) {
-        std::printf("      restrict fit iface=%d stencil_radius=%d fit %.3fs\n",
+        std::printf("      restrict fit iface=%d cache_radius=%d fit %.3fs\n",
                     n_iface,
                     stencil_radius_,
                     t_fit);
@@ -279,60 +280,19 @@ LocalPoly3D LaplaceQuadraticPatchCenterRestrict3D::fit_at_interface_point(
 {
     const auto& grid = grid_pair_.grid();
     const auto& iface = grid_pair_.interface();
-    const auto dims = grid.dof_dims();
-    const int nx = dims[0];
-    const int ny = dims[1];
-    const int nz = dims[2];
-    const int nxy = nx * ny;
-
     const int closest = grid_pair_.closest_bulk_node(q);
-    const int kc = closest / nxy;
-    const int rem = closest % nxy;
-    const int jc = rem / nx;
-    const int ic = rem % nx;
-
-    struct Sample {
-        int idx;
-        double dist2;
-    };
-    std::vector<Sample> samples;
-    const int width = 2 * stencil_radius_ + 1;
-    samples.reserve(width * width * width);
-
     const Eigen::Vector3d center = interface_point(iface, q);
-    for (int k = std::max(0, kc - stencil_radius_);
-         k <= std::min(nz - 1, kc + stencil_radius_);
-         ++k) {
-        for (int j = std::max(0, jc - stencil_radius_);
-             j <= std::min(ny - 1, jc + stencil_radius_);
-             ++j) {
-            for (int i = std::max(0, ic - stencil_radius_);
-                 i <= std::min(nx - 1, ic + stencil_radius_);
-                 ++i) {
-                const int idx = grid.index(i, j, k);
-                const Eigen::Vector3d pt = grid_point(grid, idx);
-                samples.push_back({idx, (pt - center).squaredNorm()});
-            }
-        }
-    }
+    const std::array<int, 10> stencil_nodes =
+        structured_grid::quadratic_restrict_stencil_nodes_3d(
+            "LaplaceQuadraticPatchCenterRestrict3D",
+            grid,
+            closest,
+            center);
 
-    if (samples.size() < 10) {
-        throw std::runtime_error(
-            "LaplaceQuadraticPatchCenterRestrict3D needs at least 10 stencil samples");
-    }
-
-    std::sort(samples.begin(), samples.end(),
-              [](const Sample& a, const Sample& b) {
-                  if (a.dist2 == b.dist2)
-                      return a.idx < b.idx;
-                  return a.dist2 < b.dist2;
-              });
-
-    const int n_rows = static_cast<int>(samples.size());
-    Eigen::MatrixXd A(n_rows, 10);
-    Eigen::VectorXd rhs(n_rows);
-    for (int r = 0; r < n_rows; ++r) {
-        const int idx = samples[r].idx;
+    Eigen::Matrix<double, 10, 10> A;
+    Eigen::Matrix<double, 10, 1> rhs;
+    for (int r = 0; r < static_cast<int>(stencil_nodes.size()); ++r) {
+        const int idx = stencil_nodes[r];
         const Eigen::Vector3d pt = grid_point(grid, idx);
         const double dx = pt[0] - center[0];
         const double dy = pt[1] - center[1];
@@ -358,9 +318,15 @@ LocalPoly3D LaplaceQuadraticPatchCenterRestrict3D::fit_at_interface_point(
         rhs[r] = val;
     }
 
+    Eigen::FullPivLU<Eigen::Matrix<double, 10, 10>> lu(A);
+    if (!lu.isInvertible()) {
+        throw std::runtime_error(
+            "LaplaceQuadraticPatchCenterRestrict3D singular fixed quadratic interpolation stencil");
+    }
+
     LocalPoly3D poly;
     poly.center = center;
-    poly.coeffs = A.colPivHouseholderQr().solve(rhs);
+    poly.coeffs = lu.solve(rhs);
     return poly;
 }
 

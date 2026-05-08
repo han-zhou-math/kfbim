@@ -17,8 +17,9 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   narrow-band projection geometry, and the 2026-05-07 projection-point
   correction prototype. It also reflects the 2026-05-08 staged organization
   refactor, public forwarding headers, shared grid/operator utilities, 2D/3D
-  P2 projection split, and 2D P2 geometry/center-sampling unification. The
-  default 3D correction path remains nearest expansion-center expansion.
+  P2 projection split, 2D P2 geometry/center-sampling unification, and fixed
+  square 2D/3D restrict stencils. The default 3D correction path remains
+  nearest expansion-center expansion.
 - **Completed modules** (active tests passing):
   - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
     - `Interface2D` tracks panel node layout: `QuadraticLagrange`,
@@ -69,6 +70,10 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - Layer 1: preferred 2D P2 quadratic transfer path:
     - `LaplaceQuadraticPanelCenterSpread2D`
     - `LaplaceQuadraticPanelCenterRestrict2D`
+    - 2D restrict interpolation uses the fixed square six-node quadratic
+      stencil around the nearest grid node:
+      `(i,j)`, `(i+d1,j)`, `(i,j+d2)`, `(i+d1,j+d2)`,
+      `(i-d1,j)`, `(i,j-d2)`, with `d* = (x* > x*_i) ? 1 : -1`.
     - `LaplaceLobattoCenterSpread2D` and `LaplaceLobattoCenterRestrict2D`
       remain source-compatible aliases.
   - Layer 1.5: `LaplacePanelCauchySolver2D`
@@ -99,6 +104,10 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
       `LaplaceQuadraticPatchCenterRestrict3D` implement the current transfer
       path for P2 triangular patches. The default correction method is
       `LaplaceCorrectionMethod3D::NearestExpansionCenter`.
+      3D restrict interpolation uses the fixed square ten-node quadratic
+      stencil matching `third_party/old-codes/Stencil.h::get3DStencil_10`;
+      the `restrict_stencil_radius` option is now a compatibility/cache-radius
+      parameter, not an interpolation stencil-size control.
       `LaplaceCorrectionMethod3D::ProjectionPoint` is implemented as an
       opt-in method that evaluates `C(x)` from projected P2 surface data and
       precomputes only grid nodes needed by crossing stencil edges and the
@@ -148,6 +157,9 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     nearest-sample kd-tree.
   - The unused 2D P2 projection service is implemented for future
     projection-point correction work and mirrors the 3D projection-cache shape.
+  - Active 2D/3D restrict interpolation now uses square 6x6/10x10 quadratic
+    interpolation systems from fixed grid stencils; no local least-squares
+    restrict fallback remains.
   - Gauss-point restrictor/problem-wrapper paths were removed from active code.
   - Archived component tests include direct D/S/N jump-relation coverage for
     `LaplacePotentialEval2D`.
@@ -220,6 +232,22 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     `notes/math.md`, `notes/theory.md`, `notes/parallel_plan.md`, and
     `notes/stokes.pdf`.
 - **Current convergence test status:**
+  - 2026-05-08 fixed square restrict-stencil update:
+    - `cmake --build build`
+    - `build/tests/test_refactor_utilities`
+    - `build/tests/test_projection_2d -s`
+    - `build/tests/test_projection_3d`
+    - PDE-only timed sweep:
+      - `/usr/bin/time -p build/tests/test_interface -s`
+      - `/usr/bin/time -p build/tests/test_bvp -s`
+      - `/usr/bin/time -p build/tests/test_transmission -s`
+      - `/usr/bin/time -p build/tests/test_transmission_periodic_2d -s`
+      - `/usr/bin/time -p build/tests/test_interface_3d -s`
+      - `/usr/bin/time -p build/tests/test_bvp_3d -s`
+      - `/usr/bin/time -p build/tests/test_transmission_3d -s`
+      - `/usr/bin/time -p build/tests/test_transmission_ellipsoid_3d -s`
+      - `/usr/bin/time -p build/tests/test_transmission_torus_3d -s`
+    - `git diff --check`
   - 2026-05-08 staged organization refactor and 2D P2 unification:
     - `cmake -B build`
     - `cmake --build build`
@@ -333,6 +361,27 @@ The active 2D tests use the same off-center 3-fold star and target adjacent
 P2-node spacing/h of `1.5` (`panel_length/h = 3.0`). Active 3D sphere tests
 target P2 node spacing/h of about `1.5`.
 
+2026-05-08 PDE-only wall times after the fixed square restrict-stencil update:
+
+| Group | Tests | total wall time |
+|-------|------:|----------------:|
+| 2D PDE tests | 4 | 690.08s |
+| 3D PDE tests | 5 | 398.81s |
+
+Per-executable wall times:
+
+| executable | wall time |
+|------------|----------:|
+| `test_interface -s` | 8.99s |
+| `test_bvp -s` | 365.72s |
+| `test_transmission -s` | 278.29s |
+| `test_transmission_periodic_2d -s` | 37.08s |
+| `test_interface_3d -s` | 110.34s |
+| `test_bvp_3d -s` | 177.36s |
+| `test_transmission_3d -s` | 54.16s |
+| `test_transmission_ellipsoid_3d -s` | 40.15s |
+| `test_transmission_torus_3d -s` | 16.80s |
+
 `test_interface`, direct prescribed-jump screened interface problem,
 `eta=1.1`, homogeneous outer Cartesian Dirichlet data:
 
@@ -358,52 +407,55 @@ unit P2 sphere centered at the origin in `(-1.5,1.5)^3`, `eta=1.1`, target P2
 | 64 | 800 | 1602 | 5.9520e-04 | 2.769 | 0 |
 | 128 | 3200 | 6402 | 1.0797e-04 | 2.463 | 0 |
 
-Opt-in projection-point comparison for the same benchmark, run with
-`KFBIM_INTERFACE_3D_CORRECTION=projection`:
-
-| N | panels | iface pts | max err | order | GMRES |
-|---:|------:|----------:|--------:|------:|------:|
-| 4 | 32 | 66 | 1.4263e-01 | - | 0 |
-| 8 | 32 | 66 | 3.8229e-02 | 1.900 | 0 |
-| 16 | 72 | 146 | 2.4709e-02 | 0.630 | 0 |
-| 32 | 200 | 402 | 3.8377e-03 | 2.687 | 0 |
-| 64 | 800 | 1602 | 1.0306e-03 | 1.897 | 0 |
-| 128 | 3200 | 6402 | 3.2323e-04 | 1.673 | 0 |
-
 `test_bvp`, all four screened `LaplaceBvp2D` modes, `eta=1.1`:
 
 | BVP | N=32 | N=64 | N=128 | N=256 | N=512 |
 |-----|-----:|-----:|------:|------:|------:|
-| Interior Dirichlet error | 1.4467e-03 | 3.5814e-04 | 4.1393e-05 | 7.5058e-06 | 9.6317e-07 |
-| Interior Dirichlet GMRES | 13 | 12 | 10 | 10 | 8 |
-| Exterior Dirichlet error | 1.3045e-03 | 2.2355e-04 | 2.8239e-05 | 3.3656e-06 | 5.4422e-07 |
-| Exterior Dirichlet GMRES | 15 | 14 | 14 | 13 | 12 |
-| Interior Neumann error | 6.0970e-02 | 7.8158e-03 | 1.1384e-03 | 2.1466e-04 | 6.4093e-05 |
-| Interior Neumann GMRES | 14 | 13 | 12 | 11 | 11 |
-| Exterior Neumann error | 1.9263e-03 | 6.1209e-04 | 2.1355e-04 | 2.3041e-05 | 7.4770e-06 |
-| Exterior Neumann GMRES | 11 | 10 | 10 | 9 | 9 |
+| Interior Dirichlet error | 4.2920e-04 | 1.2809e-04 | 1.9254e-05 | 2.4861e-06 | 2.3654e-07 |
+| Interior Dirichlet GMRES | 12 | 11 | 13 | 11 | 10 |
+| Exterior Dirichlet error | 1.8580e-04 | 3.6424e-05 | 6.5979e-06 | 4.5645e-07 | 1.3168e-07 |
+| Exterior Dirichlet GMRES | 15 | 15 | 14 | 13 | 12 |
+| Interior Neumann error | 2.9581e-02 | 5.9596e-03 | 2.6799e-04 | 1.5751e-04 | 1.9894e-05 |
+| Interior Neumann GMRES | 11 | 11 | 11 | 10 | 10 |
+| Exterior Neumann error | 6.4472e-04 | 4.5593e-04 | 6.2434e-05 | 9.5711e-06 | 4.4865e-06 |
+| Exterior Neumann GMRES | 9 | 9 | 9 | 9 | 9 |
+
+`test_bvp_3d`, all four screened `LaplaceBvp3D` modes on the off-center P2
+sphere, `eta=1.1`. Default sweep omits `N=128`; set `KFBIM_HIGH_RES_3D=1`
+for the high-resolution level.
+
+| BVP | N=8 | N=16 | N=32 | N=64 |
+|-----|----:|-----:|-----:|-----:|
+| Interior Dirichlet error | 1.7543e-01 | 3.5501e-03 | 4.2439e-04 | 4.7665e-05 |
+| Interior Dirichlet GMRES | 24 | 11 | 12 | 10 |
+| Exterior Dirichlet error | 3.0181e-04 | 2.0931e-04 | 2.0338e-05 | 2.7920e-06 |
+| Exterior Dirichlet GMRES | 33 | 16 | 15 | 14 |
+| Interior Neumann error | 3.0786e-01 | 1.5692e-01 | 2.9862e-02 | 5.7126e-03 |
+| Interior Neumann GMRES | 13 | 12 | 11 | 11 |
+| Exterior Neumann error | 1.1832e-03 | 1.0794e-03 | 1.0129e-04 | 1.6576e-05 |
+| Exterior Neumann GMRES | 11 | 9 | 8 | 8 |
 
 `test_transmission`, `LaplaceTransmission2D::CommonRatio`,
 `beta_int=2`, `beta_ext=1`, `lambda^2=1.1`:
 
 | N | max err | order | GMRES |
 |---:|--------:|------:|------:|
-| 32 | 8.6829e-04 | - | 8 |
-| 64 | 1.3892e-04 | 2.644 | 8 |
-| 128 | 3.8615e-05 | 1.847 | 7 |
-| 256 | 3.7075e-06 | 3.381 | 7 |
-| 512 | 1.2467e-06 | 1.572 | 7 |
+| 32 | 8.0911e-04 | - | 7 |
+| 64 | 1.2733e-04 | 2.668 | 7 |
+| 128 | 3.3576e-05 | 1.923 | 7 |
+| 256 | 4.6563e-06 | 2.850 | 7 |
+| 512 | 6.1465e-07 | 2.921 | 7 |
 
 `test_transmission`, `LaplaceTransmission2D::DifferentRatios`,
 `beta_int=10`, `beta_ext=1`, `kappa_int^2=11`, `kappa_ext^2=0.7`:
 
 | N | max err | order | GMRES |
 |---:|--------:|------:|------:|
-| 32 | 2.3241e-02 | - | 15 |
-| 64 | 2.9662e-03 | 2.970 | 14 |
-| 128 | 5.4755e-04 | 2.438 | 14 |
-| 256 | 1.2048e-04 | 2.184 | 13 |
-| 512 | 3.3862e-05 | 1.831 | 12 |
+| 32 | 1.2074e-02 | - | 14 |
+| 64 | 1.9864e-03 | 2.604 | 14 |
+| 128 | 3.4135e-04 | 2.541 | 13 |
+| 256 | 7.8671e-05 | 2.117 | 13 |
+| 512 | 7.7845e-06 | 3.337 | 13 |
 
 `test_transmission_periodic_2d`, cell-centered bi-periodic unit square,
 `LaplaceTransmission2D::CommonRatio`, `beta_int=2`, `beta_ext=1`,
@@ -411,11 +463,11 @@ Opt-in projection-point comparison for the same benchmark, run with
 
 | N | max err | order | GMRES |
 |---:|--------:|------:|------:|
-| 32 | 3.2251e-02 | - | 8 |
-| 64 | 1.1093e-02 | 1.540 | 7 |
-| 128 | 1.8616e-03 | 2.575 | 7 |
-| 256 | 3.5124e-04 | 2.406 | 7 |
-| 512 | 8.3662e-05 | 2.070 | 7 |
+| 32 | 8.7480e-03 | - | 7 |
+| 64 | 6.1925e-03 | 0.498 | 7 |
+| 128 | 8.1011e-04 | 2.934 | 7 |
+| 256 | 1.6413e-04 | 2.303 | 7 |
+| 512 | 1.2845e-05 | 3.676 | 7 |
 
 `test_transmission_3d`, off-center P2 sphere, target P2
 `node_spacing/h ~= 1.5`, nonzero outer Cartesian Dirichlet data,
@@ -424,10 +476,10 @@ Opt-in projection-point comparison for the same benchmark, run with
 
 | N | panels | iface pts | max err | order | GMRES |
 |---:|------:|----------:|--------:|------:|------:|
-| 8 | 32 | 66 | 1.0276e-01 | - | 6 |
-| 16 | 32 | 66 | 5.3546e-04 | 7.584 | 7 |
-| 32 | 128 | 258 | 1.2529e-04 | 2.095 | 7 |
-| 64 | 512 | 1026 | 2.0131e-05 | 2.638 | 6 |
+| 8 | 32 | 66 | 1.0010e-03 | - | 8 |
+| 16 | 32 | 66 | 7.0723e-04 | 0.501 | 7 |
+| 32 | 128 | 258 | 1.1544e-04 | 2.615 | 6 |
+| 64 | 512 | 1026 | 1.2939e-05 | 3.157 | 6 |
 
 `test_transmission_3d`, off-center P2 sphere, target P2
 `node_spacing/h ~= 1.5`, nonzero outer Cartesian Dirichlet data,
@@ -436,9 +488,9 @@ Opt-in projection-point comparison for the same benchmark, run with
 
 | N | panels | iface pts | max err | order | GMRES |
 |---:|------:|----------:|--------:|------:|------:|
-| 8 | 32 | 66 | 2.4244e-01 | - | 18 |
-| 16 | 32 | 66 | 1.0968e-01 | 1.144 | 12 |
-| 32 | 128 | 258 | 2.2487e-02 | 2.286 | 12 |
+| 8 | 32 | 66 | 1.0234e-01 | - | 21 |
+| 16 | 32 | 66 | 5.5583e-02 | 0.881 | 14 |
+| 32 | 128 | 258 | 9.3583e-03 | 2.570 | 13 |
 
 `test_transmission_ellipsoid_3d`, off-center P2 triaxial ellipsoid with axes
 `(0.61,0.49,0.41)`, target P2 `node_spacing/h ~= 1.5`, nonzero outer
@@ -447,10 +499,10 @@ Cartesian Dirichlet data, `LaplaceTransmission3D::CommonRatio`, `beta_int=2`,
 
 | N | panels | iface pts | max err | order | GMRES |
 |---:|------:|----------:|--------:|------:|------:|
-| 8 | 32 | 66 | 7.3221e-02 | - | 6 |
-| 16 | 32 | 66 | 1.0823e-03 | 6.080 | 7 |
-| 32 | 200 | 402 | 1.1836e-04 | 3.193 | 8 |
-| 64 | 648 | 1298 | 2.2448e-05 | 2.399 | 7 |
+| 8 | 32 | 66 | 1.3215e-02 | - | 8 |
+| 16 | 32 | 66 | 1.0124e-03 | 3.706 | 8 |
+| 32 | 200 | 402 | 7.1151e-05 | 3.831 | 7 |
+| 64 | 648 | 1298 | 1.3557e-05 | 2.392 | 7 |
 
 `test_transmission_torus_3d`, off-center shared P2 torus, target P2
 `node_spacing/h ~= 1.5`, nonzero outer Cartesian Dirichlet data,
@@ -459,12 +511,12 @@ Cartesian Dirichlet data, `LaplaceTransmission3D::CommonRatio`, `beta_int=2`,
 
 | N | panels | iface pts | max err | order | GMRES |
 |---:|------:|----------:|--------:|------:|------:|
-| 8 | 96 | 192 | 8.4870e-02 | - | 7 |
-| 16 | 120 | 240 | 3.7657e-04 | 7.816 | 8 |
-| 32 | 240 | 480 | 2.0510e-04 | 0.877 | 9 |
-| 64 | 960 | 1920 | 3.6327e-05 | 2.497 | 8 |
-| 128 | 3840 | 7680 | 7.5496e-06 | 2.267 | 8 |
-| 256 | 15456 | 30912 | 1.1500e-06 | 2.715 | 8 |
+| 8 | 96 | 192 | 5.9263e-03 | - | 9 |
+| 16 | 120 | 240 | 4.0886e-04 | 3.857 | 9 |
+| 32 | 240 | 480 | 2.0554e-04 | 0.992 | 9 |
+
+The `test_transmission_torus_3d` table above is the default PDE-only run.
+Set `KFBIM_HIGH_RES_3D=1` to include `N=64`, `N=128`, and `N=256`.
 
 ### Known numerical pitfall — grid/interface alignment
 When a Cartesian grid node lands exactly on the interface, the IIM correction stencil has zero distance to the interface, making the local polynomial fit degenerate. This produces erratic convergence rates. **Rule:** for convergence tests, ensure no grid node is exactly on the interface by either offsetting the interface center or using a domain size incommensurate with the interface geometry. See `tests/archive/test_laplace_interior_circle_2d_legacy_gauss.cpp` for the archived regression that exposed this pitfall.

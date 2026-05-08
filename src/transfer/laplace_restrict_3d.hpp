@@ -6,7 +6,10 @@ namespace kfbim {
 
 class LaplaceRestrictCorrectionEvaluator3D;
 
-// Restrict companion for LaplaceQuadraticPatchCenterSpread3D.
+// Restrict companion for LaplaceQuadraticPatchCenterSpread3D. Interpolation
+// uses a fixed ten-point square quadratic stencil. stencil_radius is retained
+// for API compatibility and nearest-center cache construction; it no longer
+// changes the interpolation stencil size.
 class LaplaceQuadraticPatchCenterRestrict3D final : public ILaplaceRestrict3D {
 public:
     explicit LaplaceQuadraticPatchCenterRestrict3D(const GridPair3D& grid_pair,

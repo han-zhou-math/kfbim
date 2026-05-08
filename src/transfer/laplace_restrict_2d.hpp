@@ -8,9 +8,12 @@ namespace kfbim {
 // Restrict companion for LaplaceQuadraticPanelCenterSpread2D.
 //
 // The incoming correction_polys are expansion-center Taylor polynomials, not
-// interface-point polynomials.  Grid samples in each local restrict stencil
-// are shifted onto the average branch with the nearest expansion center:
+// interface-point polynomials.  Grid samples in the fixed six-point square
+// restrict stencil are shifted onto the average branch with the nearest
+// expansion center:
 // interior samples subtract C/2, exterior samples add C/2.
+// stencil_radius is retained for API compatibility and nearest-center cache
+// construction; it no longer changes the interpolation stencil size.
 // ---------------------------------------------------------------------------
 
 class LaplaceQuadraticPanelCenterRestrict2D final : public ILaplaceRestrict2D {

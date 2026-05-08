@@ -1,6 +1,7 @@
 #include "laplace_restrict_2d.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -116,49 +117,19 @@ LocalPoly2D LaplaceQuadraticPanelCenterRestrict2D::fit_at_interface_point(
 {
     const auto& grid = grid_pair_.grid();
     const auto& iface = grid_pair_.interface();
-    const auto dims = grid.dof_dims();
-    const int nx = dims[0];
-    const int ny = dims[1];
-
     const int closest = grid_pair_.closest_bulk_node(q);
-    const int ic = closest % nx;
-    const int jc = closest / nx;
-
-    struct Sample {
-        int idx;
-        double dist2;
-    };
-    std::vector<Sample> samples;
-    samples.reserve((2 * stencil_radius_ + 1) * (2 * stencil_radius_ + 1));
-
     const Eigen::Vector2d center = interface_point(iface, q);
-    for (int j = std::max(0, jc - stencil_radius_);
-         j <= std::min(ny - 1, jc + stencil_radius_);
-         ++j) {
-        for (int i = std::max(0, ic - stencil_radius_);
-             i <= std::min(nx - 1, ic + stencil_radius_);
-             ++i) {
-            const int idx = grid.index(i, j);
-            const Eigen::Vector2d pt = grid_point(grid, idx);
-            samples.push_back({idx, (pt - center).squaredNorm()});
-        }
-    }
+    const std::array<int, 6> stencil_nodes =
+        structured_grid::quadratic_restrict_stencil_nodes_2d(
+            "LaplaceQuadraticPanelCenterRestrict2D",
+            grid,
+            closest,
+            center);
 
-    if (samples.size() < 6)
-        throw std::runtime_error("LaplaceQuadraticPanelCenterRestrict2D needs at least 6 stencil samples");
-
-    std::sort(samples.begin(), samples.end(),
-              [](const Sample& a, const Sample& b) {
-                  if (a.dist2 == b.dist2)
-                      return a.idx < b.idx;
-                  return a.dist2 < b.dist2;
-              });
-
-    const int n_rows = static_cast<int>(samples.size());
-    Eigen::MatrixXd A(n_rows, 6);
-    Eigen::VectorXd rhs(n_rows);
-    for (int r = 0; r < n_rows; ++r) {
-        const int idx = samples[r].idx;
+    Eigen::Matrix<double, 6, 6> A;
+    Eigen::Matrix<double, 6, 1> rhs;
+    for (int r = 0; r < static_cast<int>(stencil_nodes.size()); ++r) {
+        const int idx = stencil_nodes[r];
         const Eigen::Vector2d pt = grid_point(grid, idx);
         const double dx = pt[0] - center[0];
         const double dy = pt[1] - center[1];
@@ -183,9 +154,15 @@ LocalPoly2D LaplaceQuadraticPanelCenterRestrict2D::fit_at_interface_point(
         rhs[r] = val;
     }
 
+    Eigen::FullPivLU<Eigen::Matrix<double, 6, 6>> lu(A);
+    if (!lu.isInvertible()) {
+        throw std::runtime_error(
+            "LaplaceQuadraticPanelCenterRestrict2D singular fixed quadratic interpolation stencil");
+    }
+
     LocalPoly2D poly;
     poly.center = center;
-    poly.coeffs = A.colPivHouseholderQr().solve(rhs);
+    poly.coeffs = lu.solve(rhs);
     return poly;
 }
 

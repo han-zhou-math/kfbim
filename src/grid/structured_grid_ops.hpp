@@ -110,6 +110,119 @@ inline double stencil_weight_for_neighbor(const CartesianGrid3D& grid,
     return 1.0 / (h[2] * h[2]);
 }
 
+inline int restrict_stencil_side(double target_coord, double node_coord)
+{
+    return (target_coord > node_coord) ? 1 : -1;
+}
+
+inline std::array<Index2D, 6> quadratic_restrict_stencil_offsets_2d(
+    int d1,
+    int d2)
+{
+    return {{{0, 0},
+             {d1, 0},
+             {0, d2},
+             {d1, d2},
+             {-d1, 0},
+             {0, -d2}}};
+}
+
+inline std::array<Index3D, 10> quadratic_restrict_stencil_offsets_3d(
+    int d1,
+    int d2,
+    int d3)
+{
+    return {{{0, 0, 0},
+             {0, d2, 0},
+             {0, 0, d3},
+             {d1, 0, 0},
+             {0, d2, d3},
+             {0, -d2, 0},
+             {0, 0, -d3},
+             {d1, d2, 0},
+             {d1, 0, d3},
+             {-d1, 0, 0}}};
+}
+
+inline bool is_valid_index(const CartesianGrid2D& grid, Index2D idx)
+{
+    const auto dims = grid.dof_dims();
+    return idx.i >= 0 && idx.i < dims[0]
+        && idx.j >= 0 && idx.j < dims[1];
+}
+
+inline bool is_valid_index(const CartesianGrid3D& grid, Index3D idx)
+{
+    const auto dims = grid.dof_dims();
+    return idx.i >= 0 && idx.i < dims[0]
+        && idx.j >= 0 && idx.j < dims[1]
+        && idx.k >= 0 && idx.k < dims[2];
+}
+
+inline std::array<int, 6> quadratic_restrict_stencil_nodes_2d(
+    const char* context,
+    const CartesianGrid2D& grid,
+    int closest_node,
+    Eigen::Vector2d target)
+{
+    if (closest_node < 0 || closest_node >= grid.num_dofs()) {
+        throw std::invalid_argument(
+            std::string(context) + ": closest_node is outside the grid");
+    }
+
+    const Index2D base = index_2d(grid, closest_node);
+    const Eigen::Vector2d base_pt = point(grid, closest_node);
+    const int d1 = restrict_stencil_side(target[0], base_pt[0]);
+    const int d2 = restrict_stencil_side(target[1], base_pt[1]);
+    const auto offsets = quadratic_restrict_stencil_offsets_2d(d1, d2);
+
+    std::array<int, 6> nodes{};
+    for (std::size_t s = 0; s < offsets.size(); ++s) {
+        const Index2D idx{base.i + offsets[s].i,
+                          base.j + offsets[s].j};
+        if (!is_valid_index(grid, idx)) {
+            throw std::runtime_error(
+                std::string(context)
+                + ": fixed 2D quadratic restrict stencil leaves grid bounds");
+        }
+        nodes[s] = grid.index(idx.i, idx.j);
+    }
+    return nodes;
+}
+
+inline std::array<int, 10> quadratic_restrict_stencil_nodes_3d(
+    const char* context,
+    const CartesianGrid3D& grid,
+    int closest_node,
+    Eigen::Vector3d target)
+{
+    if (closest_node < 0 || closest_node >= grid.num_dofs()) {
+        throw std::invalid_argument(
+            std::string(context) + ": closest_node is outside the grid");
+    }
+
+    const Index3D base = index_3d(grid, closest_node);
+    const Eigen::Vector3d base_pt = point(grid, closest_node);
+    const int d1 = restrict_stencil_side(target[0], base_pt[0]);
+    const int d2 = restrict_stencil_side(target[1], base_pt[1]);
+    const int d3 = restrict_stencil_side(target[2], base_pt[2]);
+    const auto offsets = quadratic_restrict_stencil_offsets_3d(d1, d2, d3);
+
+    std::array<int, 10> nodes{};
+    for (std::size_t s = 0; s < offsets.size(); ++s) {
+        const Index3D idx{base.i + offsets[s].i,
+                          base.j + offsets[s].j,
+                          base.k + offsets[s].k};
+        if (!is_valid_index(grid, idx)) {
+            throw std::runtime_error(
+                std::string(context)
+                + ": fixed 3D quadratic restrict stencil leaves grid bounds");
+        }
+        nodes[s] = grid.index(idx.i, idx.j, idx.k);
+    }
+    return nodes;
+}
+
 template <typename Func>
 void for_each_node_box(const CartesianGrid2D& grid,
                        int i_min,

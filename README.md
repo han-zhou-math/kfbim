@@ -27,7 +27,8 @@ Implemented:
   P2 narrow-band projection queries
 - Quasi-uniform arc-length curve resampling for stable interface discretization
 - 2D P2 Laplace panel Cauchy solver with four expansion centers per panel
-- 2D P2 Laplace spread and restrict transfer operators
+- 2D P2 Laplace spread and restrict transfer operators with fixed square
+  six-point quadratic restrict interpolation
 - 2D P2 curve geometry helpers and `GridPair2D` projection cache returning
   panel/local coordinates, projected points, normals, signed distances, and
   convergence flags for narrow-band grid nodes
@@ -36,7 +37,8 @@ Implemented:
 - 3D P2 curved-surface geometry helpers and `GridPair3D` projection cache
   returning panel/barycentric coordinates, projected points, normals, and
   signed distances for narrow-band grid nodes
-- 3D P2 Laplace spread/restrict transfer operators and
+- 3D P2 Laplace spread/restrict transfer operators with fixed square
+  ten-point quadratic restrict interpolation and
   `LaplacePotentialEval3D`
 - 2D and 3D zFFT-backed Laplace bulk solvers
 - Matrix-free `IKFBIOperator` interface implemented by Laplace problem wrappers
@@ -140,11 +142,12 @@ Run a specific executable directly when you want Catch2 output:
 ```
 
 Primary PDE/convergence executables are `test_interface`, `test_interface_3d`,
-`test_projection_2d`, `test_projection_3d`, `test_bvp`, `test_bvp_3d`,
-`test_transmission`, `test_transmission_3d`,
+`test_bvp`, `test_bvp_3d`, `test_transmission`, `test_transmission_3d`,
 `test_transmission_ellipsoid_3d`, `test_transmission_torus_3d`, and
-`test_transmission_periodic_2d`. The 3D PDE tests use power-of-two grid sizes;
-set `KFBIM_HIGH_RES_3D=1` to include the highest-resolution 3D levels.
+`test_transmission_periodic_2d`. Component coverage includes
+`test_projection_2d`, `test_projection_3d`, and `test_refactor_utilities`.
+The 3D PDE tests use power-of-two grid sizes; set `KFBIM_HIGH_RES_3D=1` to
+include the highest-resolution 3D levels.
 
 The current periodic 2D transmission test uses a cell-centered periodic bulk
 solver and an interface well away from the box edge. The 2D transfer operators
@@ -206,12 +209,15 @@ For new 2D Laplace work, use `CurveResampler2D::discretize()` and
 `LaplaceBvpPanelMethod2D::QuadraticPanelCenter`. The old
 `ChebyshevLobattoCenter` and Lobatto transfer names remain compatibility
 aliases; keep the legacy Gauss path only for explicit regression or comparison
-tests.
+tests. Active 2D restrict interpolation uses a fixed six-node square quadratic
+stencil around the nearest grid node; no least-squares fallback is used.
 For new 3D Laplace work, use shared six-node P2 triangular patches with
 `PanelNodeLayout3D::QuadraticLagrange`, 16 expansion centers per parent
 triangle, and target adjacent P2 node spacing over grid spacing of about `1.5`.
-The default 3D transfer correction is nearest expansion-center expansion.
-Projection-point IIM correction is available as an opt-in comparison path; use
-`GridPair3D::project_grid_nodes_to_interface()` for the explicit set of grid
-nodes where `C(x)` is needed, or `GridPair3D::project_near_interface_nodes()`
-for broader projection-geometry diagnostics.
+Active 3D restrict interpolation uses the analogous fixed ten-node square
+quadratic stencil. The default 3D transfer correction is nearest
+expansion-center expansion. Projection-point IIM correction is available as an
+opt-in comparison path; use `GridPair3D::project_grid_nodes_to_interface()` for
+the explicit set of grid nodes where `C(x)` is needed, or
+`GridPair3D::project_near_interface_nodes()` for broader projection-geometry
+diagnostics.

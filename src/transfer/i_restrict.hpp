@@ -13,10 +13,10 @@ namespace kfbim {
 // Restrict (Layer 1): bulk solution → local polynomial at each interface point
 //
 // The active 2D apply() path does two things at each quadrature point x_i on Γ:
-//   1. Fits a local polynomial to the bulk solution using a local stencil of
-//      nearby grid nodes.  In 2D a 6-node stencil recovers the degree-2
+//   1. Interpolates a local polynomial from a fixed square stencil around the
+//      nearest bulk grid node. In 2D the 6-node stencil recovers the degree-2
 //      expansion: coeffs = [u, u_x, u_y, u_xx, u_xy, u_yy] at x_i.
-//      Higher method orders use correspondingly larger stencils/degree.
+//      In 3D the analogous fixed 10-node stencil recovers degree-2 data.
 //   2. Uses the correction polynomial from the preceding Spread::apply() to
 //      map side-specific grid samples onto the interface average branch before
 //      interpolation. Interior samples subtract C/2; exterior samples add C/2.
