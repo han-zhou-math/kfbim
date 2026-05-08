@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -74,6 +75,7 @@ private:
 
 struct ConvergenceData {
     double bulk_err = 0.0;
+    double wall_time = 0.0;
     int    iterations = 0;
 };
 
@@ -168,6 +170,7 @@ void write_grid_csv(const std::filesystem::path& path,
 
 ConvergenceData solve_and_measure(int N, const std::filesystem::path& out_dir)
 {
+    const auto wall_start = std::chrono::steady_clock::now();
     const double h = kBoxSide / static_cast<double>(N);
     CartesianGrid2D grid({kBoxLower, kBoxLower},
                          {h, h},
@@ -250,7 +253,11 @@ ConvergenceData solve_and_measure(int N, const std::filesystem::path& out_dir)
         write_grid_csv(out_dir / fname, grid, result.u_bulk, u_exact, abs_error, labels);
     }
 
-    return {bulk_err, result.iterations};
+    const double wall_time =
+        std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - wall_start).count();
+
+    return {bulk_err, wall_time, result.iterations};
 }
 
 double tail_average_order(const std::vector<double>& rates, int count = 3)
@@ -278,7 +285,7 @@ TEST_CASE("Common-ratio transmission 2D: bi-periodic box convergence",
     const std::filesystem::path out_dir = output_dir();
 
     std::ofstream csv(out_dir / "convergence.csv");
-    csv << "N,max_err,order,GMRES\n";
+    csv << "N,max_err,order,wall_s,GMRES\n";
 
     std::vector<ConvergenceData> data(levels.size());
     std::vector<double> rates(levels.size(), 0.0);
@@ -290,21 +297,25 @@ TEST_CASE("Common-ratio transmission 2D: bi-periodic box convergence",
     std::printf("  Target P2-node spacing / h = %.2f (panel_length/h = %.2f)\n",
                 kTargetNodeSpacingOverH, kTargetPanelLengthOverH);
     std::printf("  Output: %s\n", out_dir.string().c_str());
-    std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "order", "GMRES");
+    std::printf("  %6s  %12s  %8s  %8s  %6s\n",
+                "N", "max_err", "order", "wall_s", "GMRES");
 
     for (std::size_t l = 0; l < levels.size(); ++l) {
         data[l] = solve_and_measure(levels[l], out_dir);
         if (l == 0) {
-            std::printf("  %6d  %12.4e  %8s  %6d\n",
-                        levels[l], data[l].bulk_err, "-", data[l].iterations);
+            std::printf("  %6d  %12.4e  %8s  %8.3f  %6d\n",
+                        levels[l], data[l].bulk_err, "-",
+                        data[l].wall_time, data[l].iterations);
             csv << levels[l] << "," << std::setprecision(16) << data[l].bulk_err
-                << ",," << data[l].iterations << "\n";
+                << ",," << data[l].wall_time << "," << data[l].iterations << "\n";
         } else {
             rates[l] = std::log2(data[l - 1].bulk_err / data[l].bulk_err);
-            std::printf("  %6d  %12.4e  %8.3f  %6d\n",
-                        levels[l], data[l].bulk_err, rates[l], data[l].iterations);
+            std::printf("  %6d  %12.4e  %8.3f  %8.3f  %6d\n",
+                        levels[l], data[l].bulk_err, rates[l],
+                        data[l].wall_time, data[l].iterations);
             csv << levels[l] << "," << std::setprecision(16) << data[l].bulk_err
-                << "," << rates[l] << "," << data[l].iterations << "\n";
+                << "," << rates[l] << "," << data[l].wall_time
+                << "," << data[l].iterations << "\n";
         }
 
         REQUIRE(std::isfinite(data[l].bulk_err));

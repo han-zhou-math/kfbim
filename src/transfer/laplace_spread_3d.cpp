@@ -1,11 +1,5 @@
 #include "laplace_spread_3d.hpp"
 
-#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
-#include <CGAL/Search_traits_3.h>
-#include <CGAL/Search_traits_adapter.h>
-#include <CGAL/Orthogonal_k_neighbor_search.h>
-#include <CGAL/property_map.h>
-
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -24,17 +18,6 @@
 namespace kfbim {
 
 namespace {
-
-using K3 = CGAL::Exact_predicates_inexact_constructions_kernel;
-using CPoint3 = K3::Point_3;
-using CPointWithIndex3 = std::pair<CPoint3, int>;
-using CSearchBaseTraits3 = CGAL::Search_traits_3<K3>;
-using CSearchTraits3 =
-    CGAL::Search_traits_adapter<CPointWithIndex3,
-                                CGAL::First_of_pair_property_map<CPointWithIndex3>,
-                                CSearchBaseTraits3>;
-using CNeighborSearch3 = CGAL::Orthogonal_k_neighbor_search<CSearchTraits3>;
-using CSearchTree3 = CNeighborSearch3::Tree;
 
 bool is_outer_boundary_node(const CartesianGrid3D& grid, int idx)
 {
@@ -56,72 +39,12 @@ Eigen::Vector3d node_coord(const CartesianGrid3D& grid, int idx)
     return structured_grid::point(grid, idx);
 }
 
-double max_grid_spacing(const CartesianGrid3D& grid)
-{
-    return structured_grid::max_spacing(grid);
-}
-
 LocalPoly3D center_poly(const PatchCenterCauchyResult3D& cauchy, int idx)
 {
     LocalPoly3D poly;
     poly.center = cauchy.centers.row(idx).transpose();
     poly.coeffs = cauchy.coeffs.row(idx).transpose();
     return poly;
-}
-
-class NearestCenterFinder3D {
-public:
-    explicit NearestCenterFinder3D(const std::vector<LocalPoly3D>& center_polys)
-    {
-        if (center_polys.empty())
-            throw std::invalid_argument("NearestCenterFinder3D requires centers");
-
-        points_.reserve(center_polys.size());
-        for (int i = 0; i < static_cast<int>(center_polys.size()); ++i) {
-            const Eigen::Vector3d& c = center_polys[i].center;
-            points_.emplace_back(CPoint3(c[0], c[1], c[2]), i);
-        }
-        tree_ = std::make_unique<CSearchTree3>(points_.begin(), points_.end());
-    }
-
-    int nearest(Eigen::Vector3d pt) const
-    {
-        CNeighborSearch3 search(*tree_, CPoint3(pt[0], pt[1], pt[2]), 1);
-        return search.begin()->first.second;
-    }
-
-private:
-    std::vector<CPointWithIndex3> points_;
-    std::unique_ptr<CSearchTree3> tree_;
-};
-
-int nearest_center_index(const NearestCenterFinder3D& center_finder,
-                         Eigen::Vector3d             pt)
-{
-    return center_finder.nearest(pt);
-}
-
-std::vector<int> build_nearest_center_map(const GridPair3D&               grid_pair,
-                                          const NearestCenterFinder3D&    center_finder,
-                                          double                          band_radius)
-{
-    const auto& grid = grid_pair.grid();
-    std::vector<int> nearest(grid.num_dofs(), -1);
-    for (int idx : grid_pair.near_interface_nodes(band_radius))
-        nearest[idx] = nearest_center_index(center_finder, node_coord(grid, idx));
-    return nearest;
-}
-
-int nearest_center_for_grid_node(const CartesianGrid3D&           grid,
-                                 const NearestCenterFinder3D&    center_finder,
-                                 const std::vector<int>&         nearest_center_map,
-                                 int                             idx)
-{
-    if (idx >= 0 && idx < static_cast<int>(nearest_center_map.size())
-        && nearest_center_map[idx] >= 0) {
-        return nearest_center_map[idx];
-    }
-    return nearest_center_index(center_finder, node_coord(grid, idx));
 }
 
 struct ProjectionSupport3D {
@@ -278,8 +201,6 @@ LaplaceSpreadResult3D LaplaceQuadraticPatchCenterSpread3D::apply(
     result.rhs_jump = rhs_jump;
     result.alpha = kappa_;
 
-    const double band_radius = 2.0 * std::sqrt(3.0) * max_grid_spacing(grid);
-
     if (correction_method_ == LaplaceCorrectionMethod3D::NearestExpansionCenter) {
         const PatchCenterCauchyResult3D cauchy =
             laplace_p2_patch_center_cauchy_3d(iface,
@@ -291,10 +212,6 @@ LaplaceSpreadResult3D LaplaceQuadraticPatchCenterSpread3D::apply(
         std::vector<LocalPoly3D> center_polys(cauchy.centers.rows());
         for (int i = 0; i < cauchy.centers.rows(); ++i)
             center_polys[i] = center_poly(cauchy, i);
-        const NearestCenterFinder3D center_finder(center_polys);
-
-        const std::vector<int> nearest_center_for_node =
-            build_nearest_center_map(grid_pair_, center_finder, band_radius);
 
         for (int n = 0; n < n_grid; ++n) {
             if (is_outer_boundary_node(grid, n))
@@ -313,11 +230,7 @@ LaplaceSpreadResult3D LaplaceQuadraticPatchCenterSpread3D::apply(
                     continue;
 
                 const Eigen::Vector3d pt = node_coord(grid, nb);
-                const int center_idx =
-                    nearest_center_for_grid_node(grid,
-                                                 center_finder,
-                                                 nearest_center_for_node,
-                                                 nb);
+                const int center_idx = grid_pair_.nearest_p2_expansion_center(nb);
                 const double correction =
                     evaluate_taylor_poly_3d(center_polys[center_idx], pt);
                 rhs_correction[n] += static_cast<double>(side_n - side_nb)

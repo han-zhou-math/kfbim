@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <limits>
 #include <stdexcept>
 
 #include "../grid/structured_grid_ops.hpp"
@@ -20,48 +19,6 @@ Eigen::Vector2d interface_point(const Interface2D& iface, int q) {
 
 Eigen::Vector2d grid_point(const CartesianGrid2D& grid, int idx) {
     return structured_grid::point(grid, idx);
-}
-
-double max_grid_spacing(const CartesianGrid2D& grid) {
-    return structured_grid::max_spacing(grid);
-}
-
-int nearest_poly_index(const std::vector<LocalPoly2D>& center_polys,
-                       Eigen::Vector2d                 pt)
-{
-    int best_idx = 0;
-    double best_dist2 = std::numeric_limits<double>::infinity();
-    for (int i = 0; i < static_cast<int>(center_polys.size()); ++i) {
-        const double dist2 = (pt - center_polys[i].center).squaredNorm();
-        if (dist2 < best_dist2) {
-            best_dist2 = dist2;
-            best_idx = i;
-        }
-    }
-    return best_idx;
-}
-
-std::vector<int> build_nearest_center_map(const GridPair2D&                 grid_pair,
-                                          const std::vector<LocalPoly2D>&   center_polys,
-                                          double                            band_radius)
-{
-    const auto& grid = grid_pair.grid();
-    std::vector<int> nearest(grid.num_dofs(), -1);
-    for (int idx : grid_pair.near_interface_nodes(band_radius))
-        nearest[idx] = nearest_poly_index(center_polys, grid_point(grid, idx));
-    return nearest;
-}
-
-int nearest_center_for_grid_node(const CartesianGrid2D&           grid,
-                                 const std::vector<LocalPoly2D>& center_polys,
-                                 const std::vector<int>&         nearest_center_map,
-                                 int                             idx)
-{
-    if (idx >= 0 && idx < static_cast<int>(nearest_center_map.size())
-        && nearest_center_map[idx] >= 0) {
-        return nearest_center_map[idx];
-    }
-    return nearest_poly_index(center_polys, grid_point(grid, idx));
 }
 
 } // namespace
@@ -95,15 +52,9 @@ std::vector<LocalPoly2D> LaplaceQuadraticPanelCenterRestrict2D::apply(
         throw std::invalid_argument("LaplaceQuadraticPanelCenterRestrict2D correction_polys size must equal 4*num_panels");
     }
 
-    const double band_radius = (static_cast<double>(stencil_radius_) + 1.0)
-                               * std::sqrt(2.0) * max_grid_spacing(grid);
-    const std::vector<int> nearest_center_for_node =
-        build_nearest_center_map(grid_pair_, correction_polys, band_radius);
-
     std::vector<LocalPoly2D> result(n_iface);
     for (int q = 0; q < n_iface; ++q) {
-        result[q] = fit_at_interface_point(bulk_solution, q, correction_polys,
-                                           nearest_center_for_node);
+        result[q] = fit_at_interface_point(bulk_solution, q, correction_polys);
     }
 
     return result;
@@ -112,8 +63,7 @@ std::vector<LocalPoly2D> LaplaceQuadraticPanelCenterRestrict2D::apply(
 LocalPoly2D LaplaceQuadraticPanelCenterRestrict2D::fit_at_interface_point(
     const Eigen::VectorXd&          bulk_solution,
     int                             q,
-    const std::vector<LocalPoly2D>& center_polys,
-    const std::vector<int>&         nearest_center_for_grid_node_map) const
+    const std::vector<LocalPoly2D>& center_polys) const
 {
     const auto& grid = grid_pair_.grid();
     const auto& iface = grid_pair_.interface();
@@ -141,10 +91,7 @@ LocalPoly2D LaplaceQuadraticPanelCenterRestrict2D::fit_at_interface_point(
         A(r, 5) = 0.5 * dy * dy;
 
         double val = bulk_solution[idx];
-        const int center_idx =
-            nearest_center_for_grid_node(grid, center_polys,
-                                         nearest_center_for_grid_node_map,
-                                         idx);
+        const int center_idx = grid_pair_.nearest_p2_expansion_center(idx);
         const double correction =
             0.5 * evaluate_taylor_poly_2d(center_polys[center_idx], pt);
         if (grid_pair_.domain_label(idx) == 0)

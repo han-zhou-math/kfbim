@@ -1,7 +1,6 @@
 #include "laplace_spread_2d.hpp"
 
 #include <cmath>
-#include <limits>
 #include <stdexcept>
 #include "../grid/structured_grid_ops.hpp"
 #include "../local_cauchy/laplace_panel_solver_2d.hpp"
@@ -26,10 +25,6 @@ Eigen::Vector2d node_coord(const CartesianGrid2D& grid, int idx) {
     return structured_grid::point(grid, idx);
 }
 
-double max_grid_spacing(const CartesianGrid2D& grid) {
-    return structured_grid::max_spacing(grid);
-}
-
 LocalPoly2D center_poly(const PanelCenterCauchyResult2D& cauchy, int idx) {
     LocalPoly2D poly;
     poly.center = cauchy.centers.row(idx).transpose();
@@ -41,46 +36,6 @@ LocalPoly2D center_poly(const PanelCenterCauchyResult2D& cauchy, int idx) {
                    cauchy.Cxy[idx],
                    cauchy.Cyy[idx];
     return poly;
-}
-
-int nearest_center_index(const PanelCenterCauchyResult2D& cauchy,
-                         Eigen::Vector2d                 pt)
-{
-    int best_idx = 0;
-    double best_dist2 = std::numeric_limits<double>::infinity();
-    for (int i = 0; i < cauchy.centers.rows(); ++i) {
-        const double dx = pt[0] - cauchy.centers(i, 0);
-        const double dy = pt[1] - cauchy.centers(i, 1);
-        const double dist2 = dx * dx + dy * dy;
-        if (dist2 < best_dist2) {
-            best_dist2 = dist2;
-            best_idx = i;
-        }
-    }
-    return best_idx;
-}
-
-std::vector<int> build_nearest_center_map(const GridPair2D&              grid_pair,
-                                          const PanelCenterCauchyResult2D& cauchy,
-                                          double                         band_radius)
-{
-    const auto& grid = grid_pair.grid();
-    std::vector<int> nearest(grid.num_dofs(), -1);
-    for (int idx : grid_pair.near_interface_nodes(band_radius))
-        nearest[idx] = nearest_center_index(cauchy, node_coord(grid, idx));
-    return nearest;
-}
-
-int nearest_center_for_grid_node(const CartesianGrid2D&            grid,
-                                 const PanelCenterCauchyResult2D& cauchy,
-                                 const std::vector<int>&          nearest_center_map,
-                                 int                              idx)
-{
-    if (idx >= 0 && idx < static_cast<int>(nearest_center_map.size())
-        && nearest_center_map[idx] >= 0) {
-        return nearest_center_map[idx];
-    }
-    return nearest_center_index(cauchy, node_coord(grid, idx));
 }
 
 } // namespace
@@ -205,10 +160,6 @@ std::vector<LocalPoly2D> LaplaceQuadraticPanelCenterSpread2D::apply(
     for (int i = 0; i < cauchy.centers.rows(); ++i)
         center_polys[i] = center_poly(cauchy, i);
 
-    const double band_radius = 2.0 * std::sqrt(2.0) * max_grid_spacing(grid);
-    const std::vector<int> nearest_center_for_node =
-        build_nearest_center_map(grid_pair_, cauchy, band_radius);
-
     for (int n = 0; n < n_grid; ++n) {
         if (is_outer_boundary_node(grid, n))
             continue;
@@ -226,9 +177,7 @@ std::vector<LocalPoly2D> LaplaceQuadraticPanelCenterSpread2D::apply(
                 continue;
 
             const Eigen::Vector2d pt = node_coord(grid, nb);
-            const int center_idx =
-                nearest_center_for_grid_node(grid, cauchy,
-                                             nearest_center_for_node, nb);
+            const int center_idx = grid_pair_.nearest_p2_expansion_center(nb);
             const double correction = evaluate_taylor_poly_2d(center_polys[center_idx], pt);
             rhs_correction[n] += static_cast<double>(side_n - side_nb)
                                  * correction

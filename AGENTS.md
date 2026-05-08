@@ -17,9 +17,10 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   narrow-band projection geometry, and the 2026-05-07 projection-point
   correction prototype. It also reflects the 2026-05-08 staged organization
   refactor, public forwarding headers, shared grid/operator utilities, 2D/3D
-  P2 projection split, 2D P2 geometry/center-sampling unification, and fixed
-  square 2D/3D restrict stencils. The default 3D correction path remains
-  nearest expansion-center expansion.
+  P2 projection split, 2D P2 geometry/center-sampling unification, fixed
+  square 2D/3D restrict stencils, 2D/3D P2 expansion-center lookup caches, and
+  per-grid PDE convergence wall-time reporting. The default 3D correction path
+  remains nearest expansion-center expansion.
 - **Completed modules** (active tests passing):
   - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
     - `Interface2D` tracks panel node layout: `QuadraticLagrange`,
@@ -27,10 +28,12 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
       source-compatible alias for the P2 quadratic layout.
     - Quadratic Lagrange panels use explicit connectivity with shared adjacent
       endpoints, so a closed curve has `num_points() = 2*num_panels()`.
-    - `GridPair2D::domain_label()` uses nearest-sample local normals for P2
-      panels, with interface DOFs plus the shared four expansion-center samples
-      per panel. Raw/legacy polygon labeling remains available for fallback
-      paths.
+    - Active P2 `GridPair2D` builds a spatial hash over the four generated
+      expansion centers per panel only, rasterizes a default narrow-band
+      nearest-center cache, exposes `nearest_p2_expansion_center(n)`, and uses
+      center-seeded BFS labels for closed P2 components. `closest_interface_point(n)`
+      remains a lazy interface-DOF compatibility query. Raw/legacy polygon
+      labeling remains available for fallback paths.
     - `GridPair2D::project_near_interface_nodes(radius)` returns cached P2
       curve projections for narrow-band grid nodes. Each `CurveProjection2D`
       stores the grid node, parent panel, component, local coordinate,
@@ -46,10 +49,12 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     - P2 triangular patches store explicit six-node connectivity
       `[v0,v1,v2,e01,e12,e20]`, allowing shared vertices and shared edge
       midpoint DOFs.
-    - `GridPair3D` uses CGAL kd-tree nearest-neighbor acceleration for closest
-      interface/sample queries. For `QuadraticLagrange` P2 surfaces, narrow-band
-      distance samples include the interface DOFs and the barycenters of the 16
-      twice-subdivided child triangles per parent triangle.
+    - Active P2 `GridPair3D` builds a spatial hash over the 16 generated
+      expansion centers per parent triangle only, rasterizes a default
+      narrow-band nearest-center cache, exposes
+      `nearest_p2_expansion_center(n)`, and uses center-seeded BFS labels.
+      `closest_interface_point(n)` remains a lazy interface-DOF compatibility
+      query. Raw surface paths keep the closed-mesh CGAL labeler.
     - `GridPair3D::project_near_interface_nodes(radius)` returns cached P2
       curved-surface projections for narrow-band grid nodes. Each
       `SurfaceProjection3D` stores the grid node, parent panel, component,
@@ -152,14 +157,21 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
 - **Recent implementation notes:**
   - 2D P2 quadratic panel/expansion-center path is implemented and verified.
     Old Chebyshev-Lobatto names are compatibility aliases.
-  - `GridPair2D` uses the same four P2 center samples per panel as the active
-    2D expansion-center correction path, plus interface DOF nodes, for its
-    nearest-sample kd-tree.
+  - Active P2 `GridPair2D` uses the same four center samples per panel as the
+    2D expansion-center correction path for all spread/restrict nearest-center
+    lookups. Interface DOF nearest lookup is no longer eager and is kept only
+    as a lazy compatibility query.
   - The unused 2D P2 projection service is implemented for future
     projection-point correction work and mirrors the 3D projection-cache shape.
   - Active 2D/3D restrict interpolation now uses square 6x6/10x10 quadratic
     interpolation systems from fixed grid stencils; no local least-squares
     restrict fallback remains.
+  - Active P2 `GridPair3D` uses the 16 expansion centers per parent triangle as
+    the shared lookup set for domain labeling, spread, restrict, and projection
+    seeding. The active path no longer builds eager all-grid interface-DOF
+    nearest maps.
+  - Active PDE convergence programs print `wall_s` for every grid level and
+    write the same column to their convergence CSV files.
   - Gauss-point restrictor/problem-wrapper paths were removed from active code.
   - Archived component tests include direct D/S/N jump-relation coverage for
     `LaplacePotentialEval2D`.
@@ -232,6 +244,15 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     `notes/math.md`, `notes/theory.md`, `notes/parallel_plan.md`, and
     `notes/stokes.pdf`.
 - **Current convergence test status:**
+  - 2026-05-08 P2 center-cache and wall-time reporting update:
+    - `cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo`
+    - `cmake --build build`
+    - `build/tests/test_refactor_utilities`
+    - `build/tests/test_projection_2d`
+    - `build/tests/test_projection_3d`
+    - `env KFBIM_INTERFACE_2D_MAX_N=32 build/tests/test_interface -s`
+    - `env KFBIM_INTERFACE_3D_MAX_N=4 build/tests/test_interface_3d -s`
+    - `git diff --check`
   - 2026-05-08 fixed square restrict-stencil update:
     - `cmake --build build`
     - `build/tests/test_refactor_utilities`

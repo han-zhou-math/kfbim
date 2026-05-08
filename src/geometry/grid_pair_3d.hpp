@@ -9,8 +9,8 @@
 
 namespace kfbim {
 
-// Owns the CGAL spatial structures relating a CartesianGrid3D and an Interface3D.
-// Built once at setup; queries are read-only after construction.
+// Owns the spatial structures relating a CartesianGrid3D and an Interface3D.
+// Built once at setup; queries are read-mostly after construction.
 class GridPair3D {
 public:
     GridPair3D(const CartesianGrid3D& grid, const Interface3D& interface);
@@ -21,15 +21,20 @@ public:
     // interface point index → nearest bulk node
     int closest_bulk_node(int interface_pt_idx) const;
 
-    // bulk node index → nearest interface point (single nearest, any component)
+    // bulk node index → nearest interface point (lazy compatibility query)
     int closest_interface_point(int bulk_node_idx) const;
+
+    // bulk node index → nearest active P2 expansion center. Available only for
+    // QuadraticLagrange six-node triangular patches.
+    int nearest_p2_expansion_center(int bulk_node_idx) const;
 
     // domain label: 0 = Ω⁻ (exterior), 1,2,... = Ω⁺ (interior) of each component
     int domain_label(int bulk_node_idx) const;
 
     bool is_near_interface(int bulk_node_idx, double radius) const;
 
-    // all bulk node indices within radius of any interface point
+    // all bulk node indices within radius of active geometry samples
+    // (P2 expansion centers for QuadraticLagrange patches)
     std::vector<int> near_interface_nodes(double radius) const;
 
     // all interface point indices within radius of a given bulk node

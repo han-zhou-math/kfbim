@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -56,6 +57,33 @@ Interface3D make_flat_p2_triangle()
                        PanelNodeLayout3D::QuadraticLagrange);
 }
 
+Interface3D make_flat_raw_triangle()
+{
+    Eigen::MatrixX3d vertices(4, 3);
+    vertices << 0.0, 0.0, 0.0,
+                1.0, 0.0, 0.0,
+                0.0, 1.0, 0.0,
+                0.0, 0.0, 1.0;
+    Eigen::MatrixX3i panels(4, 3);
+    panels << 0, 2, 1,
+              0, 1, 3,
+              0, 3, 2,
+              1, 2, 3;
+    Eigen::MatrixX3d normals(4, 3);
+    normals.rowwise() = Eigen::RowVector3d(0.0, 0.0, 1.0);
+    Eigen::VectorXd weights = Eigen::VectorXd::Ones(4);
+    Eigen::MatrixXi panel_point_indices = panels;
+    return Interface3D(vertices,
+                       panels,
+                       vertices,
+                       normals,
+                       weights,
+                       3,
+                       panel_point_indices,
+                       Eigen::VectorXi::Zero(4),
+                       PanelNodeLayout3D::Raw);
+}
+
 Eigen::VectorXd flat_phi_values(const Interface3D& iface)
 {
     Eigen::VectorXd values(iface.num_points());
@@ -65,6 +93,79 @@ Eigen::VectorXd flat_phi_values(const Interface3D& iface)
         values[q] = x * x + y * y;
     }
     return values;
+}
+
+int brute_force_nearest_p2_center(const Interface3D& iface,
+                                  const CartesianGrid3D& grid,
+                                  int node)
+{
+    const Eigen::Vector3d pt = grid_point(grid, node);
+    int best = 0;
+    double best_dist2 = std::numeric_limits<double>::infinity();
+    int center_idx = 0;
+    const std::vector<Eigen::Vector3d> bary =
+        geometry3d::expansion_center_barycentrics();
+    for (int p = 0; p < iface.num_panels(); ++p) {
+        for (const Eigen::Vector3d& b : bary) {
+            const Eigen::Vector3d center = geometry3d::panel_point(iface, p, b);
+            const double dist2 = (pt - center).squaredNorm();
+            if (dist2 < best_dist2 - 1.0e-14
+                || (std::abs(dist2 - best_dist2) <= 1.0e-14
+                    && center_idx < best)) {
+                best_dist2 = dist2;
+                best = center_idx;
+            }
+            ++center_idx;
+        }
+    }
+    return best;
+}
+
+double brute_force_nearest_p2_center_distance(const Interface3D& iface,
+                                              const CartesianGrid3D& grid,
+                                              int node)
+{
+    const Eigen::Vector3d pt = grid_point(grid, node);
+    double best_dist2 = std::numeric_limits<double>::infinity();
+    const std::vector<Eigen::Vector3d> bary =
+        geometry3d::expansion_center_barycentrics();
+    for (int p = 0; p < iface.num_panels(); ++p) {
+        for (const Eigen::Vector3d& b : bary) {
+            const Eigen::Vector3d center = geometry3d::panel_point(iface, p, b);
+            best_dist2 = std::min(best_dist2, (pt - center).squaredNorm());
+        }
+    }
+    return std::sqrt(best_dist2);
+}
+
+std::vector<int> brute_force_p2_center_band_nodes(const Interface3D& iface,
+                                                  const CartesianGrid3D& grid,
+                                                  double radius)
+{
+    std::vector<int> nodes;
+    for (int n = 0; n < grid.num_dofs(); ++n) {
+        if (brute_force_nearest_p2_center_distance(iface, grid, n) < radius)
+            nodes.push_back(n);
+    }
+    return nodes;
+}
+
+int brute_force_nearest_interface_point(const Interface3D& iface,
+                                        const CartesianGrid3D& grid,
+                                        int node)
+{
+    const Eigen::Vector3d pt = grid_point(grid, node);
+    int best = 0;
+    double best_dist2 = std::numeric_limits<double>::infinity();
+    for (int q = 0; q < iface.num_points(); ++q) {
+        const Eigen::Vector3d iface_pt = iface.points().row(q).transpose();
+        const double dist2 = (pt - iface_pt).squaredNorm();
+        if (dist2 < best_dist2) {
+            best_dist2 = dist2;
+            best = q;
+        }
+    }
+    return best;
 }
 
 void require_same_projection_band(const NarrowBandProjection3D& a,
@@ -138,6 +239,97 @@ TEST_CASE("Projection-point correction uses normal Taylor surface formula",
     const double cnn = 7.0 * c - 5.0 - 4.0;
     const double expected = c + 0.2 * 3.0 + 0.5 * 0.2 * 0.2 * cnn;
     REQUIRE(correction == Catch::Approx(expected).margin(1.0e-12));
+}
+
+TEST_CASE("GridPair3D caches P2 expansion-center lookup and lazy interface DOF lookup",
+          "[projection][3d][grid-pair]")
+{
+    const Interface3D iface = make_flat_p2_triangle();
+    CartesianGrid3D grid({-0.5, -0.5, -0.5},
+                         {0.1, 0.1, 0.1},
+                         {20, 20, 20},
+                         DofLayout3D::Node);
+    GridPair3D gp(grid, iface);
+
+    const std::vector<int> nodes = {
+        grid.index(10, 10, 5),
+        grid.index(0, 0, 0),
+        grid.index(20, 20, 20),
+        grid.index(12, 11, 8)};
+    for (int node : nodes) {
+        const int expected_center =
+            brute_force_nearest_p2_center(iface, grid, node);
+        REQUIRE(gp.nearest_p2_expansion_center(node) == expected_center);
+        REQUIRE(gp.nearest_p2_expansion_center(node) == expected_center);
+
+        const int expected_iface =
+            brute_force_nearest_interface_point(iface, grid, node);
+        REQUIRE(gp.closest_interface_point(node) == expected_iface);
+        REQUIRE(gp.closest_interface_point(node) == expected_iface);
+    }
+}
+
+TEST_CASE("GridPair3D center lookup and bands match brute force on a P2 sphere",
+          "[projection][3d][grid-pair]")
+{
+    const int N = 12;
+    const Box3D box = standard_box();
+    const double h = box.side_length / static_cast<double>(N);
+    CartesianGrid3D grid(box.lower, {h, h, h}, {N, N, N}, DofLayout3D::Node);
+    const Interface3D iface = make_p2_sphere(surface_subdivision_for_grid(N));
+    GridPair3D gp(grid, iface);
+
+    const std::vector<int> nodes = {
+        grid.index(6, 6, 6),
+        grid.index(0, 0, 0),
+        grid.index(12, 12, 12),
+        grid.index(4, 7, 10),
+        grid.index(9, 5, 3)};
+    for (int node : nodes) {
+        const int expected = brute_force_nearest_p2_center(iface, grid, node);
+        REQUIRE(gp.nearest_p2_expansion_center(node) == expected);
+        REQUIRE(gp.nearest_p2_expansion_center(node) == expected);
+    }
+
+    const double default_band = 3.0 * std::sqrt(3.0) * h;
+    for (double radius : {1.5 * h, default_band, 4.5 * h}) {
+        REQUIRE(gp.near_interface_nodes(radius)
+                == brute_force_p2_center_band_nodes(iface, grid, radius));
+        for (int node : nodes) {
+            REQUIRE(gp.is_near_interface(node, radius)
+                    == (brute_force_nearest_p2_center_distance(iface, grid, node)
+                        < radius));
+        }
+    }
+}
+
+TEST_CASE("GridPair3D rejects P2 expansion-center lookup for non-P2 panels",
+          "[projection][3d][grid-pair]")
+{
+    const Interface3D iface = make_flat_raw_triangle();
+    CartesianGrid3D grid({-0.5, -0.5, -0.5},
+                         {0.1, 0.1, 0.1},
+                         {10, 10, 10},
+                         DofLayout3D::Node);
+    GridPair3D gp(grid, iface);
+    REQUIRE_THROWS_AS(gp.nearest_p2_expansion_center(grid.index(5, 5, 5)),
+                      std::runtime_error);
+}
+
+TEST_CASE("GridPair3D P2 BFS labels keep sphere inside/outside convention",
+          "[projection][3d][grid-pair]")
+{
+    const int N = 16;
+    const Box3D box = standard_box();
+    const double h = box.side_length / static_cast<double>(N);
+    CartesianGrid3D grid(box.lower, {h, h, h}, {N, N, N}, DofLayout3D::Node);
+    const Interface3D iface = make_p2_sphere(surface_subdivision_for_grid(N));
+    GridPair3D gp(grid, iface);
+
+    REQUIRE(gp.domain_label(grid.index(N / 2, N / 2, N / 2)) == 1);
+    REQUIRE(gp.domain_label(grid.index(0, 0, 0)) == 0);
+    REQUIRE(gp.domain_label(grid.index(N, N / 2, N / 2)) == 0);
+    REQUIRE_FALSE(gp.near_interface_nodes(2.0 * std::sqrt(3.0) * h).empty());
 }
 
 TEST_CASE("Projection-point spread option preserves zero correction",

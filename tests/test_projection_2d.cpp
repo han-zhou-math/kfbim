@@ -1,9 +1,14 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
+#include <limits>
+#include <stdexcept>
 #include <type_traits>
 #include <vector>
 
+#include "src/geometry/curve_2d.hpp"
+#include "src/geometry/curve_resampler_2d.hpp"
 #include "src/geometry/grid_pair_2d.hpp"
 #include "src/geometry/p2_curve_2d.hpp"
 #include "src/geometry/p2_projection_2d.hpp"
@@ -15,6 +20,58 @@
 using namespace kfbim;
 
 namespace {
+
+constexpr double kPi = 3.14159265358979323846;
+
+class CircleCurve2D final : public ICurve2D {
+public:
+    Eigen::Vector2d eval(double t) const override
+    {
+        return {radius_ * std::cos(t), radius_ * std::sin(t)};
+    }
+
+    Eigen::Vector2d deriv(double t) const override
+    {
+        return {-radius_ * std::sin(t), radius_ * std::cos(t)};
+    }
+
+    double t_min() const override { return 0.0; }
+    double t_max() const override { return 2.0 * kPi; }
+
+private:
+    double radius_ = 0.45;
+};
+
+class Star3Curve2D final : public ICurve2D {
+public:
+    Eigen::Vector2d eval(double t) const override
+    {
+        const double r = radius(t);
+        return {r * std::cos(t), r * std::sin(t)};
+    }
+
+    Eigen::Vector2d deriv(double t) const override
+    {
+        const double r = radius(t);
+        const double drdt = -kRadius * kAmplitude * kFolds
+                            * std::sin(kFolds * t);
+        return {drdt * std::cos(t) - r * std::sin(t),
+                drdt * std::sin(t) + r * std::cos(t)};
+    }
+
+    double t_min() const override { return 0.0; }
+    double t_max() const override { return 2.0 * kPi; }
+
+private:
+    static double radius(double t)
+    {
+        return kRadius * (1.0 + kAmplitude * std::cos(kFolds * t));
+    }
+
+    static constexpr double kRadius = 0.45;
+    static constexpr double kAmplitude = 0.22;
+    static constexpr int kFolds = 3;
+};
 
 Interface2D make_flat_p2_panel()
 {
@@ -37,6 +94,98 @@ Interface2D make_flat_p2_panel()
                        panel_point_indices,
                        Eigen::VectorXi::Zero(1),
                        PanelNodeLayout2D::QuadraticLagrange);
+}
+
+Interface2D make_flat_legacy_panel()
+{
+    Eigen::MatrixX2d points(3, 2);
+    points << -1.0, 0.0,
+               0.0, 0.0,
+               1.0, 0.0;
+
+    Eigen::MatrixX2d normals(3, 2);
+    normals.rowwise() = Eigen::RowVector2d(0.0, -1.0);
+
+    Eigen::VectorXd weights = Eigen::VectorXd::Ones(3);
+    Eigen::VectorXi components = Eigen::VectorXi::Zero(1);
+    return Interface2D(points,
+                       normals,
+                       weights,
+                       3,
+                       components,
+                       PanelNodeLayout2D::LegacyGaussLegendre);
+}
+
+int brute_force_nearest_p2_center(const Interface2D& iface,
+                                  const CartesianGrid2D& grid,
+                                  int node)
+{
+    const auto c = grid.coord(node);
+    const Eigen::Vector2d pt(c[0], c[1]);
+    int best = 0;
+    double best_dist2 = std::numeric_limits<double>::infinity();
+    int center_idx = 0;
+    for (int p = 0; p < iface.num_panels(); ++p) {
+        for (double s : geometry2d::kP2CenterS) {
+            const Eigen::Vector2d center = geometry2d::panel_point(iface, p, s);
+            const double dist2 = (pt - center).squaredNorm();
+            if (dist2 < best_dist2 - 1.0e-14
+                || (std::abs(dist2 - best_dist2) <= 1.0e-14
+                    && center_idx < best)) {
+                best_dist2 = dist2;
+                best = center_idx;
+            }
+            ++center_idx;
+        }
+    }
+    return best;
+}
+
+double brute_force_nearest_p2_center_distance(const Interface2D& iface,
+                                              const CartesianGrid2D& grid,
+                                              int node)
+{
+    const auto c = grid.coord(node);
+    const Eigen::Vector2d pt(c[0], c[1]);
+    double best_dist2 = std::numeric_limits<double>::infinity();
+    for (int p = 0; p < iface.num_panels(); ++p) {
+        for (double s : geometry2d::kP2CenterS) {
+            const Eigen::Vector2d center = geometry2d::panel_point(iface, p, s);
+            best_dist2 = std::min(best_dist2, (pt - center).squaredNorm());
+        }
+    }
+    return std::sqrt(best_dist2);
+}
+
+std::vector<int> brute_force_p2_center_band_nodes(const Interface2D& iface,
+                                                  const CartesianGrid2D& grid,
+                                                  double radius)
+{
+    std::vector<int> nodes;
+    for (int n = 0; n < grid.num_dofs(); ++n) {
+        if (brute_force_nearest_p2_center_distance(iface, grid, n) < radius)
+            nodes.push_back(n);
+    }
+    return nodes;
+}
+
+int brute_force_nearest_interface_point(const Interface2D& iface,
+                                        const CartesianGrid2D& grid,
+                                        int node)
+{
+    const auto c = grid.coord(node);
+    const Eigen::Vector2d pt(c[0], c[1]);
+    int best = 0;
+    double best_dist2 = std::numeric_limits<double>::infinity();
+    for (int q = 0; q < iface.num_points(); ++q) {
+        const Eigen::Vector2d iface_pt = iface.points().row(q).transpose();
+        const double dist2 = (pt - iface_pt).squaredNorm();
+        if (dist2 < best_dist2) {
+            best_dist2 = dist2;
+            best = q;
+        }
+    }
+    return best;
 }
 
 void require_same_projection_band(const NarrowBandProjection2D& a,
@@ -112,6 +261,110 @@ TEST_CASE("2D P2 projection service projects explicit grid-node support",
     REQUIRE(projection.signed_distance == Catch::Approx(-0.3).margin(1.0e-12));
     REQUIRE(projection.distance == Catch::Approx(0.3).margin(1.0e-12));
     REQUIRE(projection.tangential_residual == Catch::Approx(0.0).margin(1.0e-12));
+}
+
+TEST_CASE("2D GridPair caches P2 expansion-center lookup and lazy interface DOF lookup",
+          "[projection][2d][grid-pair]")
+{
+    const Interface2D iface = make_flat_p2_panel();
+    CartesianGrid2D grid({-1.0, -1.0}, {0.1, 0.1}, {20, 20}, DofLayout2D::Node);
+    GridPair2D gp(grid, iface);
+
+    const std::vector<int> nodes = {
+        grid.index(12, 13),
+        grid.index(4, 10),
+        grid.index(16, 9),
+        grid.index(10, 4)};
+    for (int node : nodes) {
+        const int expected_center =
+            brute_force_nearest_p2_center(iface, grid, node);
+        REQUIRE(gp.nearest_p2_expansion_center(node) == expected_center);
+        REQUIRE(gp.nearest_p2_expansion_center(node) == expected_center);
+
+        const int expected_iface =
+            brute_force_nearest_interface_point(iface, grid, node);
+        REQUIRE(gp.closest_interface_point(node) == expected_iface);
+        REQUIRE(gp.closest_interface_point(node) == expected_iface);
+    }
+}
+
+TEST_CASE("2D GridPair center lookup matches brute force on closed P2 curves",
+          "[projection][2d][grid-pair]")
+{
+    CartesianGrid2D grid({-1.0, -1.0}, {0.1, 0.1}, {20, 20}, DofLayout2D::Node);
+    CircleCurve2D circle;
+    Star3Curve2D star;
+    const std::vector<Interface2D> interfaces = {
+        CurveResampler2D::discretize_quadratic_lagrange(circle, 0.1, 3.0),
+        CurveResampler2D::discretize_quadratic_lagrange(star, 0.1, 3.0)};
+
+    for (const Interface2D& iface : interfaces) {
+        GridPair2D gp(grid, iface);
+        const std::vector<int> nodes = {
+            grid.index(10, 10),
+            grid.index(0, 0),
+            grid.index(20, 20),
+            grid.index(3, 17),
+            grid.index(17, 4)};
+        for (int node : nodes) {
+            const int expected =
+                brute_force_nearest_p2_center(iface, grid, node);
+            REQUIRE(gp.nearest_p2_expansion_center(node) == expected);
+            REQUIRE(gp.nearest_p2_expansion_center(node) == expected);
+        }
+    }
+}
+
+TEST_CASE("2D GridPair center-distance bands match brute force center distances",
+          "[projection][2d][grid-pair]")
+{
+    CircleCurve2D circle;
+    CartesianGrid2D grid({-1.0, -1.0}, {0.1, 0.1}, {20, 20}, DofLayout2D::Node);
+    const Interface2D iface =
+        CurveResampler2D::discretize_quadratic_lagrange(circle, 0.1, 3.0);
+    GridPair2D gp(grid, iface);
+
+    const double default_band = 3.0 * std::sqrt(2.0) * 0.1;
+    for (double radius : {0.16, default_band, 0.65}) {
+        REQUIRE(gp.near_interface_nodes(radius)
+                == brute_force_p2_center_band_nodes(iface, grid, radius));
+        for (int node : {grid.index(10, 10), grid.index(0, 0), grid.index(20, 10)}) {
+            REQUIRE(gp.is_near_interface(node, radius)
+                    == (brute_force_nearest_p2_center_distance(iface, grid, node)
+                        < radius));
+        }
+    }
+}
+
+TEST_CASE("2D GridPair rejects P2 expansion-center lookup for non-P2 panels",
+          "[projection][2d][grid-pair]")
+{
+    const Interface2D iface = make_flat_legacy_panel();
+    CartesianGrid2D grid({-1.0, -1.0}, {0.1, 0.1}, {20, 20}, DofLayout2D::Node);
+    GridPair2D gp(grid, iface);
+    REQUIRE_THROWS_AS(gp.nearest_p2_expansion_center(grid.index(10, 10)),
+                      std::runtime_error);
+}
+
+TEST_CASE("2D GridPair P2 BFS labels keep closed-curve inside/outside convention",
+          "[projection][2d][grid-pair]")
+{
+    CircleCurve2D circle;
+    Star3Curve2D star;
+    CartesianGrid2D grid({-1.0, -1.0}, {0.1, 0.1}, {20, 20}, DofLayout2D::Node);
+    const std::vector<Interface2D> interfaces = {
+        CurveResampler2D::discretize_quadratic_lagrange(circle, 0.1, 3.0),
+        CurveResampler2D::discretize_quadratic_lagrange(star, 0.1, 3.0)};
+
+    for (const Interface2D& iface : interfaces) {
+        GridPair2D gp(grid, iface);
+        REQUIRE(gp.domain_label(grid.index(10, 10)) == 1);
+        REQUIRE(gp.domain_label(grid.index(0, 0)) == 0);
+        REQUIRE(gp.domain_label(grid.index(20, 10)) == 0);
+
+        const std::vector<int> band = gp.near_interface_nodes(0.2);
+        REQUIRE_FALSE(band.empty());
+    }
 }
 
 TEST_CASE("2D P2 near-interface projection uses the GridPair compatibility method",

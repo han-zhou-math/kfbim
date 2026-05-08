@@ -32,8 +32,7 @@ private:
     LocalPoly2D fit_at_interface_point(
         const Eigen::VectorXd&          bulk_solution,
         int                             q,
-        const std::vector<LocalPoly2D>& center_polys,
-        const std::vector<int>&         nearest_center_for_grid_node) const;
+        const std::vector<LocalPoly2D>& center_polys) const;
 
     const GridPair2D& grid_pair_;
     int               stencil_radius_;

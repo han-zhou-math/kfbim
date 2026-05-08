@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -26,6 +27,7 @@ namespace {
 
 struct ConvergenceData {
     double bulk_err = 0.0;
+    double wall_time = 0.0;
     int    iterations = 0;
     int    num_panels = 0;
     int    num_interface_points = 0;
@@ -210,6 +212,7 @@ double tail_average_order(const std::vector<double>& rates, int count = 2)
 
 ConvergenceData solve_and_measure(int N, const std::filesystem::path& out_dir)
 {
+    const auto wall_start = std::chrono::steady_clock::now();
     constexpr double beta_int = 2.0;
     constexpr double beta_ext = 1.0;
     constexpr double lambda_sq = 1.1;
@@ -301,7 +304,12 @@ ConvergenceData solve_and_measure(int N, const std::filesystem::path& out_dir)
                                     u_exact);
     }
 
+    const double wall_time =
+        std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - wall_start).count();
+
     return {bulk_err,
+            wall_time,
             result.iterations,
             iface.num_panels(),
             n_iface,
@@ -317,7 +325,7 @@ TEST_CASE("Common-ratio transmission 3D: P2 torus convergence",
     const std::vector<int> levels = convergence_levels_3d();
     const std::filesystem::path out_dir = output_dir();
     std::ofstream csv(out_dir / "convergence.csv");
-    csv << "N,panels,iface_pts,phi_density,psi_density,max_err,order,GMRES\n";
+    csv << "N,panels,iface_pts,phi_density,psi_density,max_err,order,wall_s,GMRES\n";
 
     std::vector<ConvergenceData> data(levels.size());
     std::vector<double> rates(levels.size(), 0.0);
@@ -335,8 +343,9 @@ TEST_CASE("Common-ratio transmission 3D: P2 torus convergence",
                 kTargetNodeSpacingOverH, out_dir.string().c_str());
     std::printf("  Set KFBIM_HIGH_RES_3D=1 to include N=64, N=128, and N=256.\n");
     std::printf("  Set KFBIM_TORUS_VIS_N=<N> to write torus visualization CSVs.\n");
-    std::printf("  %6s  %8s  %10s  %11s  %11s  %12s  %8s  %6s\n",
-                "N", "panels", "iface_pts", "phi", "psi", "max_err", "order", "GMRES");
+    std::printf("  %6s  %8s  %10s  %11s  %11s  %12s  %8s  %8s  %6s\n",
+                "N", "panels", "iface_pts", "phi", "psi", "max_err", "order",
+                "wall_s", "GMRES");
 
     for (std::size_t l = 0; l < levels.size(); ++l) {
         data[l] = solve_and_measure(levels[l], out_dir);
@@ -346,28 +355,29 @@ TEST_CASE("Common-ratio transmission 3D: P2 torus convergence",
         REQUIRE(data[l].phi_size == data[l].num_interface_points);
 
         if (l == 0) {
-            std::printf("  %6d  %8d  %10d  %11d  %11d  %12.4e  %8s  %6d\n",
+            std::printf("  %6d  %8d  %10d  %11d  %11d  %12.4e  %8s  %8.3f  %6d\n",
                         levels[l], data[l].num_panels, data[l].num_interface_points,
                         data[l].phi_size, data[l].psi_size, data[l].bulk_err,
-                        "-", data[l].iterations);
+                        "-", data[l].wall_time, data[l].iterations);
             csv << levels[l] << "," << data[l].num_panels << ","
                 << data[l].num_interface_points << "," << data[l].phi_size << ","
                 << data[l].psi_size << "," << std::setprecision(16)
-                << data[l].bulk_err << ",," << data[l].iterations << "\n";
+                << data[l].bulk_err << ",," << data[l].wall_time
+                << "," << data[l].iterations << "\n";
         } else {
             rates[l] = std::log(static_cast<double>(data[l - 1].bulk_err)
                                 / static_cast<double>(data[l].bulk_err))
                        / std::log(static_cast<double>(levels[l])
                                   / static_cast<double>(levels[l - 1]));
-            std::printf("  %6d  %8d  %10d  %11d  %11d  %12.4e  %8.3f  %6d\n",
+            std::printf("  %6d  %8d  %10d  %11d  %11d  %12.4e  %8.3f  %8.3f  %6d\n",
                         levels[l], data[l].num_panels, data[l].num_interface_points,
                         data[l].phi_size, data[l].psi_size, data[l].bulk_err,
-                        rates[l], data[l].iterations);
+                        rates[l], data[l].wall_time, data[l].iterations);
             csv << levels[l] << "," << data[l].num_panels << ","
                 << data[l].num_interface_points << "," << data[l].phi_size << ","
                 << data[l].psi_size << "," << std::setprecision(16)
                 << data[l].bulk_err << "," << rates[l] << ","
-                << data[l].iterations << "\n";
+                << data[l].wall_time << "," << data[l].iterations << "\n";
         }
     }
 

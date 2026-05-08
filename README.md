@@ -23,8 +23,9 @@ Implemented:
 
 - Cartesian and MAC grid types in 2D and 3D
 - 2D and 3D interface containers with panel connectivity, quadrature points, normals, and weights
-- 2D and 3D grid/interface pairing with closest-point, domain-label, and
-  P2 narrow-band projection queries
+- 2D and 3D grid/interface pairing with closest bulk-node queries, active P2
+  expansion-center lookup caches, domain labels, and P2 narrow-band projection
+  queries
 - Quasi-uniform arc-length curve resampling for stable interface discretization
 - 2D P2 Laplace panel Cauchy solver with four expansion centers per panel
 - 2D P2 Laplace spread and restrict transfer operators with fixed square
@@ -103,8 +104,9 @@ Optional:
 
 - Catch2 v3 for tests; fetched by CMake if not installed
 - FFTW3 for the FFTW-backed solver
-- CGAL for GridPair geometry queries and 3D nearest-neighbor acceleration;
-  required for the active geometry-dependent tests
+- CGAL for raw/legacy GridPair geometry queries and projection fallback
+  searches; active 2D/3D P2 transfer paths use internal expansion-center
+  spatial hashes for nearest-center lookup
 
 On macOS with Homebrew:
 
@@ -146,8 +148,10 @@ Primary PDE/convergence executables are `test_interface`, `test_interface_3d`,
 `test_transmission_ellipsoid_3d`, `test_transmission_torus_3d`, and
 `test_transmission_periodic_2d`. Component coverage includes
 `test_projection_2d`, `test_projection_3d`, and `test_refactor_utilities`.
-The 3D PDE tests use power-of-two grid sizes; set `KFBIM_HIGH_RES_3D=1` to
-include the highest-resolution 3D levels.
+The PDE convergence programs print a `wall_s` column for each grid level and
+write the same column to their convergence CSV files. The 3D PDE tests use
+power-of-two grid sizes; set `KFBIM_HIGH_RES_3D=1` to include the
+highest-resolution 3D levels.
 
 The current periodic 2D transmission test uses a cell-centered periodic bulk
 solver and an interface well away from the box edge. The 2D transfer operators
@@ -211,13 +215,20 @@ For new 2D Laplace work, use `CurveResampler2D::discretize()` and
 aliases; keep the legacy Gauss path only for explicit regression or comparison
 tests. Active 2D restrict interpolation uses a fixed six-node square quadratic
 stencil around the nearest grid node; no least-squares fallback is used.
+Active 2D P2 `GridPair2D` geometry lookup is center-only for spread/restrict:
+it builds one spatial hash over the four generated expansion centers per panel,
+rasterizes a default narrow-band nearest-center cache, labels closed P2 curves
+with center-seeded BFS, and keeps nearest interface-DOF lookup as a lazy
+compatibility query.
 For new 3D Laplace work, use shared six-node P2 triangular patches with
 `PanelNodeLayout3D::QuadraticLagrange`, 16 expansion centers per parent
 triangle, and target adjacent P2 node spacing over grid spacing of about `1.5`.
 Active 3D restrict interpolation uses the analogous fixed ten-node square
 quadratic stencil. The default 3D transfer correction is nearest
-expansion-center expansion. Projection-point IIM correction is available as an
-opt-in comparison path; use `GridPair3D::project_grid_nodes_to_interface()` for
-the explicit set of grid nodes where `C(x)` is needed, or
-`GridPair3D::project_near_interface_nodes()` for broader projection-geometry
-diagnostics.
+expansion-center expansion. Active 3D P2 `GridPair3D` uses the same 16
+expansion centers as a shared lookup set for labels, spread, restrict, and
+projection seeding; nearest interface-DOF lookup is lazy compatibility-only.
+Projection-point IIM correction is available as an opt-in comparison path; use
+`GridPair3D::project_grid_nodes_to_interface()` for the explicit set of grid
+nodes where `C(x)` is needed, or `GridPair3D::project_near_interface_nodes()`
+for broader projection-geometry diagnostics.

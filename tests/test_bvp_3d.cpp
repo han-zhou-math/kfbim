@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -35,6 +36,7 @@ enum class BvpCase {
 
 struct SolveData {
     double bulk_err = 0.0;
+    double wall_time = 0.0;
     int    iterations = 0;
     int    num_panels = 0;
     int    num_interface_points = 0;
@@ -152,6 +154,7 @@ double tail_average_order(const std::vector<double>& rates, int count = 2)
 
 SolveData solve_and_measure(BvpCase bvp, int N)
 {
+    const auto wall_start = std::chrono::steady_clock::now();
     const Box3D box = standard_box();
     const double h = box.side_length / static_cast<double>(N);
 
@@ -235,7 +238,12 @@ SolveData solve_and_measure(BvpCase bvp, int N)
         REQUIRE(boundary_err < 1.0e-12);
     }
 
+    const double wall_time =
+        std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - wall_start).count();
+
     return {bulk_err,
+            wall_time,
             result.iterations,
             iface.num_panels(),
             n_iface,
@@ -252,15 +260,16 @@ void check_convergence(BvpCase bvp)
     const std::filesystem::path csv_path =
         out_dir / (std::string(bvp_file_stem(bvp)) + "_convergence.csv");
     std::ofstream csv(csv_path);
-    csv << "N,panels,iface_pts,density,max_err,order,GMRES\n";
+    csv << "N,panels,iface_pts,density,max_err,order,wall_s,GMRES\n";
 
     std::printf("\n  Screened %s BVP on P2 sphere: -Delta u + %.2f u = f\n",
                 bvp_name(bvp), kEta);
     std::printf("  Surface: shared P2 triangles; target P2 node_spacing/h = %.2f; output: %s\n",
                 kTargetNodeSpacingOverH, csv_path.string().c_str());
     std::printf("  Set KFBIM_HIGH_RES_3D=1 to include N=128.\n");
-    std::printf("  %6s  %8s  %10s  %11s  %12s  %8s  %6s\n",
-                "N", "panels", "iface_pts", "density", "max_err", "order", "GMRES");
+    std::printf("  %6s  %8s  %10s  %11s  %12s  %8s  %8s  %6s\n",
+                "N", "panels", "iface_pts", "density", "max_err", "order",
+                "wall_s", "GMRES");
 
     for (std::size_t l = 0; l < Ns.size(); ++l) {
         data[l] = solve_and_measure(bvp, Ns[l]);
@@ -269,27 +278,28 @@ void check_convergence(BvpCase bvp)
         REQUIRE(data[l].density_size == data[l].num_interface_points);
 
         if (l == 0) {
-            std::printf("  %6d  %8d  %10d  %11d  %12.4e  %8s  %6d\n",
+            std::printf("  %6d  %8d  %10d  %11d  %12.4e  %8s  %8.3f  %6d\n",
                         Ns[l], data[l].num_panels, data[l].num_interface_points,
                         data[l].density_size, data[l].bulk_err, "-",
-                        data[l].iterations);
+                        data[l].wall_time, data[l].iterations);
             csv << Ns[l] << "," << data[l].num_panels << ","
                 << data[l].num_interface_points << "," << data[l].density_size
                 << "," << std::setprecision(16) << data[l].bulk_err
-                << ",," << data[l].iterations << "\n";
+                << ",," << data[l].wall_time << "," << data[l].iterations << "\n";
         } else {
             rates[l] = std::log(static_cast<double>(data[l - 1].bulk_err)
                                 / static_cast<double>(data[l].bulk_err))
                        / std::log(static_cast<double>(Ns[l])
                                   / static_cast<double>(Ns[l - 1]));
-            std::printf("  %6d  %8d  %10d  %11d  %12.4e  %8.3f  %6d\n",
+            std::printf("  %6d  %8d  %10d  %11d  %12.4e  %8.3f  %8.3f  %6d\n",
                         Ns[l], data[l].num_panels, data[l].num_interface_points,
                         data[l].density_size, data[l].bulk_err, rates[l],
-                        data[l].iterations);
+                        data[l].wall_time, data[l].iterations);
             csv << Ns[l] << "," << data[l].num_panels << ","
                 << data[l].num_interface_points << "," << data[l].density_size
                 << "," << std::setprecision(16) << data[l].bulk_err
-                << "," << rates[l] << "," << data[l].iterations << "\n";
+                << "," << rates[l] << "," << data[l].wall_time
+                << "," << data[l].iterations << "\n";
         }
     }
 

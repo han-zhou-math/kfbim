@@ -51,6 +51,7 @@ struct Box3D {
 
 struct SolveData {
     double bulk_err = 0.0;
+    double wall_time = 0.0;
     int    num_panels = 0;
     int    num_interface_points = 0;
 };
@@ -439,6 +440,7 @@ int surface_subdivision_for_grid(int N)
 
 SolveData solve_and_measure(int N)
 {
+    const auto wall_start = StageTimer::Clock::now();
     StageTimer timer;
     const bool profile = profile_enabled();
     const LaplaceCorrectionMethod3D correction_method =
@@ -515,7 +517,10 @@ SolveData solve_and_measure(int N)
                         + t_spread + t_bulk_solve + t_restrict + t_error);
     }
 
-    return {bulk_err, iface.num_panels(), iface.num_points()};
+    const double wall_time =
+        std::chrono::duration<double>(StageTimer::Clock::now() - wall_start)
+            .count();
+    return {bulk_err, wall_time, iface.num_panels(), iface.num_points()};
 }
 
 } // namespace
@@ -538,7 +543,7 @@ TEST_CASE("Constant-coefficient screened interface problem converges on P2 spher
 
     const std::filesystem::path out_dir = output_dir();
     std::ofstream csv(out_dir / "convergence.csv");
-    csv << "N,max_err,order,GMRES\n";
+    csv << "N,max_err,order,wall_s,GMRES\n";
 
     std::printf("\n  Constant-coefficient screened interface problem on P2 sphere\n");
     std::printf("  Manufactured sine modes vanish on the outer Cartesian box; eta = %.2f\n",
@@ -549,7 +554,8 @@ TEST_CASE("Constant-coefficient screened interface problem converges on P2 spher
     std::printf("  %s; output: %s\n",
                 correction_method_name(correction_method),
                 out_dir.string().c_str());
-    std::printf("  %6s  %12s  %8s  %6s\n", "N", "max_err", "order", "GMRES");
+    std::printf("  %6s  %12s  %8s  %8s  %6s\n",
+                "N", "max_err", "order", "wall_s", "GMRES");
 
     for (std::size_t l = 0; l < Ns.size(); ++l) {
         data[l] = solve_and_measure(Ns[l]);
@@ -558,18 +564,20 @@ TEST_CASE("Constant-coefficient screened interface problem converges on P2 spher
         REQUIRE(data[l].num_panels > 0);
 
         if (l == 0) {
-            std::printf("  %6d  %12.4e  %8s  %6d\n",
-                        Ns[l], data[l].bulk_err, "-", 0);
+            std::printf("  %6d  %12.4e  %8s  %8.3f  %6d\n",
+                        Ns[l], data[l].bulk_err, "-", data[l].wall_time, 0);
             csv << Ns[l] << "," << std::setprecision(16) << data[l].bulk_err
-                << ",," << 0 << "\n";
+                << ",," << data[l].wall_time << "," << 0 << "\n";
         } else {
             rates[l] = std::log(data[l - 1].bulk_err / data[l].bulk_err)
                        / std::log(static_cast<double>(Ns[l])
                                   / static_cast<double>(Ns[l - 1]));
-            std::printf("  %6d  %12.4e  %8.3f  %6d\n",
-                        Ns[l], data[l].bulk_err, rates[l], 0);
+            std::printf("  %6d  %12.4e  %8.3f  %8.3f  %6d\n",
+                        Ns[l], data[l].bulk_err, rates[l],
+                        data[l].wall_time, 0);
             csv << Ns[l] << "," << std::setprecision(16) << data[l].bulk_err
-                << "," << rates[l] << "," << 0 << "\n";
+                << "," << rates[l] << "," << data[l].wall_time
+                << "," << 0 << "\n";
         }
     }
 

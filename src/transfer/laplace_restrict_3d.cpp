@@ -1,11 +1,5 @@
 #include "laplace_restrict_3d.hpp"
 
-#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
-#include <CGAL/Search_traits_3.h>
-#include <CGAL/Search_traits_adapter.h>
-#include <CGAL/Orthogonal_k_neighbor_search.h>
-#include <CGAL/property_map.h>
-
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -26,17 +20,6 @@ namespace {
 
 constexpr int kExpansionCentersPerPanel3D = 16;
 
-using K3 = CGAL::Exact_predicates_inexact_constructions_kernel;
-using CPoint3 = K3::Point_3;
-using CPointWithIndex3 = std::pair<CPoint3, int>;
-using CSearchBaseTraits3 = CGAL::Search_traits_3<K3>;
-using CSearchTraits3 =
-    CGAL::Search_traits_adapter<CPointWithIndex3,
-                                CGAL::First_of_pair_property_map<CPointWithIndex3>,
-                                CSearchBaseTraits3>;
-using CNeighborSearch3 = CGAL::Orthogonal_k_neighbor_search<CSearchTraits3>;
-using CSearchTree3 = CNeighborSearch3::Tree;
-
 Eigen::Vector3d interface_point(const Interface3D& iface, int q)
 {
     return iface.points().row(q).transpose();
@@ -45,65 +28,6 @@ Eigen::Vector3d interface_point(const Interface3D& iface, int q)
 Eigen::Vector3d grid_point(const CartesianGrid3D& grid, int idx)
 {
     return structured_grid::point(grid, idx);
-}
-
-double max_grid_spacing(const CartesianGrid3D& grid)
-{
-    return structured_grid::max_spacing(grid);
-}
-
-class NearestCenterFinder3D {
-public:
-    explicit NearestCenterFinder3D(const std::vector<LocalPoly3D>& center_polys)
-    {
-        if (center_polys.empty())
-            throw std::invalid_argument("NearestCenterFinder3D requires centers");
-
-        points_.reserve(center_polys.size());
-        for (int i = 0; i < static_cast<int>(center_polys.size()); ++i) {
-            const Eigen::Vector3d& c = center_polys[i].center;
-            points_.emplace_back(CPoint3(c[0], c[1], c[2]), i);
-        }
-        tree_ = std::make_unique<CSearchTree3>(points_.begin(), points_.end());
-    }
-
-    int nearest(Eigen::Vector3d pt) const
-    {
-        CNeighborSearch3 search(*tree_, CPoint3(pt[0], pt[1], pt[2]), 1);
-        return search.begin()->first.second;
-    }
-
-private:
-    std::vector<CPointWithIndex3> points_;
-    std::unique_ptr<CSearchTree3> tree_;
-};
-
-int nearest_poly_index(const NearestCenterFinder3D& center_finder,
-                       Eigen::Vector3d             pt)
-{
-    return center_finder.nearest(pt);
-}
-
-std::vector<int> build_nearest_center_map(const GridPair3D&               grid_pair,
-                                          const NearestCenterFinder3D&    center_finder,
-                                          double                          band_radius)
-{
-    const auto& grid = grid_pair.grid();
-    std::vector<int> nearest(grid.num_dofs(), -1);
-    for (int idx : grid_pair.near_interface_nodes(band_radius))
-        nearest[idx] = nearest_poly_index(center_finder, grid_point(grid, idx));
-    return nearest;
-}
-
-int nearest_center_for_grid_node(const std::vector<int>& nearest_center_map,
-                                 int                     idx)
-{
-    if (idx >= 0 && idx < static_cast<int>(nearest_center_map.size())
-        && nearest_center_map[idx] >= 0) {
-        return nearest_center_map[idx];
-    }
-    throw std::runtime_error(
-        "LaplaceQuadraticPatchCenterRestrict3D missing nearest-center map entry");
 }
 
 bool profile_projection_transfer_3d()
@@ -134,25 +58,20 @@ class NearestExpansionCenterRestrictCorrectionEvaluator3D final
 public:
     NearestExpansionCenterRestrictCorrectionEvaluator3D(
         const GridPair3D& grid_pair,
-        const LaplaceSpreadResult3D& spread_result,
-        double band_radius)
-        : correction_polys_(spread_result.correction_polys)
-        , nearest_center_for_node_(
-              build_nearest_center_map(grid_pair,
-                                       NearestCenterFinder3D(correction_polys_),
-                                       band_radius))
+        const LaplaceSpreadResult3D& spread_result)
+        : grid_pair_(grid_pair)
+        , correction_polys_(spread_result.correction_polys)
     {}
 
     double half_correction(int grid_node, Eigen::Vector3d pt) const override
     {
-        const int center_idx =
-            nearest_center_for_grid_node(nearest_center_for_node_, grid_node);
+        const int center_idx = grid_pair_.nearest_p2_expansion_center(grid_node);
         return 0.5 * evaluate_taylor_poly_3d(correction_polys_[center_idx], pt);
     }
 
 private:
+    const GridPair3D& grid_pair_;
     const std::vector<LocalPoly3D>& correction_polys_;
-    std::vector<int> nearest_center_for_node_;
 };
 
 class ProjectionPointRestrictCorrectionEvaluator3D final
@@ -183,8 +102,7 @@ private:
 std::unique_ptr<LaplaceRestrictCorrectionEvaluator3D> make_restrict_correction_evaluator(
     const GridPair3D& grid_pair,
     const LaplaceSpreadResult3D& spread_result,
-    int expected_centers,
-    double band_radius)
+    int expected_centers)
 {
     const auto& iface = grid_pair.interface();
     if (spread_result.correction_method
@@ -195,7 +113,7 @@ std::unique_ptr<LaplaceRestrictCorrectionEvaluator3D> make_restrict_correction_e
                 "LaplaceQuadraticPatchCenterRestrict3D correction_polys size must equal 16*num_panels");
         }
         return std::make_unique<NearestExpansionCenterRestrictCorrectionEvaluator3D>(
-            grid_pair, spread_result, band_radius);
+            grid_pair, spread_result);
     }
 
     if (spread_result.correction_method
@@ -246,14 +164,10 @@ std::vector<LocalPoly3D> LaplaceQuadraticPatchCenterRestrict3D::apply(
             "LaplaceQuadraticPatchCenterRestrict3D requires P2 QuadraticLagrange panels");
     }
 
-    const double band_radius = (static_cast<double>(stencil_radius_) + 1.0)
-                               * std::sqrt(3.0) * max_grid_spacing(grid);
-
     const auto correction_evaluator =
         make_restrict_correction_evaluator(grid_pair_,
                                            spread_result,
-                                           expected_centers,
-                                           band_radius);
+                                           expected_centers);
 
     const ProfileClock::time_point fit_start = ProfileClock::now();
     std::vector<LocalPoly3D> result(n_iface);

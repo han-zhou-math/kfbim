@@ -486,15 +486,21 @@ NarrowBandProjection3D project_p2_near_interface_nodes_3d(
     const ProjectionProfileClock::time_point setup_start =
         ProjectionProfileClock::now();
     const std::vector<ProjectionSeed3D> seeds = projection_seeds_3d(iface);
-    std::vector<Eigen::Vector3d> seed_points;
-    seed_points.reserve(seeds.size());
-    for (const auto& seed : seeds)
-        seed_points.push_back(seed.point);
-    const NearestPointCloud3D seed_cloud(seed_points);
     const double t_setup = projection_seconds_since(setup_start);
 
     constexpr int kRetrySeeds = 64;
     const int k = std::min(kRetrySeeds, static_cast<int>(seeds.size()));
+    std::unique_ptr<NearestPointCloud3D> seed_cloud;
+    auto ensure_seed_cloud = [&]() -> const NearestPointCloud3D& {
+        if (!seed_cloud) {
+            std::vector<Eigen::Vector3d> seed_points;
+            seed_points.reserve(seeds.size());
+            for (const auto& seed : seeds)
+                seed_points.push_back(seed.point);
+            seed_cloud = std::make_unique<NearestPointCloud3D>(seed_points);
+        }
+        return *seed_cloud;
+    };
 
     long long seed_attempts = 0;
     long long first_seed_converged = 0;
@@ -504,21 +510,31 @@ NarrowBandProjection3D project_p2_near_interface_nodes_3d(
         ProjectionProfileClock::now();
     for (int node : band.nodes_) {
         const Eigen::Vector3d target = grid_point(grid, node);
-        const std::vector<int> seed_indices = seed_cloud.nearest_k(target, k);
-
+        const int first_seed_idx = grid_pair.nearest_p2_expansion_center(node);
         SurfaceProjection3D best;
-        for (std::size_t i = 0; i < seed_indices.size(); ++i) {
-            const SurfaceProjection3D candidate =
-                project_from_seed(iface, node, target, seeds[seed_indices[i]]);
-            ++seed_attempts;
-            newton_iterations += candidate.iterations;
-            if (better_projection(candidate, best))
-                best = candidate;
-            if (i == 0 && candidate.converged) {
-                ++first_seed_converged;
-                break;
+
+        const SurfaceProjection3D first_candidate =
+            project_from_seed(iface, node, target, seeds[first_seed_idx]);
+        ++seed_attempts;
+        newton_iterations += first_candidate.iterations;
+        best = first_candidate;
+        if (first_candidate.converged) {
+            ++first_seed_converged;
+        } else {
+            const std::vector<int> seed_indices =
+                ensure_seed_cloud().nearest_k(target, k);
+            for (int seed_idx : seed_indices) {
+                if (seed_idx == first_seed_idx)
+                    continue;
+                const SurfaceProjection3D candidate =
+                    project_from_seed(iface, node, target, seeds[seed_idx]);
+                ++seed_attempts;
+                newton_iterations += candidate.iterations;
+                if (better_projection(candidate, best))
+                    best = candidate;
             }
         }
+
         if (best.converged)
             ++converged_best;
 
@@ -577,11 +593,6 @@ NarrowBandProjection3D project_p2_grid_nodes_to_interface_3d(
     const ProjectionProfileClock::time_point setup_start =
         ProjectionProfileClock::now();
     const std::vector<ProjectionSeed3D> seeds = projection_seeds_3d(iface);
-    std::vector<Eigen::Vector3d> seed_points;
-    seed_points.reserve(seeds.size());
-    for (const auto& seed : seeds)
-        seed_points.push_back(seed.point);
-    const NearestPointCloud3D seed_cloud(seed_points);
     const double t_setup = projection_seconds_since(setup_start);
 
     long long converged_count = 0;
@@ -590,7 +601,7 @@ NarrowBandProjection3D project_p2_grid_nodes_to_interface_3d(
         ProjectionProfileClock::now();
     for (int node : band.nodes_) {
         const Eigen::Vector3d target = grid_point(grid, node);
-        const int seed_idx = seed_cloud.nearest(target);
+        const int seed_idx = grid_pair.nearest_p2_expansion_center(node);
         SurfaceProjection3D projection =
             project_from_nearest_center_with_flat_fallback(iface,
                                                            node,
