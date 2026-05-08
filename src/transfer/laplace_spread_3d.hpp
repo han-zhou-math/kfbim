@@ -1,6 +1,7 @@
 #pragma once
 
 #include "i_spread.hpp"
+#include "laplace_correction_support.hpp"
 
 namespace kfbim {
 
@@ -28,6 +29,8 @@ private:
     double                    kappa_;
     LaplaceCorrectionMethod3D correction_method_;
     int                       projection_restrict_stencil_radius_;
+    LaplaceCorrectionSupport3D support_;
+    NarrowBandProjection3D projection_cache_;
 };
 
 } // namespace kfbim

@@ -139,6 +139,9 @@ LaplaceQuadraticPatchCenterRestrict3D::LaplaceQuadraticPatchCenterRestrict3D(
     int               stencil_radius)
     : grid_pair_(grid_pair)
     , stencil_radius_(stencil_radius)
+    , support_(build_laplace_correction_support_3d(
+          grid_pair,
+          "LaplaceQuadraticPatchCenterRestrict3D"))
 {
     if (stencil_radius_ < 1)
         throw std::invalid_argument(
@@ -194,14 +197,8 @@ LocalPoly3D LaplaceQuadraticPatchCenterRestrict3D::fit_at_interface_point(
 {
     const auto& grid = grid_pair_.grid();
     const auto& iface = grid_pair_.interface();
-    const int closest = grid_pair_.closest_bulk_node(q);
     const Eigen::Vector3d center = interface_point(iface, q);
-    const std::array<int, 10> stencil_nodes =
-        structured_grid::quadratic_restrict_stencil_nodes_3d(
-            "LaplaceQuadraticPatchCenterRestrict3D",
-            grid,
-            closest,
-            center);
+    const std::array<int, 10>& stencil_nodes = support_.restrict_stencils[q];
 
     Eigen::Matrix<double, 10, 10> A;
     Eigen::Matrix<double, 10, 1> rhs;

@@ -18,9 +18,10 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   correction prototype. It also reflects the 2026-05-08 staged organization
   refactor, public forwarding headers, shared grid/operator utilities, 2D/3D
   P2 projection split, 2D P2 geometry/center-sampling unification, fixed
-  square 2D/3D restrict stencils, 2D/3D P2 expansion-center lookup caches, and
-  per-grid PDE convergence wall-time reporting. The default 3D correction path
-  remains nearest expansion-center expansion.
+  square 2D/3D restrict stencils, 2D/3D P2 expansion-center lookup caches,
+  projection-point correction support in both dimensions, and per-grid PDE
+  convergence wall-time reporting. The default 2D/3D correction path remains
+  nearest expansion-center expansion.
 - **Completed modules** (active tests passing):
   - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
     - `Interface2D` tracks panel node layout: `QuadraticLagrange`,
@@ -79,6 +80,9 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
       stencil around the nearest grid node:
       `(i,j)`, `(i+d1,j)`, `(i,j+d2)`, `(i+d1,j+d2)`,
       `(i-d1,j)`, `(i,j-d2)`, with `d* = (x* > x*_i) ? 1 : -1`.
+    - `LaplaceCorrectionMethod2D::ProjectionPoint` is implemented as an
+      opt-in method using projected P2 curve data and the 2D normal Taylor
+      correction formula. Nearest expansion center remains the default.
     - `LaplaceLobattoCenterSpread2D` and `LaplaceLobattoCenterRestrict2D`
       remain source-compatible aliases.
   - Layer 1.5: `LaplacePanelCauchySolver2D`
@@ -98,6 +102,15 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     - Uses the current restrict convention: restrict returns averaged trace/flux directly.
     - Covered by archived component tests; active top-level tests now exercise it
       through PDE-level manufactured problems.
+  - Shared Laplace correction-method API:
+    - `LaplaceCorrectionMethod::NearestExpansionCenter` is the default.
+    - `LaplaceCorrectionMethod::ProjectionPoint` is opt-in for 2D and 3D.
+    - Compatibility aliases `LaplaceCorrectionMethod2D` and
+      `LaplaceCorrectionMethod3D` remain available.
+    - Spread/restrict constructors precompute exact correction support nodes:
+      crossing-edge nodes plus fixed restrict-stencil nodes. Projection mode
+      projects only this support set; nearest-center mode reuses the same
+      support plan.
   - Layer 1-3 3D Laplace potential path:
     - `laplace_p2_patch_center_cauchy_3d()` solves one local 10x10 quadratic
       Cauchy system at each of 16 expansion centers per P2 triangle.
@@ -161,8 +174,8 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     2D expansion-center correction path for all spread/restrict nearest-center
     lookups. Interface DOF nearest lookup is no longer eager and is kept only
     as a lazy compatibility query.
-  - The unused 2D P2 projection service is implemented for future
-    projection-point correction work and mirrors the 3D projection-cache shape.
+  - The 2D P2 projection service now supports the opt-in projection-point
+    correction method and mirrors the 3D projection-cache shape.
   - Active 2D/3D restrict interpolation now uses square 6x6/10x10 quadratic
     interpolation systems from fixed grid stencils; no local least-squares
     restrict fallback remains.
@@ -175,19 +188,21 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - Gauss-point restrictor/problem-wrapper paths were removed from active code.
   - Archived component tests include direct D/S/N jump-relation coverage for
     `LaplacePotentialEval2D`.
-  - Active convergence tests use the same off-center 3-fold star convention:
-    center `(0.07,-0.04)`, P2 quadratic panels, outer box from sampled
-    interface bounds plus margin, target adjacent P2-node spacing `1.5h`, and
-    `panel_length/h = 3.0`.
+  - Active 2D interface and transmission convergence tests use the same
+    off-center 3-fold star convention: center `(0.07,-0.04)`, P2 quadratic
+    panels, outer box from sampled interface bounds plus margin, target
+    adjacent P2-node spacing `1.2h`, and `panel_length/h = 2.4`.
   - `tests/test_interface.cpp` solves a direct prescribed-jump constant-
     coefficient screened interface problem using `LaplacePotentialEval2D`;
     it reports `GMRES=0` because there is no outer Krylov solve.
   - `tests/test_bvp.cpp` covers all four screened `LaplaceBvp2D` modes:
-    interior/exterior Dirichlet and interior/exterior Neumann, with `eta=1.1`
-    and exact outer Cartesian Dirichlet elimination/restoration for exterior
-    manufactured solutions.
+    interior/exterior Dirichlet and interior/exterior Neumann on an off-center
+    ellipse with axes `(0.73,0.49)`, center `(0.07,-0.04)`, `eta=1.1`, exact
+    outer Cartesian Dirichlet elimination/restoration for exterior
+    manufactured solutions, and both `max_err` and `rms_err` in output/CSV.
   - `tests/test_transmission.cpp` covers both `LaplaceTransmission2D` modes:
-    `CommonRatio` and `DifferentRatios`.
+    `CommonRatio` and `DifferentRatios`. It also includes a common-ratio
+    nearest-center vs projection-point correction comparison.
   - `tests/test_transmission_periodic_2d.cpp` covers
     `LaplaceTransmission2D::CommonRatio` on a cell-centered bi-periodic unit
     square with periodic trigonometric manufactured solutions.
@@ -198,7 +213,7 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - `tests/test_interface_3d.cpp` covers the direct prescribed-jump screened
     3D interface problem on a unit P2 sphere centered at the origin in
     `(-1.5,1.5)^3`, with `eta=1.1`, 16 expansion centers per parent triangle,
-    and target adjacent P2 node spacing over grid spacing of about `1.5`.
+    and target adjacent P2 node spacing over grid spacing of about `1.2`.
     The default run uses nearest expansion-center correction. Set
     `KFBIM_INTERFACE_3D_CORRECTION=projection` to run the projection-point
     correction comparison.
@@ -212,7 +227,7 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   - `tests/test_transmission_ellipsoid_3d.cpp` covers
     `LaplaceTransmission3D::CommonRatio` on a shared P2 triaxial ellipsoid
     with axes `(0.61,0.49,0.41)`, center `(0.07,-0.04,0.03)`, nonzero outer
-    Cartesian Dirichlet data, and target P2 `node_spacing/h ~= 1.5`.
+    Cartesian Dirichlet data, and target P2 `node_spacing/h ~= 1.2`.
   - `tests/test_transmission_torus_3d.cpp` covers
     `LaplaceTransmission3D::CommonRatio` on a shared P2 torus. Set
     `KFBIM_TORUS_VIS_N=<N>` to export torus geometry and solution CSVs for
@@ -244,6 +259,12 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     `notes/math.md`, `notes/theory.md`, `notes/parallel_plan.md`, and
     `notes/stokes.pdf`.
 - **Current convergence test status:**
+  - 2026-05-08 projection-point correction and 1.2 ratio update:
+    - `cmake --build build`
+    - `ctest --test-dir build --output-on-failure`
+    - `cmake --build build --target test_bvp`
+    - `build/tests/test_bvp -s`
+    - `git diff --check`
   - 2026-05-08 P2 center-cache and wall-time reporting update:
     - `cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo`
     - `cmake --build build`
@@ -298,8 +319,8 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     - `KFBIM_HIGH_RES_3D=1 KFBIM_TORUS_VIS_N=256 build/tests/test_transmission_torus_3d -s`
     - `ctest --test-dir build -R transmission --output-on-failure`
     - `git diff --check`
-  - 3D additions passed on 2026-05-05 after the target P2
-    `node_spacing/h ~= 1.5` and ellipsoid common-ratio transmission update:
+  - 3D additions passed on 2026-05-05 before the later target P2
+    `node_spacing/h ~= 1.2` update:
     - `cmake --build build`
     - `build/tests/test_transmission_3d -s`
     - `build/tests/test_transmission_ellipsoid_3d -s`
@@ -327,7 +348,7 @@ coverage, runtime, and numerical robustness.
      source-compatible aliases.
    - Preserve the 3D P2 convention: `PanelNodeLayout3D::QuadraticLagrange`,
      six-node shared triangular patches, 16 expansion centers per parent
-     triangle, and target P2 `node_spacing/h ~= 1.5`.
+     triangle, and target P2 `node_spacing/h ~= 1.2`.
    - Keep reusable 3D potential-building code in `src/potentials/`; keep
      problem wrappers in `src/operators/`.
 
@@ -340,11 +361,12 @@ coverage, runtime, and numerical robustness.
      into the RHS and restore boundary values in the returned bulk solution.
 
 3. **Next implementation targets.**
-   - Keep nearest expansion-center correction as the default 3D transfer path.
-     The projection-point IIM correction path is implemented and useful for
-     comparison, but currently remains opt-in while its accuracy is assessed.
-   - Rerun and refresh the 3D BVP convergence snapshots after the final target
-     P2 `node_spacing/h ~= 1.5` change.
+   - Keep nearest expansion-center correction as the default transfer path.
+     The 2D/3D projection-point IIM correction paths are implemented and useful
+     for comparison, but currently remain opt-in while their accuracy is
+     assessed.
+   - Rerun and refresh the 3D BVP convergence snapshots after future target
+     P2 `node_spacing/h` changes.
    - Profile the 3D different-ratio transmission operator; it is still
      substantially more expensive than common-ratio, though compatible D/S
      layer evaluations are now combined per phase.
@@ -354,7 +376,7 @@ coverage, runtime, and numerical robustness.
 4. **Deferred work.**
    - Do not start Python/MATLAB bindings until the C++ problem API is stable.
    - Defer 3D Stokes/elasticity until scalar 3D Laplace BVP and transmission
-     wrappers remain stable under the ratio-1.5 test suite.
+     wrappers remain stable under the ratio-1.2 test suite.
    - Defer Stokes until the Laplace BVP API is clean; Stokes currently has
      scaffolding but not concrete local Cauchy, spread, restrict, or operator
      implementations.
@@ -370,7 +392,7 @@ Use P2 quadratic Lagrange panels for new 2D Laplace work.
 - Correction expansion centers per panel: `s={-0.75,-0.25,0.25,0.75}`.
 - `CurveResampler2D::discretize()` now returns P2 quadratic panels.
 - Current active convergence tests set target adjacent P2-node spacing over
-  grid spacing to `1.5`, so `panel_length/h = 3.0`.
+  grid spacing to `1.2`, so `panel_length/h = 2.4`.
 - `LaplaceBvp2D` defaults to `LaplaceBvpPanelMethod2D::QuadraticPanelCenter`.
 - `ChebyshevLobatto`, `ChebyshevLobattoCenter`, and old Lobatto transfer class
   names are compatibility aliases.
@@ -378,9 +400,10 @@ Use P2 quadratic Lagrange panels for new 2D Laplace work.
 
 ### Latest convergence snapshot
 
-The active 2D tests use the same off-center 3-fold star and target adjacent
-P2-node spacing/h of `1.5` (`panel_length/h = 3.0`). Active 3D sphere tests
-target P2 node spacing/h of about `1.5`.
+The active 2D interface/transmission tests use the off-center 3-fold star, the
+2D BVP test uses an off-center ellipse, and all active P2 convergence tests
+target adjacent P2-node spacing/h of about `1.2` (`panel_length/h = 2.4` in
+2D).
 
 2026-05-08 PDE-only wall times after the fixed square restrict-stencil update:
 
@@ -408,38 +431,35 @@ Per-executable wall times:
 
 | N | max err | order | GMRES |
 |---:|--------:|------:|------:|
-| 32 | 2.8477e-03 | - | 0 |
-| 64 | 5.9548e-04 | 2.258 | 0 |
-| 128 | 1.5400e-04 | 1.951 | 0 |
-| 256 | 3.6164e-05 | 2.090 | 0 |
-| 512 | 9.5274e-06 | 1.924 | 0 |
+| 32 | 2.3764e-03 | - | 0 |
+| 64 | 7.1623e-04 | 1.730 | 0 |
+| 128 | 1.7588e-04 | 2.026 | 0 |
+| 256 | 3.8630e-05 | 2.187 | 0 |
+| 512 | 9.1188e-06 | 2.083 | 0 |
 
 `test_interface_3d`, direct prescribed-jump screened 3D interface problem,
 unit P2 sphere centered at the origin in `(-1.5,1.5)^3`, `eta=1.1`, target P2
-`node_spacing/h ~= 1.5`. Default correction method:
+`node_spacing/h ~= 1.2`. Default correction method:
 `NearestExpansionCenter`.
 
 | N | panels | iface pts | max err | order | GMRES |
 |---:|------:|----------:|--------:|------:|------:|
 | 4 | 32 | 66 | 1.3930e-01 | - | 0 |
-| 8 | 32 | 66 | 3.5236e-02 | 1.983 | 0 |
-| 16 | 72 | 146 | 2.3289e-02 | 0.597 | 0 |
-| 32 | 200 | 402 | 4.0566e-03 | 2.521 | 0 |
-| 64 | 800 | 1602 | 5.9520e-04 | 2.769 | 0 |
-| 128 | 3200 | 6402 | 1.0797e-04 | 2.463 | 0 |
+| 8 | 32 | 66 | 3.4997e-02 | 1.992 | 0 |
+| 16 | 72 | 146 | 2.3230e-02 | 0.591 | 0 |
+| 32 | 200 | 402 | 3.6119e-03 | 2.685 | 0 |
+| 64 | 800 | 1602 | 4.3218e-04 | 3.063 | 0 |
+| 128 | 3200 | 6402 | 1.1104e-04 | 1.961 | 0 |
 
-`test_bvp`, all four screened `LaplaceBvp2D` modes, `eta=1.1`:
+`test_bvp`, all four screened `LaplaceBvp2D` modes on the off-center ellipse,
+`eta=1.1`. The convergence CSVs include both `max_err` and `rms_err`:
 
-| BVP | N=32 | N=64 | N=128 | N=256 | N=512 |
-|-----|-----:|-----:|------:|------:|------:|
-| Interior Dirichlet error | 4.2920e-04 | 1.2809e-04 | 1.9254e-05 | 2.4861e-06 | 2.3654e-07 |
-| Interior Dirichlet GMRES | 12 | 11 | 13 | 11 | 10 |
-| Exterior Dirichlet error | 1.8580e-04 | 3.6424e-05 | 6.5979e-06 | 4.5645e-07 | 1.3168e-07 |
-| Exterior Dirichlet GMRES | 15 | 15 | 14 | 13 | 12 |
-| Interior Neumann error | 2.9581e-02 | 5.9596e-03 | 2.6799e-04 | 1.5751e-04 | 1.9894e-05 |
-| Interior Neumann GMRES | 11 | 11 | 11 | 10 | 10 |
-| Exterior Neumann error | 6.4472e-04 | 4.5593e-04 | 6.2434e-05 | 9.5711e-06 | 4.4865e-06 |
-| Exterior Neumann GMRES | 9 | 9 | 9 | 9 | 9 |
+| BVP | N=512 max err | N=512 RMS err | N=512 GMRES |
+|-----|--------------:|--------------:|------------:|
+| Interior Dirichlet | 5.4446e-08 | 1.1442e-08 | 7 |
+| Exterior Dirichlet | 2.3089e-08 | 8.0191e-09 | 9 |
+| Interior Neumann | 3.5062e-05 | 1.2996e-05 | 8 |
+| Exterior Neumann | 1.3805e-07 | 3.6320e-08 | 6 |
 
 `test_bvp_3d`, all four screened `LaplaceBvp3D` modes on the off-center P2
 sphere, `eta=1.1`. Default sweep omits `N=128`; set `KFBIM_HIGH_RES_3D=1`
@@ -447,36 +467,36 @@ for the high-resolution level.
 
 | BVP | N=8 | N=16 | N=32 | N=64 |
 |-----|----:|-----:|-----:|-----:|
-| Interior Dirichlet error | 1.7543e-01 | 3.5501e-03 | 4.2439e-04 | 4.7665e-05 |
-| Interior Dirichlet GMRES | 24 | 11 | 12 | 10 |
-| Exterior Dirichlet error | 3.0181e-04 | 2.0931e-04 | 2.0338e-05 | 2.7920e-06 |
-| Exterior Dirichlet GMRES | 33 | 16 | 15 | 14 |
-| Interior Neumann error | 3.0786e-01 | 1.5692e-01 | 2.9862e-02 | 5.7126e-03 |
-| Interior Neumann GMRES | 13 | 12 | 11 | 11 |
-| Exterior Neumann error | 1.1832e-03 | 1.0794e-03 | 1.0129e-04 | 1.6576e-05 |
-| Exterior Neumann GMRES | 11 | 9 | 8 | 8 |
+| Interior Dirichlet error | 3.3791e+00 | 3.2059e-03 | 2.1561e-04 | 3.5681e-05 |
+| Interior Dirichlet GMRES | 27 | 18 | 12 | 12 |
+| Exterior Dirichlet error | 3.0425e-04 | 3.9749e-05 | 1.2096e-05 | 1.9111e-06 |
+| Exterior Dirichlet GMRES | 34 | 24 | 16 | 19 |
+| Interior Neumann error | 3.1019e-01 | 1.0881e-01 | 3.2398e-02 | 6.0976e-03 |
+| Interior Neumann GMRES | 13 | 13 | 12 | 11 |
+| Exterior Neumann error | 1.2568e-03 | 5.6671e-04 | 7.7690e-05 | 1.3595e-05 |
+| Exterior Neumann GMRES | 11 | 10 | 9 | 8 |
 
 `test_transmission`, `LaplaceTransmission2D::CommonRatio`,
 `beta_int=2`, `beta_ext=1`, `lambda^2=1.1`:
 
 | N | max err | order | GMRES |
 |---:|--------:|------:|------:|
-| 32 | 8.0911e-04 | - | 7 |
-| 64 | 1.2733e-04 | 2.668 | 7 |
-| 128 | 3.3576e-05 | 1.923 | 7 |
-| 256 | 4.6563e-06 | 2.850 | 7 |
-| 512 | 6.1465e-07 | 2.921 | 7 |
+| 32 | 9.7991e-04 | - | 8 |
+| 64 | 2.0386e-04 | 2.265 | 7 |
+| 128 | 1.0491e-05 | 4.280 | 7 |
+| 256 | 5.0858e-06 | 1.045 | 7 |
+| 512 | 4.4619e-07 | 3.511 | 7 |
 
 `test_transmission`, `LaplaceTransmission2D::DifferentRatios`,
 `beta_int=10`, `beta_ext=1`, `kappa_int^2=11`, `kappa_ext^2=0.7`:
 
 | N | max err | order | GMRES |
 |---:|--------:|------:|------:|
-| 32 | 1.2074e-02 | - | 14 |
-| 64 | 1.9864e-03 | 2.604 | 14 |
-| 128 | 3.4135e-04 | 2.541 | 13 |
-| 256 | 7.8671e-05 | 2.117 | 13 |
-| 512 | 7.7845e-06 | 3.337 | 13 |
+| 32 | 4.1137e-03 | - | 14 |
+| 64 | 1.4476e-03 | 1.507 | 14 |
+| 128 | 4.3629e-04 | 1.730 | 13 |
+| 256 | 6.0488e-05 | 2.851 | 14 |
+| 512 | 1.2442e-05 | 2.281 | 13 |
 
 `test_transmission_periodic_2d`, cell-centered bi-periodic unit square,
 `LaplaceTransmission2D::CommonRatio`, `beta_int=2`, `beta_ext=1`,
@@ -484,57 +504,57 @@ for the high-resolution level.
 
 | N | max err | order | GMRES |
 |---:|--------:|------:|------:|
-| 32 | 8.7480e-03 | - | 7 |
-| 64 | 6.1925e-03 | 0.498 | 7 |
-| 128 | 8.1011e-04 | 2.934 | 7 |
-| 256 | 1.6413e-04 | 2.303 | 7 |
-| 512 | 1.2845e-05 | 3.676 | 7 |
+| 32 | 1.9683e-02 | - | 7 |
+| 64 | 2.1813e-03 | 3.174 | 7 |
+| 128 | 2.2936e-04 | 3.250 | 7 |
+| 256 | 1.7870e-04 | 0.360 | 7 |
+| 512 | 4.1659e-05 | 2.101 | 7 |
 
 `test_transmission_3d`, off-center P2 sphere, target P2
-`node_spacing/h ~= 1.5`, nonzero outer Cartesian Dirichlet data,
+`node_spacing/h ~= 1.2`, nonzero outer Cartesian Dirichlet data,
 `LaplaceTransmission3D::CommonRatio`, `beta_int=2`, `beta_ext=1`,
 `lambda^2=1.1`:
 
 | N | panels | iface pts | max err | order | GMRES |
 |---:|------:|----------:|--------:|------:|------:|
 | 8 | 32 | 66 | 1.0010e-03 | - | 8 |
-| 16 | 32 | 66 | 7.0723e-04 | 0.501 | 7 |
-| 32 | 128 | 258 | 1.1544e-04 | 2.615 | 6 |
-| 64 | 512 | 1026 | 1.2939e-05 | 3.157 | 6 |
+| 16 | 72 | 146 | 3.1235e-04 | 1.672 | 7 |
+| 32 | 200 | 402 | 7.0786e-05 | 2.142 | 7 |
+| 64 | 800 | 1602 | 8.0823e-06 | 3.131 | 6 |
 
 `test_transmission_3d`, off-center P2 sphere, target P2
-`node_spacing/h ~= 1.5`, nonzero outer Cartesian Dirichlet data,
+`node_spacing/h ~= 1.2`, nonzero outer Cartesian Dirichlet data,
 `LaplaceTransmission3D::DifferentRatios`, `beta_int=10`, `beta_ext=1`,
 `kappa_int^2=11`, `kappa_ext^2=0.7`:
 
 | N | panels | iface pts | max err | order | GMRES |
 |---:|------:|----------:|--------:|------:|------:|
-| 8 | 32 | 66 | 1.0234e-01 | - | 21 |
-| 16 | 32 | 66 | 5.5583e-02 | 0.881 | 14 |
-| 32 | 128 | 258 | 9.3583e-03 | 2.570 | 13 |
+| 8 | 32 | 66 | 9.5722e-02 | - | 21 |
+| 16 | 72 | 146 | 3.7004e-02 | 1.371 | 17 |
+| 32 | 200 | 402 | 8.5614e-03 | 2.112 | 13 |
 
 `test_transmission_ellipsoid_3d`, off-center P2 triaxial ellipsoid with axes
-`(0.61,0.49,0.41)`, target P2 `node_spacing/h ~= 1.5`, nonzero outer
+`(0.61,0.49,0.41)`, target P2 `node_spacing/h ~= 1.2`, nonzero outer
 Cartesian Dirichlet data, `LaplaceTransmission3D::CommonRatio`, `beta_int=2`,
 `beta_ext=1`, `lambda^2=1.1`:
 
 | N | panels | iface pts | max err | order | GMRES |
 |---:|------:|----------:|--------:|------:|------:|
-| 8 | 32 | 66 | 1.3215e-02 | - | 8 |
-| 16 | 32 | 66 | 1.0124e-03 | 3.706 | 8 |
-| 32 | 200 | 402 | 7.1151e-05 | 3.831 | 7 |
-| 64 | 648 | 1298 | 1.3557e-05 | 2.392 | 7 |
+| 8 | 32 | 66 | 1.3258e-02 | - | 8 |
+| 16 | 72 | 146 | 3.4643e-04 | 5.258 | 8 |
+| 32 | 288 | 578 | 5.8250e-05 | 2.572 | 7 |
+| 64 | 1152 | 2306 | 9.5708e-06 | 2.606 | 7 |
 
 `test_transmission_torus_3d`, off-center shared P2 torus, target P2
-`node_spacing/h ~= 1.5`, nonzero outer Cartesian Dirichlet data,
+`node_spacing/h ~= 1.2`, nonzero outer Cartesian Dirichlet data,
 `LaplaceTransmission3D::CommonRatio`, `beta_int=2`, `beta_ext=1`,
 `lambda^2=1.1`:
 
 | N | panels | iface pts | max err | order | GMRES |
 |---:|------:|----------:|--------:|------:|------:|
 | 8 | 96 | 192 | 5.9263e-03 | - | 9 |
-| 16 | 120 | 240 | 4.0886e-04 | 3.857 | 9 |
-| 32 | 240 | 480 | 2.0554e-04 | 0.992 | 9 |
+| 16 | 156 | 312 | 3.1721e-04 | 4.224 | 9 |
+| 32 | 400 | 800 | 9.9403e-05 | 1.674 | 9 |
 
 The `test_transmission_torus_3d` table above is the default PDE-only run.
 Set `KFBIM_HIGH_RES_3D=1` to include `N=64`, `N=128`, and `N=256`.

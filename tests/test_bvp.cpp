@@ -22,46 +22,35 @@ namespace {
 
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kEta = 1.1;
-constexpr double kTargetNodeSpacingOverH = 1.5;
+constexpr double kTargetNodeSpacingOverH = 1.2;
 constexpr double kTargetPanelLengthOverH = 2.0 * kTargetNodeSpacingOverH;
 
-constexpr double kStarCx = 0.07;
-constexpr double kStarCy = -0.04;
-constexpr double kStarRadius = 0.75;
-constexpr double kStarAmplitude = 0.25;
-constexpr int    kStarFolds = 3;
+constexpr double kEllipseCx = 0.07;
+constexpr double kEllipseCy = -0.04;
+constexpr double kEllipseAxisA = 0.73;
+constexpr double kEllipseAxisB = 0.49;
 constexpr double kBoxMargin = 0.30;
 
 #ifndef KFBIM_TEST_OUTPUT_DIR
 #define KFBIM_TEST_OUTPUT_DIR "output"
 #endif
 
-class Star3Curve2D final : public ICurve2D {
+class EllipseCurve2D final : public ICurve2D {
 public:
     Eigen::Vector2d eval(double t) const override
     {
-        const double r = radius(t);
-        return {kStarCx + r * std::cos(t),
-                kStarCy + r * std::sin(t)};
+        return {kEllipseCx + kEllipseAxisA * std::cos(t),
+                kEllipseCy + kEllipseAxisB * std::sin(t)};
     }
 
     Eigen::Vector2d deriv(double t) const override
     {
-        const double r = radius(t);
-        const double drdt = -kStarRadius * kStarAmplitude * kStarFolds
-                            * std::sin(kStarFolds * t);
-        return {drdt * std::cos(t) - r * std::sin(t),
-                drdt * std::sin(t) + r * std::cos(t)};
+        return {-kEllipseAxisA * std::sin(t),
+                 kEllipseAxisB * std::cos(t)};
     }
 
     double t_min() const override { return 0.0; }
     double t_max() const override { return 2.0 * kPi; }
-
-private:
-    static double radius(double t)
-    {
-        return kStarRadius * (1.0 + kStarAmplitude * std::cos(kStarFolds * t));
-    }
 };
 
 struct Box2D {
@@ -78,6 +67,7 @@ enum class BvpCase {
 
 struct SolveData {
     double bulk_err = 0.0;
+    double rms_err = 0.0;
     double wall_time = 0.0;
     int    iterations = 0;
     int    num_panels = 0;
@@ -215,7 +205,7 @@ bool is_outer_boundary_node(int idx, int nx, int ny)
 std::filesystem::path output_dir()
 {
     std::filesystem::path dir =
-        std::filesystem::path(KFBIM_TEST_OUTPUT_DIR) / "laplace_bvp_star3";
+        std::filesystem::path(KFBIM_TEST_OUTPUT_DIR) / "laplace_bvp_ellipse";
     std::filesystem::create_directories(dir);
     return dir;
 }
@@ -239,8 +229,8 @@ double tail_average_order(const std::vector<double>& rates, int count = 3)
 SolveData solve_and_measure(BvpCase bvp, int N)
 {
     const auto wall_start = std::chrono::steady_clock::now();
-    Star3Curve2D star;
-    const Box2D box = make_outer_box(star);
+    EllipseCurve2D ellipse;
+    const Box2D box = make_outer_box(ellipse);
     const double h = box.side_length / static_cast<double>(N);
 
     CartesianGrid2D grid(box.lower, {h, h}, {N, N}, DofLayout2D::Node);
@@ -250,7 +240,7 @@ SolveData solve_and_measure(BvpCase bvp, int N)
     const int n_dof = nx * ny;
 
     Interface2D iface =
-        CurveResampler2D::discretize(star, h, kTargetPanelLengthOverH);
+        CurveResampler2D::discretize(ellipse, h, kTargetPanelLengthOverH);
     const int n_panels = iface.num_panels();
     const int n_iface = iface.num_points();
 
@@ -299,13 +289,21 @@ SolveData solve_and_measure(BvpCase bvp, int N)
     REQUIRE(result.converged);
 
     double bulk_err = 0.0;
+    double sq_err_sum = 0.0;
+    int err_count = 0;
     for (int n = 0; n < n_dof; ++n) {
         if (gp.domain_label(n) != physical_label)
             continue;
         if (!is_interior(bvp) && is_outer_boundary_node(n, nx, ny))
             continue;
-        bulk_err = std::max(bulk_err, std::abs(result.u_bulk[n] - u_exact[n]));
+        const double err = result.u_bulk[n] - u_exact[n];
+        bulk_err = std::max(bulk_err, std::abs(err));
+        sq_err_sum += err * err;
+        ++err_count;
     }
+    REQUIRE(err_count > 0);
+    const double rms_err =
+        std::sqrt(sq_err_sum / static_cast<double>(err_count));
 
     if (!is_interior(bvp)) {
         double boundary_err = 0.0;
@@ -321,6 +319,7 @@ SolveData solve_and_measure(BvpCase bvp, int N)
             std::chrono::steady_clock::now() - wall_start).count();
 
     return {bulk_err,
+            rms_err,
             wall_time,
             result.iterations,
             n_panels,
@@ -338,17 +337,17 @@ void check_convergence(BvpCase bvp)
     const std::filesystem::path csv_path =
         out_dir / (std::string(bvp_file_stem(bvp)) + "_convergence.csv");
     std::ofstream csv(csv_path);
-    csv << "N,panels,iface_pts,density,max_err,order,wall_s,GMRES\n";
+    csv << "N,panels,iface_pts,density,max_err,rms_err,order,wall_s,GMRES\n";
 
-    std::printf("\n  Screened %s BVP on 3-fold star: -Delta u + %.2f u = f\n",
+    std::printf("\n  Screened %s BVP on off-center ellipse: -Delta u + %.2f u = f\n",
                 bvp_name(bvp), kEta);
     std::printf("  Manufactured: sin(0.8x+0.3y) + 0.4cos(0.2x-0.7y) + 0.2sin(0.5x)cos(0.4y)\n");
     std::printf("  Panels: P2 quadratic; node_spacing/h = %.2f; panel_length/h = %.2f; output: %s\n",
                 kTargetNodeSpacingOverH, kTargetPanelLengthOverH,
                 csv_path.string().c_str());
-    std::printf("  %6s  %8s  %10s  %11s  %12s  %8s  %8s  %6s\n",
-                "N", "panels", "iface_pts", "density", "max_err", "order",
-                "wall_s", "GMRES");
+    std::printf("  %6s  %8s  %10s  %11s  %12s  %12s  %8s  %8s  %6s\n",
+                "N", "panels", "iface_pts", "density", "max_err",
+                "rms_err", "order", "wall_s", "GMRES");
 
     for (std::size_t l = 0; l < Ns.size(); ++l) {
         data[l] = solve_and_measure(bvp, Ns[l]);
@@ -357,25 +356,28 @@ void check_convergence(BvpCase bvp)
         REQUIRE(data[l].density_size == data[l].num_interface_points);
 
         if (l == 0) {
-            std::printf("  %6d  %8d  %10d  %11d  %12.4e  %8s  %8.3f  %6d\n",
+            std::printf("  %6d  %8d  %10d  %11d  %12.4e  %12.4e  %8s  %8.3f  %6d\n",
                         Ns[l], data[l].num_panels, data[l].num_interface_points,
-                        data[l].density_size, data[l].bulk_err, "-",
-                        data[l].wall_time, data[l].iterations);
+                        data[l].density_size, data[l].bulk_err,
+                        data[l].rms_err, "-", data[l].wall_time,
+                        data[l].iterations);
             csv << Ns[l] << "," << data[l].num_panels << ","
                 << data[l].num_interface_points << "," << data[l].density_size
                 << "," << std::setprecision(16) << data[l].bulk_err
-                << ",," << data[l].wall_time << "," << data[l].iterations << "\n";
+                << "," << data[l].rms_err << ",," << data[l].wall_time
+                << "," << data[l].iterations << "\n";
         } else {
             rates[l] = std::log2(data[l - 1].bulk_err / data[l].bulk_err);
-            std::printf("  %6d  %8d  %10d  %11d  %12.4e  %8.3f  %8.3f  %6d\n",
+            std::printf("  %6d  %8d  %10d  %11d  %12.4e  %12.4e  %8.3f  %8.3f  %6d\n",
                         Ns[l], data[l].num_panels, data[l].num_interface_points,
-                        data[l].density_size, data[l].bulk_err, rates[l],
-                        data[l].wall_time, data[l].iterations);
+                        data[l].density_size, data[l].bulk_err,
+                        data[l].rms_err, rates[l], data[l].wall_time,
+                        data[l].iterations);
             csv << Ns[l] << "," << data[l].num_panels << ","
                 << data[l].num_interface_points << "," << data[l].density_size
                 << "," << std::setprecision(16) << data[l].bulk_err
-                << "," << rates[l] << "," << data[l].wall_time
-                << "," << data[l].iterations << "\n";
+                << "," << data[l].rms_err << "," << rates[l] << ","
+                << data[l].wall_time << "," << data[l].iterations << "\n";
         }
     }
 
@@ -386,7 +388,7 @@ void check_convergence(BvpCase bvp)
 
 } // namespace
 
-TEST_CASE("LaplaceBvp2D modes converge on 3-fold star",
+TEST_CASE("LaplaceBvp2D modes converge on off-center ellipse",
           "[screened][laplace][bvp][lobatto][convergence][2d]")
 {
     check_convergence(BvpCase::InteriorDirichlet);

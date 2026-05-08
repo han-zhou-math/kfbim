@@ -21,7 +21,7 @@ constexpr double kTorusMajorRadius = 0.42;
 constexpr double kTorusMinorRadius = 0.18;
 constexpr double kBoxLower = -1.0;
 constexpr double kBoxSide = 2.0;
-constexpr double kTargetNodeSpacingOverH = 1.5;
+constexpr double kTargetNodeSpacingOverH = 1.2;
 constexpr double kPi = 3.14159265358979323846;
 
 struct Box3D {

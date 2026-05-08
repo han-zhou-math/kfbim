@@ -155,7 +155,7 @@ LaplacePotentialEvalResult2D LaplacePotentialEval2D::evaluate(
         stage_start = stage_end;
     }
 
-    auto correction_polys = spread_.apply(jumps, rhs);
+    auto spread_result = spread_.apply(jumps, rhs);
     if (profile) {
         const auto stage_end = ProfileClock2D::now();
         t_spread = profile_elapsed_2d(stage_start, stage_end);
@@ -170,7 +170,7 @@ LaplacePotentialEvalResult2D LaplacePotentialEval2D::evaluate(
         stage_start = stage_end;
     }
 
-    auto solution_polys = restrict_op_.apply(u_bulk, correction_polys);
+    auto solution_polys = restrict_op_.apply(u_bulk, spread_result);
     if (profile) {
         const auto stage_end = ProfileClock2D::now();
         t_restrict = profile_elapsed_2d(stage_start, stage_end);

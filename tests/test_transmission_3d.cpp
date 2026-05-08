@@ -139,8 +139,22 @@ double tail_average_order(const std::vector<double>& rates, int count = 2)
     return sum / static_cast<double>(used);
 }
 
+const char* correction_method_name(LaplaceCorrectionMethod3D method)
+{
+    switch (method) {
+    case LaplaceCorrectionMethod3D::NearestExpansionCenter:
+        return "nearest-center";
+    case LaplaceCorrectionMethod3D::ProjectionPoint:
+        return "projection-point";
+    }
+
+    return "unknown";
+}
+
 ConvergenceData solve_and_measure(int N,
-                                  const TransmissionCaseConfig& config)
+                                  const TransmissionCaseConfig& config,
+                                  LaplaceCorrectionMethod3D correction_method =
+                                      LaplaceCorrectionMethod3D::NearestExpansionCenter)
 {
     const auto wall_start = std::chrono::steady_clock::now();
     const Box3D box = standard_box();
@@ -156,7 +170,9 @@ ConvergenceData solve_and_measure(int N,
     Interface3D iface = make_p2_sphere(surface_subdivision_for_grid(N));
     const int n_iface = iface.num_points();
 
-    LaplaceTransmission3D problem(grid, iface, config.mode, config.coefficients);
+    LaplaceTransmissionOptions3D options;
+    options.correction_method = correction_method;
+    LaplaceTransmission3D problem(grid, iface, config.mode, config.coefficients, options);
     const GridPair3D& gp = problem.grid_pair();
 
     const double lambda_int = lambda_sq_int(config);
@@ -337,4 +353,44 @@ TEST_CASE("Different-ratio transmission 3D: P2 sphere convergence",
           "[transmission][laplace][interface][different-ratio][p2][convergence][3d]")
 {
     run_convergence_case(different_ratios_case());
+}
+
+TEST_CASE("Common-ratio transmission 3D: compare nearest-center and projection-point correction",
+          "[transmission][laplace][projection][comparison][3d]")
+{
+    const int N = 16;
+    const TransmissionCaseConfig config = common_ratio_case();
+
+    const ConvergenceData nearest =
+        solve_and_measure(N,
+                          config,
+                          LaplaceCorrectionMethod3D::NearestExpansionCenter);
+    const ConvergenceData projection =
+        solve_and_measure(N,
+                          config,
+                          LaplaceCorrectionMethod3D::ProjectionPoint);
+
+    std::printf("\n  3D common-ratio transmission correction comparison, N=%d\n", N);
+    std::printf("  %20s  %8s  %10s  %12s  %8s  %6s\n",
+                "correction", "panels", "iface_pts", "max_err", "wall_s", "GMRES");
+    std::printf("  %20s  %8d  %10d  %12.4e  %8.3f  %6d\n",
+                correction_method_name(LaplaceCorrectionMethod3D::NearestExpansionCenter),
+                nearest.num_panels,
+                nearest.num_interface_points,
+                nearest.bulk_err,
+                nearest.wall_time,
+                nearest.iterations);
+    std::printf("  %20s  %8d  %10d  %12.4e  %8.3f  %6d\n",
+                correction_method_name(LaplaceCorrectionMethod3D::ProjectionPoint),
+                projection.num_panels,
+                projection.num_interface_points,
+                projection.bulk_err,
+                projection.wall_time,
+                projection.iterations);
+
+    REQUIRE(std::isfinite(nearest.bulk_err));
+    REQUIRE(std::isfinite(projection.bulk_err));
+    REQUIRE(nearest.bulk_err < config.final_error_threshold);
+    REQUIRE(projection.bulk_err < config.final_error_threshold);
+    REQUIRE(projection.bulk_err < 30.0 * nearest.bulk_err);
 }

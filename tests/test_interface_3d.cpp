@@ -37,7 +37,7 @@ constexpr double kSphereCz = 0.0;
 constexpr double kSphereRadius = 1.0;
 constexpr double kBoxLower = -1.5;
 constexpr double kBoxSide = 3.0;
-constexpr double kTargetNodeSpacingOverH = 1.5;
+constexpr double kTargetNodeSpacingOverH = 1.2;
 constexpr double kOctahedronEdgeLengthOnUnitSphere = 1.41421356237309504880;
 
 #ifndef KFBIM_TEST_OUTPUT_DIR

@@ -23,7 +23,7 @@ constexpr double kEllipsoidAxisB = 0.49;
 constexpr double kEllipsoidAxisC = 0.41;
 constexpr double kBoxLower = -1.0;
 constexpr double kBoxSide = 2.0;
-constexpr double kTargetNodeSpacingOverH = 1.5;
+constexpr double kTargetNodeSpacingOverH = 1.2;
 constexpr double kOctahedronEdgeLengthOnUnitSphere = 1.41421356237309504880;
 
 struct Box3D {

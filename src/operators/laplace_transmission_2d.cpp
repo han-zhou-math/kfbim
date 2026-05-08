@@ -145,6 +145,13 @@ void split_phase_rhs(const GridPair2D&    grid_pair,
         kContext, grid_pair, rhs_bulk, rhs_int, rhs_ext);
 }
 
+LaplaceTransmissionOptions2D options_from_bulk_bc(ZfftBcType bulk_bc)
+{
+    LaplaceTransmissionOptions2D options;
+    options.bulk_bc = bulk_bc;
+    return options;
+}
+
 } // namespace
 
 LaplaceTransmission2D::LaplaceTransmission2D(
@@ -153,21 +160,40 @@ LaplaceTransmission2D::LaplaceTransmission2D(
     LaplaceTransmissionMode2D         mode,
     LaplaceTransmissionCoefficients2D coefficients,
     ZfftBcType                        bulk_bc)
+    : LaplaceTransmission2D(grid,
+                            iface,
+                            mode,
+                            coefficients,
+                            options_from_bulk_bc(bulk_bc))
+{}
+
+LaplaceTransmission2D::LaplaceTransmission2D(
+    const CartesianGrid2D&            grid,
+    const Interface2D&                iface,
+    LaplaceTransmissionMode2D         mode,
+    LaplaceTransmissionCoefficients2D coefficients,
+    LaplaceTransmissionOptions2D      options)
     : grid_pair_(grid, iface)
     , mode_(mode)
     , coefficients_(coefficients)
-    , bulk_bc_(bulk_bc)
+    , bulk_bc_(options.bulk_bc)
     , lambda_sq_int_(checked_lambda_sq("interior",
                                        coefficients.beta_int,
                                        coefficients.kappa_sq_int))
     , lambda_sq_ext_(checked_lambda_sq("exterior",
                                        coefficients.beta_ext,
                                        coefficients.kappa_sq_ext))
-    , spread_int_(grid_pair_, lambda_sq_int_)
-    , spread_ext_(grid_pair_, lambda_sq_ext_)
+    , spread_int_(grid_pair_,
+                  lambda_sq_int_,
+                  options.correction_method,
+                  options.restrict_stencil_radius)
+    , spread_ext_(grid_pair_,
+                  lambda_sq_ext_,
+                  options.correction_method,
+                  options.restrict_stencil_radius)
     , bulk_solver_int_(grid, bulk_bc_, lambda_sq_int_)
     , bulk_solver_ext_(grid, bulk_bc_, lambda_sq_ext_)
-    , restrict_op_(grid_pair_)
+    , restrict_op_(grid_pair_, options.restrict_stencil_radius)
     , potentials_int_(spread_int_, bulk_solver_int_, restrict_op_)
     , potentials_ext_(spread_ext_, bulk_solver_ext_, restrict_op_)
 {

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <stdexcept>
 
 #include <Eigen/Dense>
 
@@ -117,6 +118,65 @@ inline double panel_scalar(const Interface2D&     iface,
     for (int q = 0; q < 3; ++q)
         value += N[q] * values[iface.point_index(panel, q)];
     return value;
+}
+
+inline double panel_scalar_deriv(const Interface2D&     iface,
+                                 int                    panel,
+                                 const Eigen::VectorXd& values,
+                                 double                 s)
+{
+    double dN[3];
+    p2_shape_deriv(s, dN);
+    double value = 0.0;
+    for (int q = 0; q < 3; ++q)
+        value += dN[q] * values[iface.point_index(panel, q)];
+    return value;
+}
+
+inline double panel_scalar_second_deriv(const Interface2D&     iface,
+                                        int                    panel,
+                                        const Eigen::VectorXd& values)
+{
+    double ddN[3];
+    p2_shape_second_deriv(0.0, ddN);
+    double value = 0.0;
+    for (int q = 0; q < 3; ++q)
+        value += ddN[q] * values[iface.point_index(panel, q)];
+    return value;
+}
+
+inline double panel_normal_divergence(const Interface2D& iface,
+                                      int                panel,
+                                      double             s)
+{
+    const Eigen::Vector2d tangent = panel_tangent(iface, panel, s);
+    const Eigen::Vector2d second =
+        panel_second_derivative(iface, panel, s);
+    const Eigen::Vector2d normal = panel_normal(iface, panel, s);
+    const double speed2 = tangent.squaredNorm();
+    if (speed2 <= 1.0e-28)
+        throw std::invalid_argument("degenerate P2 panel tangent");
+
+    // Repo convention: div(n) is positive for an outward unit circle.
+    return -second.dot(normal) / speed2;
+}
+
+inline double panel_laplace_beltrami_scalar(const Interface2D&     iface,
+                                            int                    panel,
+                                            const Eigen::VectorXd& values,
+                                            double                 s)
+{
+    const Eigen::Vector2d tangent = panel_tangent(iface, panel, s);
+    const Eigen::Vector2d second =
+        panel_second_derivative(iface, panel, s);
+    const double speed2 = tangent.squaredNorm();
+    if (speed2 <= 1.0e-28)
+        throw std::invalid_argument("degenerate P2 panel tangent");
+
+    const double c_s = panel_scalar_deriv(iface, panel, values, s);
+    const double c_ss = panel_scalar_second_deriv(iface, panel, values);
+    return c_ss / speed2
+         - c_s * tangent.dot(second) / (speed2 * speed2);
 }
 
 inline double clamp_to_panel(double s)

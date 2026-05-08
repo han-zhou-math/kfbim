@@ -1,6 +1,7 @@
 #pragma once
 
 #include "i_spread.hpp"
+#include "laplace_correction_support.hpp"
 
 namespace kfbim {
 
@@ -22,7 +23,7 @@ public:
     explicit LaplacePanelSpread2D(const GridPair2D& grid_pair,
                                   double            kappa = 0.0);
 
-    std::vector<LocalPoly2D> apply(
+    LaplaceSpreadResult2D apply(
         const std::vector<LaplaceJumpData2D>& jumps,
         Eigen::VectorXd&                      rhs_correction) const override;
 
@@ -46,9 +47,12 @@ class LaplaceQuadraticPanelCenterSpread2D final : public ILaplaceSpread2D {
 public:
     explicit LaplaceQuadraticPanelCenterSpread2D(
         const GridPair2D& grid_pair,
-        double            kappa = 0.0);
+        double            kappa = 0.0,
+        LaplaceCorrectionMethod2D correction_method =
+            LaplaceCorrectionMethod2D::NearestExpansionCenter,
+        int               projection_restrict_stencil_radius = 2);
 
-    std::vector<LocalPoly2D> apply(
+    LaplaceSpreadResult2D apply(
         const std::vector<LaplaceJumpData2D>& jumps,
         Eigen::VectorXd&                      rhs_correction) const override;
 
@@ -57,6 +61,10 @@ public:
 private:
     const GridPair2D& grid_pair_;
     double            kappa_;
+    LaplaceCorrectionMethod2D correction_method_;
+    int               projection_restrict_stencil_radius_;
+    LaplaceCorrectionSupport2D support_;
+    NarrowBandProjection2D projection_cache_;
 };
 
 using LaplaceLobattoCenterSpread2D = LaplaceQuadraticPanelCenterSpread2D;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "i_restrict.hpp"
+#include "laplace_correction_support.hpp"
 
 namespace kfbim {
 
@@ -29,6 +30,7 @@ private:
 
     const GridPair3D& grid_pair_;
     int               stencil_radius_;
+    LaplaceCorrectionSupport3D support_;
 };
 
 } // namespace kfbim

@@ -32,7 +32,7 @@ using namespace kfbim;
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
-constexpr double kTargetNodeSpacingOverH = 1.5;
+constexpr double kTargetNodeSpacingOverH = 1.2;
 constexpr double kTargetPanelLengthOverH = 2.0 * kTargetNodeSpacingOverH;
 
 constexpr double kStarCx = 0.07;
@@ -246,7 +246,10 @@ void write_interface_points_csv(const std::filesystem::path& path,
 
 ConvergenceData solve_and_measure(int N,
                                   const std::filesystem::path& out_dir,
-                                  const TransmissionCaseConfig& config)
+                                  const TransmissionCaseConfig& config,
+                                  LaplaceCorrectionMethod2D correction_method =
+                                      LaplaceCorrectionMethod2D::NearestExpansionCenter,
+                                  bool write_outputs = true)
 {
     const auto wall_start = std::chrono::steady_clock::now();
     Star3Curve2D star;
@@ -315,7 +318,9 @@ ConvergenceData solve_and_measure(int N,
         }
     }
 
-    LaplaceTransmission2D problem(grid, iface, config.mode, config.coefficients);
+    LaplaceTransmissionOptions2D options;
+    options.correction_method = correction_method;
+    LaplaceTransmission2D problem(grid, iface, config.mode, config.coefficients, options);
 
     auto result = problem.solve(mu,
                                 sigma,
@@ -332,14 +337,16 @@ ConvergenceData solve_and_measure(int N,
         bulk_err = std::max(bulk_err, abs_error[n]);
     }
 
-    char fname[128];
-    std::snprintf(fname, sizeof(fname), "%s_N%04d.csv", config.file_prefix, N);
-    write_sampled_grid_csv(out_dir / fname, grid, result.u_bulk, u_exact, abs_error, labels);
+    if (write_outputs) {
+        char fname[128];
+        std::snprintf(fname, sizeof(fname), "%s_N%04d.csv", config.file_prefix, N);
+        write_sampled_grid_csv(out_dir / fname, grid, result.u_bulk, u_exact, abs_error, labels);
 
-    char iface_fname[128];
-    std::snprintf(iface_fname, sizeof(iface_fname),
-                  "%s_interface_N%04d.csv", config.file_prefix, N);
-    write_interface_points_csv(out_dir / iface_fname, iface);
+        char iface_fname[128];
+        std::snprintf(iface_fname, sizeof(iface_fname),
+                      "%s_interface_N%04d.csv", config.file_prefix, N);
+        write_interface_points_csv(out_dir / iface_fname, iface);
+    }
 
     const double wall_time =
         std::chrono::duration<double>(
@@ -362,6 +369,28 @@ double tail_average_order(const std::vector<double>& rates, int count = 3)
     }
     REQUIRE(used > 0);
     return sum / static_cast<double>(used);
+}
+
+const char* correction_method_name(LaplaceCorrectionMethod2D method)
+{
+    switch (method) {
+    case LaplaceCorrectionMethod2D::NearestExpansionCenter:
+        return "nearest-center";
+    case LaplaceCorrectionMethod2D::ProjectionPoint:
+        return "projection-point";
+    }
+
+    return "unknown";
+}
+
+ConvergenceData solve_comparison_case(
+    int                         N,
+    const TransmissionCaseConfig& config,
+    LaplaceCorrectionMethod2D   correction_method)
+{
+    const std::filesystem::path out_dir =
+        output_dir("laplace_transmission_correction_compare_2d");
+    return solve_and_measure(N, out_dir, config, correction_method, false);
 }
 
 void run_convergence_case(const TransmissionCaseConfig& config,
@@ -451,4 +480,40 @@ TEST_CASE("Different-ratio transmission 2D: P2 quadratic convergence on 3-fold s
           "[transmission][laplace][interface][different-ratio][lobatto][convergence][2d]")
 {
     run_convergence_case(different_ratios_case(), {32, 64, 128, 256, 512});
+}
+
+TEST_CASE("Common-ratio transmission 2D: compare nearest-center and projection-point correction",
+          "[transmission][laplace][projection][comparison][2d]")
+{
+    const int N = 64;
+    const TransmissionCaseConfig config = common_ratio_case();
+
+    const ConvergenceData nearest =
+        solve_comparison_case(N,
+                              config,
+                              LaplaceCorrectionMethod2D::NearestExpansionCenter);
+    const ConvergenceData projection =
+        solve_comparison_case(N,
+                              config,
+                              LaplaceCorrectionMethod2D::ProjectionPoint);
+
+    std::printf("\n  2D common-ratio transmission correction comparison, N=%d\n", N);
+    std::printf("  %20s  %12s  %8s  %6s\n",
+                "correction", "max_err", "wall_s", "GMRES");
+    std::printf("  %20s  %12.4e  %8.3f  %6d\n",
+                correction_method_name(LaplaceCorrectionMethod2D::NearestExpansionCenter),
+                nearest.bulk_err,
+                nearest.wall_time,
+                nearest.iterations);
+    std::printf("  %20s  %12.4e  %8.3f  %6d\n",
+                correction_method_name(LaplaceCorrectionMethod2D::ProjectionPoint),
+                projection.bulk_err,
+                projection.wall_time,
+                projection.iterations);
+
+    REQUIRE(std::isfinite(nearest.bulk_err));
+    REQUIRE(std::isfinite(projection.bulk_err));
+    REQUIRE(nearest.bulk_err < config.final_error_threshold);
+    REQUIRE(projection.bulk_err < config.final_error_threshold);
+    REQUIRE(projection.bulk_err < 20.0 * nearest.bulk_err);
 }

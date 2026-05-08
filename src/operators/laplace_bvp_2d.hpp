@@ -36,6 +36,9 @@ struct LaplaceBvpOptions2D {
         LaplaceBvpPanelMethod2D::QuadraticPanelCenter;
     double eta = 0.0;
     Eigen::VectorXd outer_dirichlet_values;
+    int restrict_stencil_radius = 2;
+    LaplaceCorrectionMethod2D correction_method =
+        LaplaceCorrectionMethod2D::NearestExpansionCenter;
 };
 
 struct LaplaceBvpSolveResult2D {

@@ -2,7 +2,7 @@
 
 This note documents the mathematical framework used by the current 2D elliptic
 solvers in this repository. It follows the code conventions, which define
-potential primitives by imposed jumps and use the active Chebyshev-Lobatto
+potential primitives by imposed jumps and use the active P2 quadratic-panel
 transfer path.
 
 ## 1. Geometry, Traces, and Jumps
@@ -16,7 +16,7 @@ label 0).
   $$[u] = u^+ - u^-,$$
   $$[\partial_n u] = \partial_n u^+ - \partial_n u^-.$$
 
-The active 2D panel discretization uses Chebyshev-Lobatto nodes
+The active 2D panel discretization uses P2 quadratic Lagrange nodes
 $s=\{-1,0,1\}$ on each panel. Adjacent panels share endpoint DOFs. Therefore,
 for a closed curve with $N_p$ panels, the interface vector length is
 
@@ -24,11 +24,10 @@ $$N_\Gamma = 2N_p,$$
 
 namely $N_p$ shared endpoints plus $N_p$ panel midpoints.
 
-The current active convergence programs use a common off-center 3-fold star.
-They set the target adjacent Chebyshev-node spacing over the Cartesian grid
-spacing to $1.5$, equivalently
+The current active convergence programs set the target adjacent P2-node
+spacing over the Cartesian grid spacing to $1.2$, equivalently
 
-$$\frac{\text{panel length}}{h}=3.0.$$
+$$\frac{\text{panel length}}{h}=2.4.$$
 
 ## 2. Restriction Returns the Average Branch
 
@@ -292,7 +291,8 @@ been replaced by `src/bulk_solvers/`, `src/potentials/`, and `src/operators/`.
 | `LaplaceTransmission2D::CommonRatio` | $\psi=[\partial_n u]$ | $(I+\gamma K')\psi$ |
 | `LaplaceTransmission2D::DifferentRatios` | $(\phi,\psi)$ | $(A_u(\phi,\psi),A_\beta(\phi,\psi))$ |
 
-The active convergence programs are `tests/test_interface.cpp`,
-`tests/test_bvp.cpp`, and `tests/test_transmission.cpp`. All three use the
-same off-center 3-fold star, a sampled-bounds outer box plus margin, and target
-adjacent Chebyshev-node spacing/h `1.5` (`panel_length/h = 3.0`).
+The active 2D convergence programs use P2 quadratic panels with target
+adjacent P2-node spacing/h `1.2` (`panel_length/h = 2.4`). The direct
+interface and transmission tests use an off-center 3-fold star, while
+`tests/test_bvp.cpp` uses an off-center ellipse and reports both max error and
+RMS error.

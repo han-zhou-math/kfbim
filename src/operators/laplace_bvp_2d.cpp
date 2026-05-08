@@ -99,22 +99,27 @@ void print_potential_profile_2d(const char* label,
 std::unique_ptr<ILaplaceSpread2D> make_laplace_spread_2d(
     LaplaceBvpPanelMethod2D method,
     const GridPair2D&       grid_pair,
-    double                  eta)
+    double                  eta,
+    LaplaceCorrectionMethod2D correction_method,
+    int                     restrict_stencil_radius)
 {
     switch (method) {
     case LaplaceBvpPanelMethod2D::QuadraticPanelCenter:
-        return std::make_unique<LaplaceQuadraticPanelCenterSpread2D>(grid_pair, eta);
+        return std::make_unique<LaplaceQuadraticPanelCenterSpread2D>(
+            grid_pair, eta, correction_method, restrict_stencil_radius);
     }
     throw std::invalid_argument("unsupported Laplace BVP panel method");
 }
 
 std::unique_ptr<ILaplaceRestrict2D> make_laplace_restrict_2d(
     LaplaceBvpPanelMethod2D method,
-    const GridPair2D&       grid_pair)
+    const GridPair2D&       grid_pair,
+    int                     restrict_stencil_radius)
 {
     switch (method) {
     case LaplaceBvpPanelMethod2D::QuadraticPanelCenter:
-        return std::make_unique<LaplaceQuadraticPanelCenterRestrict2D>(grid_pair);
+        return std::make_unique<LaplaceQuadraticPanelCenterRestrict2D>(
+            grid_pair, restrict_stencil_radius);
     }
     throw std::invalid_argument("unsupported Laplace BVP panel method");
 }
@@ -157,9 +162,15 @@ LaplaceBvp2D::LaplaceBvp2D(
     LaplaceBvpType2D       type,
     LaplaceBvpOptions2D    options)
     : grid_pair_(grid, iface)
-    , spread_(make_laplace_spread_2d(options.panel_method, grid_pair_, options.eta))
+    , spread_(make_laplace_spread_2d(options.panel_method,
+                                     grid_pair_,
+                                     options.eta,
+                                     options.correction_method,
+                                     options.restrict_stencil_radius))
     , bulk_solver_(grid, ZfftBcType::Dirichlet, options.eta)
-    , restrict_op_(make_laplace_restrict_2d(options.panel_method, grid_pair_))
+    , restrict_op_(make_laplace_restrict_2d(options.panel_method,
+                                            grid_pair_,
+                                            options.restrict_stencil_radius))
     , potentials_(*spread_, bulk_solver_, *restrict_op_)
     , type_(type)
     , rhs_deriv_sign_(rhs_deriv_sign_for_type(type))

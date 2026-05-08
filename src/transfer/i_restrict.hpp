@@ -37,12 +37,12 @@ class ILaplaceRestrict2D {
 public:
     virtual ~ILaplaceRestrict2D() = default;
 
-    // correction_polys: polys returned by the preceding Spread::apply()
+    // spread_result:    context returned by the preceding Spread::apply()
     // returns:          averaged solution polynomial at each interface point;
     //                   length = Interface2D::num_points()
     virtual std::vector<LocalPoly2D> apply(
-        const Eigen::VectorXd&          bulk_solution,
-        const std::vector<LocalPoly2D>& correction_polys) const = 0;
+        const Eigen::VectorXd&       bulk_solution,
+        const LaplaceSpreadResult2D& spread_result) const = 0;
 
     virtual const GridPair2D& grid_pair() const = 0;
 };

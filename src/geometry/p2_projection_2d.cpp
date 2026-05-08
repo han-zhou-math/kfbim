@@ -25,37 +25,20 @@ static Eigen::Vector2d grid_point(const CartesianGrid2D& grid, int idx)
     return {c[0], c[1]};
 }
 
-static std::vector<ProjectionSeed2D> projection_seeds_2d(const Interface2D& iface)
+static ProjectionSeed2D seed_from_center_index(const Interface2D& iface,
+                                               int                center_idx)
 {
-    std::vector<ProjectionSeed2D> seeds;
-    seeds.reserve(geometry2d::kP2CenterS.size()
-                  * static_cast<std::size_t>(iface.num_panels()));
-    for (int p = 0; p < iface.num_panels(); ++p) {
-        for (double s : geometry2d::kP2CenterS) {
-            seeds.push_back({geometry2d::panel_point(iface, p, s),
-                             s,
-                             p,
-                             iface.panel_components()(p)});
-        }
-    }
-    return seeds;
-}
-
-static int nearest_seed_index(const std::vector<ProjectionSeed2D>& seeds,
-                              Eigen::Vector2d                     target)
-{
-    if (seeds.empty())
-        throw std::invalid_argument("P2 curve projection requires at least one seed");
-    int best = 0;
-    double best_dist2 = (target - seeds[0].point).squaredNorm();
-    for (int i = 1; i < static_cast<int>(seeds.size()); ++i) {
-        const double dist2 = (target - seeds[i].point).squaredNorm();
-        if (dist2 < best_dist2) {
-            best_dist2 = dist2;
-            best = i;
-        }
-    }
-    return best;
+    const int centers_per_panel =
+        static_cast<int>(geometry2d::kP2CenterS.size());
+    if (center_idx < 0 || center_idx >= centers_per_panel * iface.num_panels())
+        throw std::out_of_range("P2 curve projection seed index is invalid");
+    const int panel = center_idx / centers_per_panel;
+    const int local = center_idx % centers_per_panel;
+    const double s = geometry2d::kP2CenterS[local];
+    return {geometry2d::panel_point(iface, panel, s),
+            s,
+            panel,
+            iface.panel_components()(panel)};
 }
 
 static CurveProjection2D make_curve_projection(const Interface2D& iface,
@@ -206,12 +189,12 @@ NarrowBandProjection2D project_p2_near_interface_nodes_2d(
     if (band.nodes_.empty())
         return band;
 
-    const std::vector<ProjectionSeed2D> seeds = projection_seeds_2d(iface);
     for (int node : band.nodes_) {
         const Eigen::Vector2d target = grid_point(grid, node);
-        const int seed_idx = nearest_seed_index(seeds, target);
+        const int seed_idx = grid_pair.nearest_p2_expansion_center(node);
+        const ProjectionSeed2D seed = seed_from_center_index(iface, seed_idx);
         CurveProjection2D projection =
-            project_from_seed(iface, node, target, seeds[seed_idx]);
+            project_from_seed(iface, node, target, seed);
         band.projection_index_by_grid_node_[node] =
             static_cast<int>(band.projections_.size());
         band.projections_.push_back(projection);
@@ -246,12 +229,12 @@ NarrowBandProjection2D project_p2_grid_nodes_to_interface_2d(
     if (band.nodes_.empty())
         return band;
 
-    const std::vector<ProjectionSeed2D> seeds = projection_seeds_2d(iface);
     for (int node : band.nodes_) {
         const Eigen::Vector2d target = grid_point(grid, node);
-        const int seed_idx = nearest_seed_index(seeds, target);
+        const int seed_idx = grid_pair.nearest_p2_expansion_center(node);
+        const ProjectionSeed2D seed = seed_from_center_index(iface, seed_idx);
         CurveProjection2D projection =
-            project_from_seed(iface, node, target, seeds[seed_idx]);
+            project_from_seed(iface, node, target, seed);
         band.projection_index_by_grid_node_[node] =
             static_cast<int>(band.projections_.size());
         band.projections_.push_back(projection);

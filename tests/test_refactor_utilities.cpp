@@ -360,15 +360,18 @@ TEST_CASE("Laplace restrict recovers quadratic data from fixed square stencils",
             bulk[idx] = quadratic_value_2d(Eigen::Vector2d(c[0], c[1]));
         }
 
-        std::vector<LocalPoly2D> correction_polys(4);
-        for (LocalPoly2D& poly : correction_polys) {
+        LaplaceSpreadResult2D spread_result;
+        spread_result.correction_method =
+            LaplaceCorrectionMethod2D::NearestExpansionCenter;
+        spread_result.correction_polys.resize(4);
+        for (LocalPoly2D& poly : spread_result.correction_polys) {
             poly.center = Eigen::Vector2d::Zero();
             poly.coeffs = Eigen::VectorXd::Zero(6);
         }
 
         LaplaceQuadraticPanelCenterRestrict2D restrict_op(gp);
         const std::vector<LocalPoly2D> polys =
-            restrict_op.apply(bulk, correction_polys);
+            restrict_op.apply(bulk, spread_result);
         REQUIRE(polys.size() == static_cast<std::size_t>(iface.num_points()));
         for (int q = 0; q < iface.num_points(); ++q) {
             const Eigen::Vector2d center = iface.points().row(q).transpose();
@@ -423,19 +426,31 @@ TEST_CASE("Laplace restrict recovers quadratic data from fixed square stencils",
     }
 }
 
-TEST_CASE("3D correction context keeps the spread-result compatibility name",
+TEST_CASE("Laplace correction context keeps spread-result compatibility names",
           "[utilities][transfer]")
 {
+    static_assert(std::is_same<LaplaceCorrectionContext2D,
+                               LaplaceSpreadResult2D>::value,
+                  "LaplaceSpreadResult2D should remain a compatibility alias");
     static_assert(std::is_same<LaplaceCorrectionContext3D,
                                LaplaceSpreadResult3D>::value,
                   "LaplaceSpreadResult3D should remain a compatibility alias");
 
-    LaplaceCorrectionContext3D context;
-    context.correction_method = LaplaceCorrectionMethod3D::ProjectionPoint;
-    context.alpha = 1.25;
+    LaplaceCorrectionContext2D context_2d;
+    context_2d.correction_method = LaplaceCorrectionMethod2D::ProjectionPoint;
+    context_2d.alpha = 1.25;
 
-    LaplaceSpreadResult3D& legacy_name = context;
-    REQUIRE(legacy_name.correction_method
+    LaplaceSpreadResult2D& legacy_name_2d = context_2d;
+    REQUIRE(legacy_name_2d.correction_method
+            == LaplaceCorrectionMethod2D::ProjectionPoint);
+    REQUIRE(legacy_name_2d.alpha == Catch::Approx(1.25));
+
+    LaplaceCorrectionContext3D context_3d;
+    context_3d.correction_method = LaplaceCorrectionMethod3D::ProjectionPoint;
+    context_3d.alpha = 2.5;
+
+    LaplaceSpreadResult3D& legacy_name_3d = context_3d;
+    REQUIRE(legacy_name_3d.correction_method
             == LaplaceCorrectionMethod3D::ProjectionPoint);
-    REQUIRE(legacy_name.alpha == Catch::Approx(1.25));
+    REQUIRE(legacy_name_3d.alpha == Catch::Approx(2.5));
 }

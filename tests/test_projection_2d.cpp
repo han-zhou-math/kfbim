@@ -15,6 +15,9 @@
 #include "src/grid/cartesian_grid_2d.hpp"
 #include "src/local_cauchy/jump_data.hpp"
 #include "src/operators/laplace_bvp_2d.hpp"
+#include "src/transfer/laplace_correction_support.hpp"
+#include "src/transfer/laplace_projection_correction_2d.hpp"
+#include "src/transfer/laplace_restrict_2d.hpp"
 #include "src/transfer/laplace_spread_2d.hpp"
 
 using namespace kfbim;
@@ -236,10 +239,10 @@ TEST_CASE("2D P2 projection service projects explicit grid-node support",
           "[projection][2d]")
 {
     const Interface2D iface = make_flat_p2_panel();
-    CartesianGrid2D grid({-1.0, -1.0}, {0.1, 0.1}, {20, 20}, DofLayout2D::Node);
+    CartesianGrid2D grid({-1.5, -1.5}, {0.1, 0.1}, {30, 30}, DofLayout2D::Node);
     GridPair2D gp(grid, iface);
 
-    const int node = grid.index(12, 13); // (0.2, 0.3)
+    const int node = grid.index(17, 18); // (0.2, 0.3)
     const NarrowBandProjection2D via_grid_pair =
         gp.project_grid_nodes_to_interface({node, node});
     const NarrowBandProjection2D via_service =
@@ -267,7 +270,7 @@ TEST_CASE("2D GridPair caches P2 expansion-center lookup and lazy interface DOF 
           "[projection][2d][grid-pair]")
 {
     const Interface2D iface = make_flat_p2_panel();
-    CartesianGrid2D grid({-1.0, -1.0}, {0.1, 0.1}, {20, 20}, DofLayout2D::Node);
+    CartesianGrid2D grid({-1.5, -1.5}, {0.1, 0.1}, {30, 30}, DofLayout2D::Node);
     GridPair2D gp(grid, iface);
 
     const std::vector<int> nodes = {
@@ -387,7 +390,7 @@ TEST_CASE("2D spread correction centers match shared P2 geometry centers",
           "[projection][2d]")
 {
     const Interface2D iface = make_flat_p2_panel();
-    CartesianGrid2D grid({-1.0, -1.0}, {0.1, 0.1}, {20, 20}, DofLayout2D::Node);
+    CartesianGrid2D grid({-1.5, -1.5}, {0.1, 0.1}, {30, 30}, DofLayout2D::Node);
     GridPair2D gp(grid, iface);
 
     LaplaceQuadraticPanelCenterSpread2D spread(gp);
@@ -399,7 +402,8 @@ TEST_CASE("2D spread correction centers match shared P2 geometry centers",
     }
 
     Eigen::VectorXd rhs = Eigen::VectorXd::Zero(grid.num_dofs());
-    const std::vector<LocalPoly2D> polys = spread.apply(jumps, rhs);
+    const LaplaceSpreadResult2D result = spread.apply(jumps, rhs);
+    const std::vector<LocalPoly2D>& polys = result.correction_polys;
 
     REQUIRE(polys.size() == geometry2d::kP2CenterS.size());
     for (int i = 0; i < static_cast<int>(geometry2d::kP2CenterS.size()); ++i) {
@@ -407,4 +411,76 @@ TEST_CASE("2D spread correction centers match shared P2 geometry centers",
             geometry2d::panel_point(iface, 0, geometry2d::kP2CenterS[i]);
         REQUIRE(polys[i].center.isApprox(expected, 1.0e-12));
     }
+}
+
+TEST_CASE("2D projection-point correction uses normal Taylor curve formula",
+          "[projection][2d]")
+{
+    const Interface2D iface = make_flat_p2_panel();
+
+    LaplaceSpreadResult2D spread_result;
+    spread_result.correction_method = LaplaceCorrectionMethod2D::ProjectionPoint;
+    spread_result.u_jump = Eigen::VectorXd::Zero(iface.num_points());
+    for (int q = 0; q < iface.num_points(); ++q) {
+        const double x = iface.points()(q, 0);
+        spread_result.u_jump[q] = x * x;
+    }
+    spread_result.un_jump = Eigen::VectorXd::Constant(iface.num_points(), 3.0);
+    spread_result.rhs_jump = Eigen::VectorXd::Constant(iface.num_points(), 5.0);
+    spread_result.alpha = 7.0;
+
+    CurveProjection2D projection;
+    projection.grid_node = 0;
+    projection.panel = 0;
+    projection.component = 0;
+    projection.local_s = 0.3;
+    projection.point = geometry2d::panel_point(iface, 0, projection.local_s);
+    projection.normal = geometry2d::panel_normal(iface, 0, projection.local_s);
+    projection.signed_distance = 0.2;
+    projection.distance = 0.2;
+    projection.converged = true;
+
+    const double correction =
+        evaluate_projection_point_correction_2d(iface, projection, spread_result);
+
+    const double c = 0.3 * 0.3;
+    const double cnn = 7.0 * c - 5.0 - 2.0;
+    const double expected = c + 0.2 * 3.0 + 0.5 * 0.2 * 0.2 * cnn;
+    REQUIRE(correction == Catch::Approx(expected).margin(1.0e-12));
+}
+
+TEST_CASE("2D projection-point spread projects exact correction support",
+          "[projection][2d]")
+{
+    CircleCurve2D circle;
+    CartesianGrid2D grid({-1.0, -1.0}, {0.1, 0.1}, {20, 20}, DofLayout2D::Node);
+    const Interface2D iface =
+        CurveResampler2D::discretize_quadratic_lagrange(circle, 0.1, 3.0);
+    GridPair2D gp(grid, iface);
+    const LaplaceCorrectionSupport2D support =
+        build_laplace_correction_support_2d(
+            gp, "test 2D projection support");
+
+    LaplaceQuadraticPanelCenterSpread2D spread(
+        gp, 1.1, LaplaceCorrectionMethod2D::ProjectionPoint);
+    std::vector<LaplaceJumpData2D> jumps(iface.num_points());
+    for (auto& jump : jumps) {
+        jump.u_jump = 0.0;
+        jump.un_jump = 0.0;
+        jump.rhs_derivs = Eigen::VectorXd::Zero(1);
+    }
+
+    Eigen::VectorXd rhs = Eigen::VectorXd::Zero(grid.num_dofs());
+    const LaplaceSpreadResult2D result = spread.apply(jumps, rhs);
+
+    REQUIRE(result.correction_method == LaplaceCorrectionMethod2D::ProjectionPoint);
+    REQUIRE(result.projection_cache.nodes() == support.projection_nodes);
+    for (int node : support.projection_nodes)
+        REQUIRE(result.projection_cache.has_projection(node));
+    for (const auto& stencil : support.restrict_stencils) {
+        for (int node : stencil)
+            REQUIRE(result.projection_cache.has_projection(node));
+    }
+    for (const LaplaceCrossingCorrectionOp& op : support.crossing_ops)
+        REQUIRE(result.projection_cache.has_projection(op.correction_node));
 }

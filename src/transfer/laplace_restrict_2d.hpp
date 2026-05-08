@@ -1,6 +1,7 @@
 #pragma once
 
 #include "i_restrict.hpp"
+#include "laplace_correction_support.hpp"
 
 namespace kfbim {
 
@@ -24,18 +25,23 @@ public:
 
     std::vector<LocalPoly2D> apply(
         const Eigen::VectorXd&          bulk_solution,
-        const std::vector<LocalPoly2D>& correction_polys) const override;
+        const LaplaceSpreadResult2D&    spread_result) const override;
+
+    std::vector<LocalPoly2D> apply(
+        const Eigen::VectorXd&          bulk_solution,
+        const std::vector<LocalPoly2D>& correction_polys) const;
 
     const GridPair2D& grid_pair() const override { return grid_pair_; }
 
 private:
     LocalPoly2D fit_at_interface_point(
-        const Eigen::VectorXd&          bulk_solution,
-        int                             q,
-        const std::vector<LocalPoly2D>& center_polys) const;
+        const Eigen::VectorXd&                    bulk_solution,
+        int                                       q,
+        const class LaplaceRestrictCorrectionEvaluator2D& correction_evaluator) const;
 
     const GridPair2D& grid_pair_;
     int               stencil_radius_;
+    LaplaceCorrectionSupport2D support_;
 };
 
 using LaplaceLobattoCenterRestrict2D = LaplaceQuadraticPanelCenterRestrict2D;

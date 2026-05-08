@@ -10,6 +10,8 @@
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -30,7 +32,7 @@ namespace {
 
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kEta = 1.1;
-constexpr double kTargetNodeSpacingOverH = 1.5;
+constexpr double kTargetNodeSpacingOverH = 1.2;
 constexpr double kTargetPanelLengthOverH = 2.0 * kTargetNodeSpacingOverH;
 
 constexpr double kStarCx = 0.07;
@@ -83,6 +85,33 @@ struct SolveData {
     int    num_panels = 0;
     int    num_interface_points = 0;
 };
+
+LaplaceCorrectionMethod2D correction_method_from_env()
+{
+    const char* value = std::getenv("KFBIM_INTERFACE_2D_CORRECTION");
+    if (value == nullptr)
+        return LaplaceCorrectionMethod2D::NearestExpansionCenter;
+
+    const std::string method(value);
+    if (method == "nearest" || method == "NearestExpansionCenter")
+        return LaplaceCorrectionMethod2D::NearestExpansionCenter;
+    if (method == "projection" || method == "ProjectionPoint")
+        return LaplaceCorrectionMethod2D::ProjectionPoint;
+
+    throw std::invalid_argument(
+        "KFBIM_INTERFACE_2D_CORRECTION must be 'projection' or 'nearest'");
+}
+
+const char* correction_method_name(LaplaceCorrectionMethod2D method)
+{
+    switch (method) {
+    case LaplaceCorrectionMethod2D::NearestExpansionCenter:
+        return "Nearest expansion-center correction";
+    case LaplaceCorrectionMethod2D::ProjectionPoint:
+        return "Projection-point P2 correction";
+    }
+    return "Unknown correction";
+}
 
 struct StageTimer {
     using Clock = std::chrono::steady_clock;
@@ -256,6 +285,8 @@ SolveData solve_and_measure(int N)
     const auto wall_start = StageTimer::Clock::now();
     StageTimer timer;
     const bool profile = profile_enabled();
+    const LaplaceCorrectionMethod2D correction_method =
+        correction_method_from_env();
     Star3Curve2D star;
     const Box2D box = make_outer_box(star);
     const double h = box.side_length / static_cast<double>(N);
@@ -289,7 +320,8 @@ SolveData solve_and_measure(int N)
     }
     const double t_rhs = timer.lap();
 
-    LaplaceQuadraticPanelCenterSpread2D spread(grid_pair, kEta);
+    LaplaceQuadraticPanelCenterSpread2D spread(
+        grid_pair, kEta, correction_method);
     LaplaceFftBulkSolverZfft2D bulk_solver(grid, ZfftBcType::Dirichlet, kEta);
     LaplaceQuadraticPanelCenterRestrict2D restrict_op(grid_pair);
     LaplacePotentialEval2D potentials(spread, bulk_solver, restrict_op);
@@ -304,14 +336,14 @@ SolveData solve_and_measure(int N)
     double t_restrict = 0.0;
     if (profile) {
         Eigen::VectorXd rhs = f_bulk;
-        const std::vector<LocalPoly2D> correction_polys = spread.apply(jumps, rhs);
+        const LaplaceSpreadResult2D spread_result = spread.apply(jumps, rhs);
         t_spread = timer.lap();
 
         bulk_solver.solve(-rhs, u_bulk);
         t_bulk_solve = timer.lap();
 
         const std::vector<LocalPoly2D> solution_polys =
-            restrict_op.apply(u_bulk, correction_polys);
+            restrict_op.apply(u_bulk, spread_result);
         REQUIRE(solution_polys.size() == static_cast<std::size_t>(iface.num_points()));
         t_restrict = timer.lap();
     } else {
@@ -365,6 +397,8 @@ TEST_CASE("Constant-coefficient screened interface problem converges on 3-fold s
     std::printf("\n  Constant-coefficient screened interface problem on 3-fold star\n");
     std::printf("  Manufactured sine modes vanish on the outer Cartesian box; eta = %.2f\n",
                 kEta);
+    std::printf("  Correction: %s\n",
+                correction_method_name(correction_method_from_env()));
     std::printf("  Panels: P2 quadratic; node_spacing/h = %.2f; panel_length/h = %.2f; output: %s\n",
                 kTargetNodeSpacingOverH, kTargetPanelLengthOverH,
                 out_dir.string().c_str());

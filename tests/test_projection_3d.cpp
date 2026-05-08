@@ -12,6 +12,7 @@
 #include "src/geometry/p2_projection_3d.hpp"
 #include "src/geometry/p2_surface_3d.hpp"
 #include "src/grid/cartesian_grid_3d.hpp"
+#include "src/transfer/laplace_correction_support.hpp"
 #include "src/transfer/laplace_projection_correction_3d.hpp"
 #include "src/transfer/laplace_restrict_3d.hpp"
 #include "src/transfer/laplace_spread_3d.hpp"
@@ -366,6 +367,44 @@ TEST_CASE("Projection-point spread option preserves zero correction",
     REQUIRE(polys.size() == static_cast<std::size_t>(iface.num_points()));
     for (const LocalPoly3D& poly : polys)
         REQUIRE(poly.coeffs.norm() == Catch::Approx(0.0).margin(1.0e-12));
+}
+
+TEST_CASE("3D projection-point spread projects exact correction support",
+          "[projection][3d]")
+{
+    const int N = 12;
+    const Box3D box = standard_box();
+    const double h = box.side_length / static_cast<double>(N);
+
+    CartesianGrid3D grid(box.lower, {h, h, h}, {N, N, N}, DofLayout3D::Node);
+    const Interface3D iface = make_p2_sphere(surface_subdivision_for_grid(N));
+    GridPair3D gp(grid, iface);
+    const LaplaceCorrectionSupport3D support =
+        build_laplace_correction_support_3d(
+            gp, "test 3D projection support");
+
+    LaplaceQuadraticPatchCenterSpread3D spread(
+        gp, 1.1, LaplaceCorrectionMethod3D::ProjectionPoint);
+    std::vector<LaplaceJumpData3D> jumps(iface.num_points());
+    for (auto& jump : jumps) {
+        jump.u_jump = 0.0;
+        jump.un_jump = 0.0;
+        jump.rhs_derivs = Eigen::VectorXd::Zero(1);
+    }
+
+    Eigen::VectorXd rhs = Eigen::VectorXd::Zero(grid.num_dofs());
+    const LaplaceSpreadResult3D result = spread.apply(jumps, rhs);
+
+    REQUIRE(result.correction_method == LaplaceCorrectionMethod3D::ProjectionPoint);
+    REQUIRE(result.projection_cache.nodes() == support.projection_nodes);
+    for (int node : support.projection_nodes)
+        REQUIRE(result.projection_cache.has_projection(node));
+    for (const auto& stencil : support.restrict_stencils) {
+        for (int node : stencil)
+            REQUIRE(result.projection_cache.has_projection(node));
+    }
+    for (const LaplaceCrossingCorrectionOp& op : support.crossing_ops)
+        REQUIRE(result.projection_cache.has_projection(op.correction_node));
 }
 
 TEST_CASE("P2 projection service matches GridPair3D compatibility methods",

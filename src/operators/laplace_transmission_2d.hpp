@@ -27,6 +27,13 @@ struct LaplaceTransmissionCoefficients2D {
     double kappa_sq_ext = 0.0;
 };
 
+struct LaplaceTransmissionOptions2D {
+    ZfftBcType bulk_bc = ZfftBcType::Dirichlet;
+    int restrict_stencil_radius = 2;
+    LaplaceCorrectionMethod2D correction_method =
+        LaplaceCorrectionMethod2D::NearestExpansionCenter;
+};
+
 struct LaplaceTransmissionRhsData2D {
     // Stores q=f/beta on grid nodes before outer-boundary Dirichlet elimination.
     Eigen::VectorXd reduced_rhs_bulk;
@@ -68,6 +75,12 @@ public:
                           LaplaceTransmissionMode2D              mode,
                           LaplaceTransmissionCoefficients2D      coefficients,
                           ZfftBcType                             bulk_bc = ZfftBcType::Dirichlet);
+
+    LaplaceTransmission2D(const CartesianGrid2D&                 grid,
+                          const Interface2D&                     iface,
+                          LaplaceTransmissionMode2D              mode,
+                          LaplaceTransmissionCoefficients2D      coefficients,
+                          LaplaceTransmissionOptions2D           options);
 
     void apply(const Eigen::VectorXd& x, Eigen::VectorXd& y) const override;
     int problem_size() const override;

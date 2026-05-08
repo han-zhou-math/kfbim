@@ -15,12 +15,43 @@ namespace kfbim {
 // For each interface quadrature point, apply() builds the correction data
 // needed to accumulate bulk RHS corrections near the interface.
 //
-// 2D spreads return LocalPolys directly. 3D spreads return a result object
-// because projection-point correction needs surface jump data during restrict.
+// Spreads return a result object because projection-point correction needs
+// surface jump data during restrict.
 //
 // rhs_correction is *accumulated into*, not zeroed — the caller zeros it first
 // when starting a fresh iteration, or accumulates across multiple interfaces.
 // ---------------------------------------------------------------------------
+
+enum class LaplaceCorrectionMethod {
+    NearestExpansionCenter,
+    ProjectionPoint
+};
+
+using LaplaceCorrectionMethod2D = LaplaceCorrectionMethod;
+using LaplaceCorrectionMethod3D = LaplaceCorrectionMethod;
+
+struct LaplaceCorrectionContext2D {
+    LaplaceCorrectionMethod correction_method =
+        LaplaceCorrectionMethod::NearestExpansionCenter;
+
+    // Existing center-polynomial correction data. In projection-point mode this
+    // may be empty because C(x) is evaluated directly from projected P2 data.
+    std::vector<LocalPoly2D> correction_polys;
+
+    // Surface data needed by the projection-point evaluator. Vectors are sized
+    // to Interface2D::num_points() when correction_method == ProjectionPoint.
+    Eigen::VectorXd u_jump;
+    Eigen::VectorXd un_jump;
+    Eigen::VectorXd rhs_jump;
+
+    // Screened coefficient in -Delta C + alpha*C = [f].
+    double alpha = 0.0;
+
+    // Projection-point cache for grid nodes where C(x) is actually needed.
+    NarrowBandProjection2D projection_cache;
+};
+
+using LaplaceSpreadResult2D = LaplaceCorrectionContext2D;
 
 class ILaplaceSpread2D {
 public:
@@ -28,22 +59,17 @@ public:
 
     // jumps[i]         = jump data at interface quadrature point i
     // rhs_correction   = correction accumulated into, length grid_pair().grid().num_dofs()
-    // returns          = fitted local polys for the paired restrict operator
-    virtual std::vector<LocalPoly2D> apply(
+    // returns          = correction context for the paired restrict operator
+    virtual LaplaceSpreadResult2D apply(
         const std::vector<LaplaceJumpData2D>& jumps,
         Eigen::VectorXd&                      rhs_correction) const = 0;
 
     virtual const GridPair2D& grid_pair() const = 0;
 };
 
-enum class LaplaceCorrectionMethod3D {
-    NearestExpansionCenter,
-    ProjectionPoint
-};
-
 struct LaplaceCorrectionContext3D {
-    LaplaceCorrectionMethod3D correction_method =
-        LaplaceCorrectionMethod3D::NearestExpansionCenter;
+    LaplaceCorrectionMethod correction_method =
+        LaplaceCorrectionMethod::NearestExpansionCenter;
 
     // Existing center-polynomial correction data. In projection-point mode this
     // may be empty because C(x) is evaluated directly from projected P2 data.
