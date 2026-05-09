@@ -56,6 +56,9 @@ Implemented:
   coverage
 - Current concrete problem APIs: `LaplaceBvp2D`, `LaplaceBvp3D`,
   `LaplaceTransmission2D`, and `LaplaceTransmission3D`
+- App-level 2D inverse shape optimization demo for
+  `LaplaceTransmission2D::CommonRatio`, with adjoint and finite-difference
+  gradients plus CSV/PNG/GIF visualization output
 
 In progress / planned:
 
@@ -84,6 +87,7 @@ src/
   potentials/     Reusable 2D/3D potential evaluators
   operators/      Matrix-free KFBI interface and problem wrappers
   gmres/          Restarted GMRES outer solver
+apps/             Standalone demos and diagnostic applications
 tests/            Catch2 test suite
 python/           Visualization and diagnostics
 third_party/zfft/ Vendored zFFT backend
@@ -131,6 +135,13 @@ cmake -B build -DKFBIM_BUILD_TESTS=OFF
 cmake --build build
 ```
 
+Standalone applications are enabled by default. They can be disabled with:
+
+```bash
+cmake -B build -DKFBIM_BUILD_APPS=OFF
+cmake --build build
+```
+
 ## Test
 
 ```bash
@@ -157,6 +168,25 @@ The current periodic 2D transmission test uses a cell-centered periodic bulk
 solver and an interface well away from the box edge. The 2D transfer operators
 are not yet general periodic-wrap transfer operators for interfaces crossing a
 periodic boundary.
+
+## Shape Optimization App
+
+The `apps/` directory contains a small inverse 2D shape-recovery application:
+
+```bash
+cmake --build build --target shape_opt_transmission_2d
+build/apps/shape_opt_transmission_2d --N 64 --iters 12
+python3 apps/visualize_shape_opt_2d.py output/shape_opt_transmission_2d
+```
+
+The app generates synthetic exterior measurements from a hidden smooth
+inclusion, then recovers a fixed-center radial Fourier boundary using the
+public `LaplaceTransmission2D` API. It writes `summary.csv`,
+`observations.csv`, `target_boundary.csv`, per-iteration boundary CSV files,
+objective plots, boundary-evolution PNGs, and `shape_evolution.gif`. The
+default gradient is the continuous adjoint method; use `--gradient fd` for the
+finite-difference comparison path or `--gradient-check` for an initial-shape
+directional check.
 
 ## Visualization Scripts
 
@@ -189,6 +219,8 @@ Design and derivation notes live under `notes/`:
 - `math.md`: KFBI mathematical notes
 - `theory.md`: broader KFBI theory notes
 - `parallel_plan.md`: future parallel MFEM/AMR KFBI project plan
+- `shape_opt.tex` / `shape_opt.pdf`: inverse transmission shape optimization
+  demo and adjoint derivation
 - `stokes.pdf`: Stokes reference paper
 
 ## Development Notes
@@ -222,7 +254,7 @@ with center-seeded BFS, and keeps nearest interface-DOF lookup as a lazy
 compatibility query.
 For new 3D Laplace work, use shared six-node P2 triangular patches with
 `PanelNodeLayout3D::QuadraticLagrange`, 16 expansion centers per parent
-triangle, and target adjacent P2 node spacing over grid spacing of about `1.5`.
+triangle, and target adjacent P2 node spacing over grid spacing of about `1.2`.
 Active 3D restrict interpolation uses the analogous fixed ten-node square
 quadratic stencil. The default 3D transfer correction is nearest
 expansion-center expansion. Active 3D P2 `GridPair3D` uses the same 16

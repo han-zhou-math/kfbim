@@ -74,3 +74,11 @@ if(KFBIM_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+# ---------------------------------------------------------------------------
+# Apps
+# ---------------------------------------------------------------------------
+option(KFBIM_BUILD_APPS "Build example and diagnostic apps" ON)
+if(KFBIM_BUILD_APPS)
+    add_subdirectory(apps)
+endif()

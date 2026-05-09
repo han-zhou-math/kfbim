@@ -19,8 +19,10 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
   refactor, public forwarding headers, shared grid/operator utilities, 2D/3D
   P2 projection split, 2D P2 geometry/center-sampling unification, fixed
   square 2D/3D restrict stencils, 2D/3D P2 expansion-center lookup caches,
-  projection-point correction support in both dimensions, and per-grid PDE
-  convergence wall-time reporting. The default 2D/3D correction path remains
+  projection-point correction support in both dimensions, per-grid PDE
+  convergence wall-time reporting, and the 2026-05-09 app-level 2D inverse
+  transmission shape optimization demo with adjoint-gradient verification and
+  boundary-evolution visualization. The default 2D/3D correction path remains
   nearest expansion-center expansion.
 - **Completed modules** (active tests passing):
   - Layer 0: `CartesianGrid2D`, `Interface2D`, `GridPair2D`
@@ -167,7 +169,18 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
       periodic-wrap transfer operators for interfaces crossing the boundary.
     - `LaplaceTransmission3D` mirrors the 2D common-ratio and different-ratio
       density layouts on the 3D P2 potential pipeline.
+  - App-level utilities:
+    - `apps/shape_opt_transmission_2d.cpp` solves a synthetic inverse
+      common-ratio transmission shape-recovery problem using only the public
+      KFBIM API and leaves `src/` untouched.
+    - The app supports continuous adjoint and finite-difference gradients,
+      an initial-shape gradient check, CSV history/boundary output, and a
+      colocated Python renderer for objective and boundary-evolution PNG/GIF
+      artifacts.
 - **Recent implementation notes:**
+  - `KFBIM_BUILD_APPS` controls standalone app builds and defaults to `ON`.
+    Runtime app outputs are written under `output/` and should not be
+    committed.
   - 2D P2 quadratic panel/expansion-center path is implemented and verified.
     Old Chebyshev-Lobatto names are compatibility aliases.
   - Active P2 `GridPair2D` uses the same four center samples per panel as the
@@ -254,10 +267,11 @@ Future: Python/MATLAB bindings (pybind11), possibly Jupyter notebooks.
     `kfbim_core`.
   - Current concrete problem-level utilities and wrappers live in
     `src/operators/`.
-  - Visualization and diagnostic Python scripts live in `python/`.
+  - Visualization and diagnostic Python scripts live in `python/`; app-specific
+    renderers may live next to their app in `apps/`.
   - Notes use short filenames: `notes/bie.md`, `notes/iim.md`,
-    `notes/math.md`, `notes/theory.md`, `notes/parallel_plan.md`, and
-    `notes/stokes.pdf`.
+    `notes/math.md`, `notes/theory.md`, `notes/parallel_plan.md`,
+    `notes/shape_opt.tex`, `notes/shape_opt.pdf`, and `notes/stokes.pdf`.
 - **Current convergence test status:**
   - 2026-05-08 projection-point correction and 1.2 ratio update:
     - `cmake --build build`
@@ -380,6 +394,8 @@ coverage, runtime, and numerical robustness.
    - Defer Stokes until the Laplace BVP API is clean; Stokes currently has
      scaffolding but not concrete local Cauchy, spread, restrict, or operator
      implementations.
+   - Shape optimization should remain app-only until the adjoint and metric
+     design stabilize across more than one PDE wrapper.
 
 ### Preferred 2D panel method
 
