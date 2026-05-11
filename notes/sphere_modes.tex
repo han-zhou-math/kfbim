@@ -1,0 +1,547 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{hyperref}
+
+\title{Spherical Harmonic Diagonalization of the Different-Ratio Interface BIE}
+\author{KFBIM notes}
+\date{\today}
+
+\newcommand{\Gint}{\Omega_{\rm int}}
+\newcommand{\Gext}{\Omega_{\rm ext}}
+\newcommand{\bi}{\beta_{\rm int}}
+\newcommand{\be}{\beta_{\rm ext}}
+\newcommand{\bsum}{\beta_{\rm int}+\beta_{\rm ext}}
+\newcommand{\lint}{\lambda_{\rm int}}
+\newcommand{\lext}{\lambda_{\rm ext}}
+\newcommand{\Ylm}{Y_{\ell m}}
+
+\begin{document}
+\maketitle
+
+\section*{Setting and conventions}
+
+Let $\Gamma=S^2$ be the unit sphere.  The interior region is the unit ball,
+the exterior region is its complement, and the normal $n$ points from
+$\Gint$ to $\Gext$.  Jumps use the convention from \texttt{theory.md},
+\[
+    [u]=\gamma_{\rm int}u-\gamma_{\rm ext}u,
+    \qquad
+    [\beta\,\partial_n u]
+    =
+    \bi\,\gamma_{n,{\rm int}}u
+    -
+    \be\,\gamma_{n,{\rm ext}}u .
+\]
+After division by $\beta$, each phase solves
+\[
+    (-\Delta+\lambda_s^2)u_s=q_s,
+    \qquad
+    \lambda_s^2=\frac{\kappa_s^2}{\beta_s},
+    \qquad s\in\{{\rm int},{\rm ext}\}.
+\]
+Here we specialize to
+\[
+    \lambda_{\rm int}=0,
+    \qquad
+    \lambda_{\rm ext}=\lambda>0 .
+\]
+
+The formulas below diagonalize the free-space layer potentials on the sphere.
+They therefore describe the rotationally invariant model problem.  If the
+Green's function is instead the Green's function of a finite rectangular box,
+as in a KFBIM FFT solve, the box boundary breaks spherical symmetry and the
+operators are not exactly diagonal in spherical harmonics.
+
+\section*{Layer-potential eigenvalues on $S^2$}
+
+Use orthonormal spherical harmonics $\Ylm$, $\ell=0,1,\dots$ and
+$-\ell\le m\le\ell$.  For a fixed screening parameter $\lambda_s$, write
+$\mathrm{i}_\ell$ and $\mathrm{k}_\ell$ for the modified spherical Bessel
+functions of the first and second kind.  Define
+\[
+    p_\ell^{(s)}
+    =
+    \lambda_s
+    \frac{\mathrm{i}_\ell'(\lambda_s)}
+         {\mathrm{i}_\ell(\lambda_s)},
+    \qquad
+    q_\ell^{(s)}
+    =
+    \lambda_s
+    \frac{\mathrm{k}_\ell'(\lambda_s)}
+         {\mathrm{k}_\ell(\lambda_s)} .
+\]
+For $\lambda_s=0$ these are understood by their Laplace limits,
+\[
+    p_\ell^{(0)}=\ell,
+    \qquad
+    q_\ell^{(0)}=-(\ell+1).
+\]
+
+For density $\Ylm$, the single-layer potential has boundary value
+$\mathsf{s}_\ell^{(s)}\Ylm$, with regular radial factor in the ball and
+decaying radial factor outside.  Since
+\[
+    [\partial_n \mathcal{S}_s\Ylm]
+    =
+    \partial_n(\mathcal{S}_s\Ylm)_{\rm int}
+    -
+    \partial_n(\mathcal{S}_s\Ylm)_{\rm ext}
+    =
+    \Ylm,
+\]
+one obtains
+\[
+    \boxed{
+    \mathsf{s}_\ell^{(s)}
+    =
+    \frac{1}{p_\ell^{(s)}-q_\ell^{(s)}} .
+    }
+\]
+Therefore
+\[
+    S_s\Ylm=\mathsf{s}_\ell^{(s)}\Ylm .
+\]
+
+The averaged normal derivative of the single layer gives the adjoint
+double-layer operator,
+\[
+    K_s^*\Ylm=\mathsf{k}_\ell^{(s)}\Ylm,
+    \qquad
+    \boxed{
+    \mathsf{k}_\ell^{(s)}
+    =
+    \frac{p_\ell^{(s)}+q_\ell^{(s)}}
+         {2\bigl(p_\ell^{(s)}-q_\ell^{(s)}\bigr)} .
+    }
+\]
+On the sphere the double-layer operator has the same eigenvalues,
+\[
+    K_s\Ylm=\mathsf{k}_\ell^{(s)}\Ylm .
+\]
+
+For the classical double-layer potential $\mathcal{D}_s$ with
+$[\mathcal{D}_s\Ylm]=-\Ylm$, the interior and exterior traces are
+\[
+    \gamma_{\rm int}\mathcal{D}_s\Ylm
+    =
+    \left(\mathsf{k}_\ell^{(s)}-\frac12\right)\Ylm,
+    \qquad
+    \gamma_{\rm ext}\mathcal{D}_s\Ylm
+    =
+    \left(\mathsf{k}_\ell^{(s)}+\frac12\right)\Ylm .
+\]
+Its averaged normal derivative is the hypersingular operator
+\[
+    H_s\Ylm=\mathsf{h}_\ell^{(s)}\Ylm,
+    \qquad
+    \boxed{
+    \mathsf{h}_\ell^{(s)}
+    =
+    \frac{p_\ell^{(s)}q_\ell^{(s)}}
+         {p_\ell^{(s)}-q_\ell^{(s)}} .
+    }
+\]
+
+For the interior Laplace phase, these reduce to
+\[
+    \boxed{
+    \mathsf{s}_\ell^{({\rm int})}
+    =
+    \frac{1}{2\ell+1},
+    \qquad
+    \mathsf{k}_\ell^{({\rm int})}
+    =
+    -\frac{1}{2(2\ell+1)},
+    \qquad
+    \mathsf{h}_\ell^{({\rm int})}
+    =
+    -\frac{\ell(\ell+1)}{2\ell+1}.
+    }
+\]
+For the exterior screened phase,
+\[
+    \mathsf{s}_\ell^{({\rm ext})}
+    =
+    \frac{1}{p_\ell^{(\lambda)}-q_\ell^{(\lambda)}},
+    \qquad
+    \mathsf{k}_\ell^{({\rm ext})}
+    =
+    \frac{p_\ell^{(\lambda)}+q_\ell^{(\lambda)}}
+         {2\bigl(p_\ell^{(\lambda)}-q_\ell^{(\lambda)}\bigr)},
+    \qquad
+    \mathsf{h}_\ell^{({\rm ext})}
+    =
+    \frac{p_\ell^{(\lambda)}q_\ell^{(\lambda)}}
+         {p_\ell^{(\lambda)}-q_\ell^{(\lambda)}} ,
+\]
+where $p_\ell^{(\lambda)}$ and $q_\ell^{(\lambda)}$ mean the above
+logarithmic derivatives evaluated at $\lambda>0$.
+
+\section*{Different-ratio BIE in each spherical harmonic mode}
+
+Let $a_h$ and $b_h$ denote the forcing-corrected jumps from Section 6.2 of
+\texttt{theory.md}.  If there is no volume forcing, then $a_h=a$ and
+$b_h=b$.  Expand
+\[
+    \phi=\sum_{\ell,m}\phi_{\ell m}\Ylm,
+    \qquad
+    \psi=\sum_{\ell,m}\psi_{\ell m}\Ylm,
+\]
+\[
+    a_h=\sum_{\ell,m}a_{\ell m}\Ylm,
+    \qquad
+    b_h=\sum_{\ell,m}b_{\ell m}\Ylm .
+\]
+The Section 6.2 second-kind system is
+\[
+    \left[
+    I-\frac{2\be}{\bsum}K_{\rm int}
+      +\frac{2\bi}{\bsum}K_{\rm ext}
+    \right]\phi
+    +(S_{\rm int}-S_{\rm ext})\psi
+    =
+    a_h,
+\]
+\[
+    \frac{4\bi\be}{\bsum^2}
+    (H_{\rm ext}-H_{\rm int})\phi
+    +
+    \left[
+    I+\frac{2\bi}{\bsum}K_{\rm int}^*
+      -\frac{2\be}{\bsum}K_{\rm ext}^*
+    \right]\psi
+    =
+    \frac{2b_h}{\bsum}.
+\]
+Since every operator is diagonal in $\Ylm$, each mode solves the $2\times 2$
+linear system
+\[
+    \boxed{
+    A_\ell \phi_{\ell m}+B_\ell \psi_{\ell m}=a_{\ell m},
+    \qquad
+    C_\ell \phi_{\ell m}+D_\ell \psi_{\ell m}
+    =
+    \frac{2b_{\ell m}}{\bsum}.
+    }
+\]
+The coefficients are independent of $m$:
+\[
+    \boxed{
+    A_\ell
+    =
+    1
+    -
+    \frac{2\be}{\bsum}\mathsf{k}_\ell^{({\rm int})}
+    +
+    \frac{2\bi}{\bsum}\mathsf{k}_\ell^{({\rm ext})},
+    }
+\]
+\[
+    \boxed{
+    B_\ell
+    =
+    \mathsf{s}_\ell^{({\rm int})}
+    -
+    \mathsf{s}_\ell^{({\rm ext})},
+    }
+\]
+\[
+    \boxed{
+    C_\ell
+    =
+    \frac{4\bi\be}{\bsum^2}
+    \left(
+    \mathsf{h}_\ell^{({\rm ext})}
+    -
+    \mathsf{h}_\ell^{({\rm int})}
+    \right),
+    }
+\]
+\[
+    \boxed{
+    D_\ell
+    =
+    1
+    +
+    \frac{2\bi}{\bsum}\mathsf{k}_\ell^{({\rm int})}
+    -
+    \frac{2\be}{\bsum}\mathsf{k}_\ell^{({\rm ext})}.
+    }
+\]
+
+Equivalently, with
+\[
+    \Delta_\ell=A_\ell D_\ell-B_\ell C_\ell,
+\]
+the modal densities are
+\[
+    \boxed{
+    \phi_{\ell m}
+    =
+    \frac{
+    D_\ell a_{\ell m}
+    -
+    B_\ell\,\frac{2b_{\ell m}}{\bsum}
+    }
+    {\Delta_\ell},
+    \qquad
+    \psi_{\ell m}
+    =
+    \frac{
+    -C_\ell a_{\ell m}
+    +
+    A_\ell\,\frac{2b_{\ell m}}{\bsum}
+    }
+    {\Delta_\ell}.
+    }
+\]
+
+\section*{Solvability of every mode}
+
+Assume $\bi>0$, $\be>0$, and $\lambda>0$.  The modal system is solvable if
+and only if its homogeneous problem has only the zero solution.  Suppose,
+therefore, that $a_{\ell m}=b_{\ell m}=0$ and that
+$(\phi_{\ell m},\psi_{\ell m})$ solves the homogeneous modal system.  Form the
+corresponding homogeneous layer-potential fields
+\[
+    u_{\rm int}
+    =
+    \mathcal{S}_{\rm int}\psi
+    -
+    \alpha_{\rm int}\mathcal{D}_{\rm int}\phi,
+    \qquad
+    u_{\rm ext}
+    =
+    \mathcal{S}_{\rm ext}\psi
+    -
+    \alpha_{\rm ext}\mathcal{D}_{\rm ext}\phi,
+\]
+where
+\[
+    \alpha_{\rm int}=\frac{2\be}{\bsum},
+    \qquad
+    \alpha_{\rm ext}=\frac{2\bi}{\bsum}.
+\]
+The two BIE rows are exactly the interface conditions
+\[
+    \gamma_{\rm int}u_{\rm int}
+    =
+    \gamma_{\rm ext}u_{\rm ext},
+    \qquad
+    \bi\,\gamma_{n,{\rm int}}u_{\rm int}
+    =
+    \be\,\gamma_{n,{\rm ext}}u_{\rm ext}.
+\]
+The fields satisfy
+\[
+    -\Delta u_{\rm int}=0
+    \quad\hbox{in }B_1,
+    \qquad
+    (-\Delta+\lambda^2)u_{\rm ext}=0
+    \quad\hbox{in }\mathbb{R}^3\setminus\overline{B_1},
+\]
+and the exterior field decays at infinity.
+
+Multiplying the interior equation by $u_{\rm int}$ and the exterior equation
+by $u_{\rm ext}$, integrating by parts, and using the outward normal
+conventions gives
+\begin{align*}
+    &\bi\int_{B_1}|\nabla u_{\rm int}|^2\,dx
+    +
+    \be\int_{\mathbb{R}^3\setminus B_1}
+    \left(|\nabla u_{\rm ext}|^2+\lambda^2|u_{\rm ext}|^2\right)\,dx \\
+    &\qquad =
+    \int_{S^2}
+    \left(
+    \bi u_{\rm int}\gamma_{n,{\rm int}}u_{\rm int}
+    -
+    \be u_{\rm ext}\gamma_{n,{\rm ext}}u_{\rm ext}
+    \right)\,dS .
+\end{align*}
+The boundary integral vanishes because the trace and flux are continuous.
+Hence $u_{\rm ext}=0$ and $u_{\rm int}$ is constant.  Continuity with
+$u_{\rm ext}=0$ gives $u_{\rm int}=0$.
+
+It remains only to exclude a nonzero null representation of the zero field.
+For one spherical harmonic mode, the zero interior trace gives
+\[
+    \mathsf{s}_\ell^{({\rm int})}\psi_{\ell m}
+    -
+    \alpha_{\rm int}
+    \left(\mathsf{k}_\ell^{({\rm int})}-\frac12\right)
+    \phi_{\ell m}
+    =
+    0,
+\]
+or, using the Laplace eigenvalues,
+\[
+    \psi_{\ell m}
+    =
+    -\alpha_{\rm int}(\ell+1)\phi_{\ell m}.
+\]
+The zero exterior trace gives
+\[
+    \mathsf{s}_\ell^{({\rm ext})}\psi_{\ell m}
+    -
+    \alpha_{\rm ext}
+    \left(\mathsf{k}_\ell^{({\rm ext})}+\frac12\right)
+    \phi_{\ell m}
+    =
+    0.
+\]
+Since
+\[
+    \mathsf{k}_\ell^{({\rm ext})}+\frac12
+    =
+    \frac{p_\ell^{(\lambda)}}
+         {p_\ell^{(\lambda)}-q_\ell^{(\lambda)}}
+    =
+    p_\ell^{(\lambda)}\mathsf{s}_\ell^{({\rm ext})},
+\]
+this becomes
+\[
+    \psi_{\ell m}
+    =
+    \alpha_{\rm ext}p_\ell^{(\lambda)}\phi_{\ell m}.
+\]
+Here $p_\ell^{(\lambda)}>0$, while
+$\alpha_{\rm int},\alpha_{\rm ext}>0$ and $\ell+1>0$.  The two displayed
+relations are compatible only when $\phi_{\ell m}=0$, and then
+$\psi_{\ell m}=0$.  Thus the homogeneous modal system has no nonzero solution,
+so
+\[
+    \boxed{\Delta_\ell\ne 0\qquad\hbox{for every }\ell=0,1,2,\dots .}
+\]
+
+\section*{Large-mode asymptotics}
+
+Let
+\[
+    N_\ell=2\ell+1.
+\]
+The asymptotics below are for fixed exterior screening parameter
+$\lambda>0$ as $\ell\to\infty$.  The regular and decaying logarithmic
+derivatives satisfy
+\[
+    p_\ell^{(\lambda)}
+    =
+    \ell+\frac{\lambda^2}{N_\ell+2}+O(N_\ell^{-3}),
+    \qquad
+    q_\ell^{(\lambda)}
+    =
+    -(\ell+1)-\frac{\lambda^2}{N_\ell-2}
+    +O(N_\ell^{-3}).
+\]
+Consequently,
+\[
+    \mathsf{s}_\ell^{({\rm ext})}
+    =
+    \frac{1}{N_\ell}
+    -
+    \frac{2\lambda^2}{N_\ell(N_\ell^2-4)}
+    +O(N_\ell^{-5}),
+\]
+\[
+    \mathsf{k}_\ell^{({\rm ext})}
+    =
+    -\frac{1}{2N_\ell}
+    -
+    \frac{\lambda^2}{N_\ell(N_\ell^2-4)}
+    +O(N_\ell^{-4}),
+\]
+and
+\[
+    \mathsf{h}_\ell^{({\rm ext})}
+    -
+    \mathsf{h}_\ell^{({\rm int})}
+    =
+    -\frac{\lambda^2(N_\ell^2-3)}
+           {2N_\ell(N_\ell^2-4)}
+    +O(N_\ell^{-3}).
+\]
+
+Substituting these into the modal matrix gives
+\[
+    \boxed{
+    A_\ell
+    =
+    1
+    +
+    \frac{\be-\bi}{\bsum\,N_\ell}
+    -
+    \frac{2\bi\lambda^2}
+         {\bsum\,N_\ell(N_\ell^2-4)}
+    +O(N_\ell^{-4}),
+    }
+\]
+\[
+    \boxed{
+    B_\ell
+    =
+    \frac{2\lambda^2}
+         {N_\ell(N_\ell^2-4)}
+    +O(N_\ell^{-5}),
+    }
+\]
+\[
+    \boxed{
+    C_\ell
+    =
+    -
+    \frac{2\bi\be\lambda^2}{\bsum^2}
+    \frac{N_\ell^2-3}{N_\ell(N_\ell^2-4)}
+    +O(N_\ell^{-3}),
+    }
+\]
+\[
+    \boxed{
+    D_\ell
+    =
+    1
+    +
+    \frac{\be-\bi}{\bsum\,N_\ell}
+    +
+    \frac{2\be\lambda^2}
+         {\bsum\,N_\ell(N_\ell^2-4)}
+    +O(N_\ell^{-4}).
+    }
+\]
+In particular,
+\[
+    B_\ell=O(\ell^{-3}),
+    \qquad
+    C_\ell=O(\ell^{-1}),
+    \qquad
+    A_\ell,D_\ell=1+O(\ell^{-1}),
+\]
+and the determinant obeys
+\[
+    \Delta_\ell
+    =
+    1
+    +
+    \frac{2(\be-\bi)}{\bsum\,N_\ell}
+    +O(N_\ell^{-2}).
+\]
+Thus the modal matrices become identity plus a compact lower-order
+perturbation at high spherical harmonic degree.
+
+\section*{Remarks}
+
+The leading hypersingular pieces cancel in the same way as in the general
+smooth-interface derivation.  On the sphere this cancellation is visible mode
+by mode: $H_{\rm ext}-H_{\rm int}$ is represented only by the difference of
+the scalar eigenvalues $\mathsf{h}_\ell^{({\rm ext})}$ and
+$\mathsf{h}_\ell^{({\rm int})}$, while the prefactor
+$4\bi\be/\bsum^2$ is bounded.
+
+The final implementation paragraph in Section 6.2 of \texttt{theory.md} uses
+the KFBIM double-layer jump primitive $[u]=\phi$, which is the opposite of the
+classical double-layer sign used above.  The modal diagonalization is
+unchanged; only the signs in the double-layer rows should be replaced by the
+implementation variant written there.
+
+\end{document}

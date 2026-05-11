@@ -3,6 +3,14 @@
 .codex
 .cache/
 *.swp
+*.aux
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.thm
 python/*.png
 *.csv
 /output/
